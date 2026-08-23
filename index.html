@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/img/logo.jpg" />
+    <title>Holland Cookies — Cookie pies with a molten heart.</title>
+    <meta
+      name="description"
+      content="Thick, hand-stuffed pans of soft cookie dough and warm chocolate, baked to order in Cairo. Pickup in Nasr City or same-day delivery across greater Cairo."
+    />
+    <meta name="theme-color" content="#FAF7F2" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Painted before React mounts so the brand shows instantly rather than a
+         blank page. Removed only by src/lib/splash.ts, which is the sole exit.
+
+         Everything the splash needs is inline: no stylesheet, no image request,
+         no font. A splash that depends on any of those is racing them, and the
+         race is what makes a loader appear on one reload and not the next. -->
+    <style>
+      #boot-splash {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 22px;
+        background: #FAF7F2;
+        /* Failsafe: the splash retires itself after 4s even if the bundle is
+           slow, blocked or fails outright. Without this, one bad asset
+           response leaves the customer on a branded blank screen with no way
+           forward. JavaScript normally dismisses it long before this. */
+        animation: boot-splash-expire 0s linear 4s forwards;
+      }
+      /* Set by holdSplash() once something has deliberately asked the splash to
+         stay. The 4s deadline above is sized for "the bundle never ran"; a hold
+         means it did run, so the failsafe moves out past the hold's own cap
+         rather than yanking the splash off a page still loading on purpose. */
+      #boot-splash.is-held { animation-delay: 14s; }
+      /* The attribute pair and the CSS width are both load-bearing: the
+         attributes give the element an intrinsic aspect ratio for older WebKit,
+         which does not derive one from `viewBox` alone and would otherwise
+         collapse `height: auto` to zero. `overflow: visible` keeps the exit
+         animation from being clipped when the mark scales past the viewBox. */
+      #boot-splash .bs-mark {
+        width: min(34vw, 168px); height: auto; overflow: visible;
+      }
+      /* Reserved from the start, so the bar appearing cannot shift the mark.
+         Invisible until something publishes progress into it. */
+      #boot-splash-track {
+        width: min(42vw, 168px); height: 3px; border-radius: 999px;
+        background: rgba(93, 16, 29, 0.14); overflow: hidden;
+      }
+      #boot-splash-bar {
+        display: block; width: 100%; height: 100%; border-radius: inherit;
+        background: #5D101D;
+        transform: scaleX(0); transform-origin: left center;
+        transition: transform 200ms linear;
+      }
+      @keyframes boot-splash-expire {
+        to { opacity: 0; visibility: hidden; pointer-events: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- aria-hidden because this is a decorative stand-in for content that is
+         about to exist. A screen reader announcing the brand here and again
+         from the header a moment later is a duplicate the sighted experience
+         does not have. Nothing inside is focusable, so there is no trap. -->
+    <div id="boot-splash" aria-hidden="true">
+      <!-- This mark *is* First Contentful Paint. The cream backdrop is a
+           background colour, which does not count as contentful, so the page
+           has painted nothing measurable until this draws.
+
+           Inline vector rather than a file: as an image it would be a separate
+           request racing the hero photograph's own preload, and losing that
+           race swings FCP by a second or more run to run. Inlined there is no
+           request and no race — it paints with the document. Its parts are also
+           addressable, which is what lets the steam and the chips animate
+           independently instead of one flat picture bobbing. -->
+      <svg
+        class="bs-mark"
+        viewBox="0 0 120 120"
+        width="120"
+        height="120"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <!-- steam, rising and fading on a loop -->
+        <g class="bs-steam" fill="none" stroke="#5D101D" stroke-width="3" stroke-linecap="round" opacity="0.55">
+          <path class="bs-steam-1" d="M45 32c0-6 6-6 6-12" />
+          <path class="bs-steam-2" d="M60 27c0-7 6-7 6-13" />
+          <path class="bs-steam-3" d="M75 32c0-6 6-6 6-12" />
+        </g>
+        <!-- the pan -->
+        <g class="bs-pan">
+          <ellipse cx="60" cy="78" rx="42" ry="26" fill="#E8DFD6" />
+          <ellipse cx="60" cy="74" rx="36" ry="22" fill="#B87740" />
+          <ellipse cx="60" cy="72" rx="33" ry="20" fill="#D2914F" />
+          <!-- chips -->
+          <g class="bs-chips" fill="#3E2723">
+            <ellipse cx="48" cy="66" rx="4.2" ry="3.4" />
+            <ellipse cx="70" cy="64" rx="3.8" ry="3" />
+            <ellipse cx="59" cy="76" rx="4.6" ry="3.6" />
+            <ellipse cx="40" cy="76" rx="3.4" ry="2.8" />
+            <ellipse cx="76" cy="76" rx="3.6" ry="2.9" />
+          </g>
+        </g>
+      </svg>
+      <div id="boot-splash-track"><i id="boot-splash-bar"></i></div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

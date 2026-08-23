@@ -1,0 +1,381 @@
+@import "tailwindcss";
+
+/* ─── Design tokens ───
+   Taken from the Stitch project "Artisan Cookie Atelier" / design system
+   "The Artisanal Dutch Library". These are the site's own identity — the motion
+   engineering elsewhere in this project is borrowed, the look is not. */
+@theme {
+  --color-background: #fff8f6;
+  --color-surface: #fff8f6;
+  --color-surface-dim: #e0d8d7;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #faf2f0;
+  --color-surface-container: #f4eceb;
+  --color-surface-container-high: #eee6e5;
+  --color-surface-container-highest: #e8e1df;
+  --color-surface-variant: #e8e1df;
+
+  --color-primary: #271310;
+  --color-primary-container: #3e2723;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #ae8d87;
+  --color-primary-fixed-dim: #e3beb8;
+  --color-inverse-primary: #e3beb8;
+
+  --color-secondary: #605e58;
+  --color-secondary-container: #e6e2da;
+  --color-secondary-fixed-dim: #c9c6bf;
+
+  --color-tertiary: #00055e;
+  --color-tertiary-container: #161f7b;
+  --color-tertiary-fixed-dim: #bdc2ff;
+
+  --color-on-surface: #1e1b1a;
+  --color-on-surface-variant: #504442;
+  --color-outline: #827472;
+  --color-outline-variant: #d3c3c0;
+  --color-error: #ba1a1a;
+
+  /* The three that carry the brand. */
+  --color-deep-burgundy: #5d101d;
+  --color-dutch-navy: #1a237e;
+  --color-soft-oat: #faf7f2;
+  --color-rich-espresso: #2c1810;
+
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --spacing-gutter: 32px;
+  --spacing-stack-sm: 12px;
+  --spacing-stack-md: 24px;
+  --spacing-margin-mobile: 20px;
+  --spacing-section-gap-md: 80px;
+  --spacing-section-gap-lg: 160px;
+
+  --radius-sm: 0.125rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.5rem;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    /* The header is fixed, so an anchor jump would otherwise land the section
+       title underneath it. */
+    scroll-padding-top: 96px;
+  }
+
+  /* A visitor who asked for less motion did not ask for a smooth scroll
+     animation either — this is page-initiated movement they cannot cancel. */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+
+  body {
+    background: var(--color-soft-oat);
+    color: var(--color-on-surface);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--color-deep-burgundy);
+    color: #fff;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+  }
+
+  /* A visible focus ring on every interactive element, in the brand colour
+     rather than the browser default — which is invisible against the burgundy
+     buttons. Never removed without a replacement. */
+  :focus-visible {
+    outline: 2px solid var(--color-deep-burgundy);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+}
+
+/* ─── Scroll reveal ───
+   Driven by lib/reveal.tsx. The delay and duration arrive as custom properties
+   so the one place the numbers live is that module. */
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, var(--motion-rise, 18px), 0);
+  transition:
+    opacity var(--reveal-duration, 700ms) var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) var(--reveal-delay, 0ms),
+    transform var(--reveal-duration, 700ms) var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) var(--reveal-delay, 0ms);
+  /* Promoted only while it is actually animating. The class is stripped once
+     the element settles (see reveal.tsx), which is what takes the compositing
+     layer back down again rather than leaving one per revealed element. */
+  will-change: opacity, transform;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ─── Boot splash ───
+   The element and its base styles are inline in index.html so they paint before
+   this stylesheet exists. What lives here is only the idle animation and the
+   exit — neither of which is needed on the first frame. */
+
+/* The mark keeps moving for as long as the visitor is waiting. A loader that
+   plays one animation and then freezes reads as a page that has hung. */
+#boot-splash .bs-pan {
+  animation: bs-pan-settle 1.6s ease-in-out infinite;
+  transform-origin: 60px 78px;
+}
+
+#boot-splash .bs-steam path {
+  animation: bs-steam-rise 2.2s ease-in-out infinite;
+  opacity: 0;
+}
+#boot-splash .bs-steam-2 { animation-delay: 0.35s; }
+#boot-splash .bs-steam-3 { animation-delay: 0.7s; }
+
+@keyframes bs-pan-settle {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-3px) scale(1.012); }
+}
+
+@keyframes bs-steam-rise {
+  0% { opacity: 0; transform: translateY(4px); }
+  35% { opacity: 0.7; }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+/* The exit. Timings must match MORPH_MS in lib/splash.ts — that timer is what
+   removes the node, so a longer animation here would be cut off part-way. */
+#boot-splash.is-leaving {
+  animation: bs-out 520ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}
+
+#boot-splash.is-leaving .bs-mark {
+  animation: bs-mark-out 520ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+#boot-splash.is-leaving #boot-splash-track {
+  animation: bs-track-out 140ms linear forwards;
+}
+
+@keyframes bs-out {
+  to { opacity: 0; }
+}
+
+@keyframes bs-mark-out {
+  to { transform: translateY(-14px) scale(1.14); opacity: 0; }
+}
+
+@keyframes bs-track-out {
+  to { opacity: 0; }
+}
+
+/* The page scales up very slightly behind the departing splash. Only applied
+   when the visitor is at the top of the document — see pageMayMorph() in
+   lib/splash.ts for why a transform here would otherwise detach the fixed
+   header from the viewport. */
+#root.is-entering {
+  will-change: transform, opacity;
+  animation: bs-page-in 520ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes bs-page-in {
+  from { transform: scale(0.985); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #boot-splash .bs-pan,
+  #boot-splash .bs-steam path {
+    animation: none;
+  }
+  #boot-splash .bs-steam path { opacity: 0.5; }
+  #root.is-entering { animation: none; }
+}
+
+/* ─── Hero ───
+   The entrance is a one-shot on load rather than a scroll reveal: the hero is
+   already on screen, so an IntersectionObserver would fire immediately anyway
+   and the stagger is easier to read as an explicit sequence. */
+.hero-in > * {
+  opacity: 0;
+  transform: translate3d(0, 20px, 0);
+  animation: hero-rise 800ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) forwards;
+}
+
+.hero-in > *:nth-child(1) { animation-delay: 60ms; }
+.hero-in > *:nth-child(2) { animation-delay: 140ms; }
+.hero-in > *:nth-child(3) { animation-delay: 220ms; }
+.hero-in > *:nth-child(4) { animation-delay: 300ms; }
+
+@keyframes hero-rise {
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* The plate and the inset photograph arrive together, a beat after the copy. */
+.hero-plate {
+  opacity: 0;
+  animation: hero-plate-in 900ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) 180ms forwards;
+}
+
+.hero-inset {
+  opacity: 0;
+  animation: hero-inset-in 800ms var(--motion-ease-overshoot, cubic-bezier(0.34, 1.56, 0.64, 1)) 520ms forwards;
+}
+
+@keyframes hero-plate-in {
+  from { opacity: 0; transform: scale(1.04); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes hero-inset-in {
+  from { opacity: 0; transform: translate3d(0, 24px, 0) rotate(-5deg) scale(0.94); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) rotate(-5deg) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-in > *,
+  .hero-plate,
+  .hero-inset {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+  /* The inset keeps its resting tilt — that is layout, not motion. */
+  .hero-inset { transform: rotate(-5deg); }
+}
+
+/* ─── Header ───
+   Rides transparently over the hero and takes its background once the menu
+   reaches it. The state is decided by an IntersectionObserver in TopBar. */
+.site-header {
+  transition:
+    background-color var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
+    box-shadow var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
+    backdrop-filter var(--motion-glide, 0.42s) var(--motion-ease-out, ease);
+}
+
+/* ─── Mobile menu ───
+   A grid-template-rows transition rather than max-height: the panel's real
+   height is whatever its content needs, and a max-height guess is either an
+   easing curve that stalls (too large) or a clipped menu (too small). */
+.mobile-menu {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-glide, 0.42s) var(--motion-ease-out, ease);
+}
+
+.mobile-menu.is-open {
+  grid-template-rows: 1fr;
+}
+
+.mobile-menu > div {
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu { transition: none; }
+}
+
+/* ─── Cards ───
+   Hover belongs to devices that have one. On touch the lift would stick after
+   a tap, because there is nothing to move the pointer away. */
+@media (hover: hover) and (pointer: fine) {
+  .pan-card {
+    transition:
+      transform var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
+      box-shadow var(--motion-glide, 0.42s) var(--motion-ease-out, ease);
+  }
+
+  .pan-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 18px 40px -12px rgb(39 19 16 / 0.18);
+  }
+
+  .pan-card:hover .pan-card-img {
+    transform: scale(1.05);
+  }
+
+  .pan-card-img {
+    transition: transform var(--motion-sweep, 0.7s) var(--motion-ease-out, ease);
+  }
+}
+
+/* Touch gets a press state instead, which is the feedback a finger can
+   actually produce. */
+@media (pointer: coarse) {
+  .pan-card:active {
+    transform: scale(0.985);
+    transition: transform var(--motion-instant, 0.12s) ease-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pan-card,
+  .pan-card:hover,
+  .pan-card-img,
+  .pan-card:hover .pan-card-img {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ─── Buttons ───
+   A press that only changes colour reads as a link. The 1px drop is small
+   enough to feel like the surface gave way rather than the page moving. */
+.btn {
+  transition:
+    transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+    box-shadow var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+    background-color var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+    color var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px -8px rgb(93 16 29 / 0.32);
+  }
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .btn:active, .btn-lift:hover {
+    transform: none;
+    transition: background-color var(--motion-instant, 0.12s) linear,
+      color var(--motion-instant, 0.12s) linear;
+  }
+}
+
+/* ─── Craft steps ───
+   The numeral brightens as the eye reaches its row. */
+.craft-step-num {
+  transition: opacity var(--motion-glide, 0.42s) var(--motion-ease-out, ease);
+}
+
+/* ─── Modal ───
+   Framer Motion owns the entry and exit; this only handles the scroll lock's
+   side effects. */
+body.is-locked {
+  overflow: hidden;
+  /* Compensating for the scrollbar's width stops the page shifting sideways
+     underneath the modal on desktop. */
+  padding-right: var(--scrollbar-width, 0px);
+}
