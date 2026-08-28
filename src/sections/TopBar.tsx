@@ -118,35 +118,36 @@ export default function TopBar() {
           : "bg-transparent"
       }`}
     >
-      <div className="max-w-[1440px] mx-auto flex justify-between items-center px-5 md:px-12 py-5 md:py-6">
-        <a href="#top" className="flex-shrink-0" aria-label="Holland Cookies, back to top">
-          <img
-            src="/img/logo.jpg"
-            alt="Holland Cookies"
-            className="h-10 md:h-12 w-auto object-contain"
-            width={160}
-            height={48}
-          />
+      <div className="max-w-[1440px] mx-auto flex justify-between items-center px-5 md:px-10 py-5 md:py-6">
+        <a
+          href="#top"
+          className="wordmark flex-shrink-0 inline-flex items-baseline gap-[3px]"
+          aria-label="Holland Cookies, back to top"
+        >
+          {/* Set rather than placed. `logo.jpg` is a JPEG with a baked-in white
+              rectangle, and over the hero cream that rectangle is a visible
+              patch — the mark is the one thing on the page that cannot afford
+              to look pasted on. Type costs no request and stays sharp at any
+              size; swap this for the real logo the day it exists as an SVG. */}
+          <span aria-hidden="true">Holland</span>
+          <span className="wordmark-dot" aria-hidden="true" />
         </a>
 
-        <nav className="hidden md:flex items-center gap-8" aria-label="Primary">
+        {/* Three quiet links and nothing else, as in the reference. The header
+            carries no call to action because the hero underneath it is one
+            enormous call to action — a second button eight pixels above it is
+            not a choice, it is noise. */}
+        <nav className="hidden md:flex items-center gap-9" aria-label="Primary">
           {LINKS.map((link) => (
             <a
               key={link.href}
               href={link.href}
-              className="font-body text-[12px] font-semibold uppercase tracking-[0.15em] text-secondary hover:text-deep-burgundy transition-colors duration-300"
+              className="font-body text-[13px] font-medium tracking-[0.01em] text-secondary hover:text-deep-burgundy transition-colors duration-300"
             >
               {link.label}
             </a>
           ))}
         </nav>
-
-        <a
-          href="#visit"
-          className="btn btn-lift hidden md:inline-flex items-center justify-center bg-deep-burgundy text-white font-body text-[12px] font-semibold uppercase tracking-[0.15em] px-6 py-3 rounded-sm"
-        >
-          Order Now
-        </a>
 
         <button
           type="button"

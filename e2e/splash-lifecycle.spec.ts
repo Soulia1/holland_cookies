@@ -211,7 +211,7 @@ test("rapid repeated reloads never skip or strand the splash", async ({ page }) 
 });
 
 test("a delayed hero image keeps the splash up until it is ready", async ({ page }) => {
-  await page.route("**/img/hero-main.jpg", async (route) => {
+  await page.route("**/img/cookie-plate*", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 400));
     await route.continue();
   });
@@ -227,7 +227,7 @@ test("a delayed hero image keeps the splash up until it is ready", async ({ page
 });
 
 test("a hero image that never arrives still releases the page", async ({ page }) => {
-  await page.route("**/img/hero-main.jpg", (route) => route.abort("failed"));
+  await page.route("**/img/cookie-plate*", (route) => route.abort("failed"));
   await installProbe(page);
   await page.goto("/", { waitUntil: "load" });
   // Bounded by IMAGE_WAIT_CEILING_MS in Hero.tsx (8s), itself inside the

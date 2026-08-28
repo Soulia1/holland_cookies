@@ -22,7 +22,7 @@ test("the homepage loads with every section and no console errors", async ({ pag
   await page.goto("/", { waitUntil: "load" });
   await ready(page);
 
-  await expect(page.locator("h1")).toContainText("molten");
+  await expect(page.locator("h1")).toContainText("Your Cookie Party");
   await expect(page.locator("#menu")).toBeVisible();
   await expect(page.locator("#craft")).toBeVisible();
   await expect(page.locator("#visit")).toBeVisible();
@@ -79,6 +79,40 @@ test("all three menu cards reveal on scroll", async ({ page }) => {
           ),
         ),
       { timeout: 5000, message: "menu cards never finished revealing" },
+    )
+    .toBeGreaterThan(0.9);
+});
+
+test("a card the viewport jumps clean past still reveals", async ({ page }) => {
+  await page.goto("/", { waitUntil: "load" });
+  await ready(page);
+
+  // One instantaneous move, from the top of the page to the last card. That
+  // carries the FIRST card from below the viewport to above it inside a single
+  // frame, so it never intersects.
+  //
+  // An IntersectionObserver reports where its targets are when it delivers, not
+  // every position they passed through, so a target that is below on one
+  // delivery and above on the next crosses no threshold and gets no callback at
+  // all. Before reveal.tsx swept for this, that card stayed at opacity 0 for the
+  // life of the page — content permanently hidden behind an effect that never
+  // ran. It is the same failure the header hit with a 1px sentinel.
+  await page.locator(".pan-card").last().evaluate((el) => {
+    const y = el.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo({ top: y - 200, behavior: "instant" as ScrollBehavior });
+  });
+
+  await expect
+    .poll(
+      async () =>
+        page.locator(".pan-card").evaluateAll((nodes) =>
+          Math.min(
+            ...nodes.map((n) =>
+              Number(getComputedStyle(n.parentElement as Element).opacity),
+            ),
+          ),
+        ),
+      { timeout: 5000, message: "a jumped-past card never revealed" },
     )
     .toBeGreaterThan(0.9);
 });

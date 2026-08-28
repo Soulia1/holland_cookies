@@ -44,6 +44,9 @@
 
   --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
   --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* The hero headline only. A heavy geometric sans is what gives the reference
+     composition its weight; Playfair is the voice everywhere else on the page. */
+  --font-hero: "Poppins", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
 
   --spacing-gutter: 32px;
   --spacing-stack-sm: 12px;
@@ -208,55 +211,273 @@
 }
 
 /* ─── Hero ───
-   The entrance is a one-shot on load rather than a scroll reveal: the hero is
+   One screen: centred copy above a single enormous pan that runs off the bottom
+   edge, with ingredients drifting around it.
+
+   The section is a two-row grid rather than absolute positioning. The stage row
+   is only as tall as the *visible* sliver of the pan and the image overflows it,
+   so the section's own `overflow: hidden` does the cropping. The absolute
+   version of this needs the crop height and the image height kept in step by
+   hand, and they drift apart the first time either one is retuned. */
+.hero {
+  /* The pan's diameter, and the fraction of it that lives below the fold.
+     Everything else in this section is derived from these two numbers. */
+  --pan-size: min(96vw, 460px);
+  --pan-hidden: 0.42;
+  /* The base size the ingredients scale against. */
+  --crumb-unit: clamp(34px, 10vw, 54px);
+
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
+  min-height: 100svh;
+  overflow: hidden;
+  background: var(--color-soft-oat);
+}
+
+@media (min-width: 768px) {
+  .hero {
+    /* The cap is set by the pixels that exist, not by the layout. The source
+       photograph is 1408x768 and the pan occupies a 762px circle inside it; the
+       2x rendition is 1524px. At 820px CSS a retina display asks for 1640 —
+       a 1.08x stretch of the 2x file, which is invisible — while a 1x display
+       is downscaling 762 into 820… which is a 1.08x stretch too. Both sit right
+       at the edge of the detail that is really there. Past roughly 860px the
+       chip edges and the pan's fluting start to go soft, and no CSS can put
+       that back. */
+    --pan-size: clamp(460px, 58vw, 820px);
+    --pan-hidden: 0.46;
+    --crumb-unit: clamp(54px, 6.2vw, 92px);
+  }
+}
+
+.hero-copy {
+  grid-row: 1;
+  align-self: center;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  /* Clears the fixed header, which rides transparently over this section. */
+  padding: calc(88px + 4vh) var(--spacing-margin-mobile) 3vh;
+  max-width: 780px;
+}
+
+.hero-title {
+  font-family: var(--font-hero);
+  font-weight: 800;
+  font-size: clamp(38px, 7.4vw, 76px);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  color: var(--color-primary);
+  text-wrap: balance;
+}
+
+.hero-sub {
+  margin-top: clamp(14px, 2.2vh, 22px);
+  max-width: 42ch;
+  font-size: clamp(14px, 1.05vw, 16px);
+  line-height: 1.65;
+  color: var(--color-on-surface-variant);
+  text-wrap: pretty;
+}
+
+.hero-cta {
+  margin-top: clamp(20px, 3vh, 32px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 30px;
+  border-radius: 999px;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  box-shadow: 0 10px 24px -10px rgb(93 16 29 / 0.7);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hero-cta {
+    transition:
+      transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+      box-shadow var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+  }
+  .hero-cta:hover {
+    transform: translate3d(0, -2px, 0);
+    box-shadow: 0 16px 30px -10px rgb(93 16 29 / 0.75);
+  }
+}
+
+/* Only the visible sliver is reserved in the layout; the pan overflows it. */
+.hero-stage {
+  grid-row: 2;
+  position: relative;
+  width: var(--pan-size);
+  height: calc(var(--pan-size) * (1 - var(--pan-hidden)));
+  z-index: 1;
+}
+
+.hero-pan {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: auto;
+  /* The idle drift is on the image and the entrance is on `.hero-stage.is-in`,
+     one transform each. Both on the same element and the loop would restart the
+     entrance transform from wherever the loop happened to be. */
+  animation: pan-float 9s var(--motion-ease-in-out, ease-in-out) infinite;
+}
+
+/* A blurred ellipse standing in for the pan contact shadow. A separate element
+   rather than `filter: drop-shadow()` on the image: the pan moves continuously,
+   and a drop-shadow filter re-rasterises the whole 680px bitmap every frame it
+   moves, which is the single most expensive thing this page could be doing. */
+.hero-pan-shadow {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 88%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgb(93 16 29 / 0.17),
+    rgb(93 16 29 / 0.07) 62%,
+    transparent 78%
+  );
+  filter: blur(26px);
+}
+
+@keyframes pan-float {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -12px, 0); }
+}
+
+/* The entrance. A one-shot on load rather than a scroll reveal: the hero is
    already on screen, so an IntersectionObserver would fire immediately anyway
-   and the stagger is easier to read as an explicit sequence. */
-.hero-in > * {
+   and the sequence is easier to read written out. Both entrances are keyed to
+   `is-in`, which the hero sets once the pan has decoded — otherwise the whole
+   arrival plays behind the boot splash and the first frame the visitor sees is
+   a finished, already-settled page. */
+.hero-copy > *,
+.hero-stage {
   opacity: 0;
-  transform: translate3d(0, 20px, 0);
+}
+
+.hero-copy.is-in > * {
   animation: hero-rise 800ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) forwards;
 }
 
-.hero-in > *:nth-child(1) { animation-delay: 60ms; }
-.hero-in > *:nth-child(2) { animation-delay: 140ms; }
-.hero-in > *:nth-child(3) { animation-delay: 220ms; }
-.hero-in > *:nth-child(4) { animation-delay: 300ms; }
+.hero-copy.is-in > *:nth-child(1) { animation-delay: 60ms; }
+.hero-copy.is-in > *:nth-child(2) { animation-delay: 160ms; }
+.hero-copy.is-in > *:nth-child(3) { animation-delay: 260ms; }
+
+.hero-stage.is-in {
+  animation: pan-in 1000ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) 120ms forwards;
+}
 
 @keyframes hero-rise {
+  from { opacity: 0; transform: translate3d(0, 20px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
-/* The plate and the inset photograph arrive together, a beat after the copy. */
-.hero-plate {
+@keyframes pan-in {
+  from { opacity: 0; transform: translate3d(0, 7%, 0) scale(0.9); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+/* ─── The drifting ingredients ───
+   Placement and timing come from CrumbField.tsx as custom properties; this only
+   describes how a crumb behaves. */
+.crumb-field {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  /* Scenery. It must never eat a click meant for the headline or the button. */
+  pointer-events: none;
+}
+
+.crumb {
+  position: absolute;
+  left: var(--crumb-x);
+  top: var(--crumb-y);
+  display: block;
+  width: calc(var(--crumb-unit) * var(--crumb-scale));
+  aspect-ratio: 1;
   opacity: 0;
-  animation: hero-plate-in 900ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) 180ms forwards;
+  /* translate(-50%, -50%) inside the transform rather than the standalone
+     `translate` property, which Safari did not support until 14.1. */
+  transform: translate(-50%, -50%) rotate(var(--crumb-tilt)) scale(0.5);
 }
 
-.hero-inset {
-  opacity: 0;
-  animation: hero-inset-in 800ms var(--motion-ease-overshoot, cubic-bezier(0.34, 1.56, 0.64, 1)) 520ms forwards;
+.crumb svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 8px 10px rgb(44 24 16 / 0.22));
+  animation: crumb-drift var(--crumb-drift, 0s) var(--motion-ease-in-out, ease-in-out)
+    var(--crumb-phase, 0s) infinite;
 }
 
-@keyframes hero-plate-in {
-  from { opacity: 0; transform: scale(1.04); }
-  to { opacity: 1; transform: scale(1); }
+.crumb.is-in {
+  animation: crumb-in 760ms var(--motion-ease-overshoot, cubic-bezier(0.34, 1.56, 0.64, 1))
+    var(--crumb-delay, 0ms) forwards;
 }
 
-@keyframes hero-inset-in {
-  from { opacity: 0; transform: translate3d(0, 24px, 0) rotate(-5deg) scale(0.94); }
-  to { opacity: 1; transform: translate3d(0, 0, 0) rotate(-5deg) scale(1); }
+@keyframes crumb-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(calc(var(--crumb-tilt) - 20deg)) scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(var(--crumb-tilt)) scale(1);
+  }
+}
+
+@keyframes crumb-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(0, -13px, 0) rotate(7deg); }
+}
+
+/* A phone has neither the width for eight ingredients nor the room to spare
+   beside the headline, so the second rank is dropped rather than shrunk. */
+@media (max-width: 767px) {
+  .crumb-wide { display: none; }
+
+  /* A phone puts the headline where a desktop puts empty margin, so the four
+     surviving ingredients move to a phone-specific position rather than being
+     shrunk out of the way — a chocolate chunk sitting on the word "Cookie" is
+     not scenery, it is damage. The fallback means an item without an override
+     simply keeps its desktop placement. */
+  .crumb {
+    left: var(--crumb-x-sm, var(--crumb-x));
+    top: var(--crumb-y-sm, var(--crumb-y));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-in > *,
-  .hero-plate,
-  .hero-inset {
+  .hero-copy > *,
+  .hero-stage,
+  .crumb {
     opacity: 1;
-    transform: none;
+  }
+  .hero-copy.is-in > *,
+  .hero-stage.is-in,
+  .hero-pan,
+  .crumb.is-in,
+  .crumb svg {
     animation: none;
   }
-  /* The inset keeps its resting tilt — that is layout, not motion. */
-  .hero-inset { transform: rotate(-5deg); }
+  /* The resting tilt stays — that is layout, not motion. */
+  .crumb {
+    transform: translate(-50%, -50%) rotate(var(--crumb-tilt));
+  }
 }
 
 /* ─── Header ───
@@ -267,6 +488,26 @@
     background-color var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
     box-shadow var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
     backdrop-filter var(--motion-glide, 0.42s) var(--motion-ease-out, ease);
+}
+
+/* The wordmark. Type, not an image — see the note in TopBar.tsx. */
+.wordmark {
+  font-family: var(--font-hero);
+  font-weight: 800;
+  font-size: clamp(20px, 2.1vw, 26px);
+  letter-spacing: -0.03em;
+  color: var(--color-deep-burgundy);
+  line-height: 1;
+}
+
+/* The chip after the name. Sized in em so it tracks the wordmark rather than
+   needing its own entry in the responsive clamp above. */
+.wordmark-dot {
+  width: 0.26em;
+  height: 0.26em;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
 }
 
 /* ─── Mobile menu ───

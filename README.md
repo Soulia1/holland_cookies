@@ -2,9 +2,15 @@
 
 Storefront page for Holland Cookies — cookie pies baked to order in Cairo.
 
-The visual design comes from the Google Stitch project *Artisan Cookie Atelier*.
-The frontend motion engineering is adapted from `cs_code_scooby` — its animation
-architecture and hard-won mobile Safari lessons, none of its brand or backend.
+The visual design comes from the Google Stitch project *Artisan Cookie Atelier*,
+except the hero, which is built to a reference recording: one full screen with a
+single circular pan bleeding off the bottom edge and ingredients drifting around
+it. The frontend motion engineering is adapted from `cs_code_scooby` — its
+animation architecture and hard-won mobile Safari lessons, none of its brand or
+backend.
+
+The pan in the hero (`public/img/cookie-plate.*`) is cut out of `hero-main.jpg`
+by `docs/cut-plate.py`; rerun that script if the photograph is ever replaced.
 
 ## Running it
 
@@ -32,7 +38,7 @@ src/
   lib/motion/   tokens, capability detection, CSS-variable publication
   lib/          splash controller, scroll reveal, mount-on-first-open
   sections/     TopBar, Hero, MenuGrid, Craft, Visit, Footer
-  components/   PanDetail (the product dialog)
+  components/   PanDetail (the product dialog), CrumbField (hero ingredients)
   data/         the menu, as plain data
 e2e/            splash lifecycle + storefront interaction specs
 docs/           motion audit and parity report

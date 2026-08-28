@@ -43,22 +43,61 @@ const DURATION_MS = duration.sweep * 1000;
  */
 let observer: IntersectionObserver | null = null;
 const pending = new WeakMap<Element, () => void>();
+/**
+ * The same targets as `pending`, in an enumerable form.
+ *
+ * A WeakMap alone cannot answer "what is still hidden?", and the sweep below
+ * has to ask exactly that. Entries are removed the moment an element reveals,
+ * so this holds only elements that are still waiting — at most a handful.
+ */
+const waiting = new Set<Element>();
+
+/** Reveal one element and stop watching it. */
+function show(target: Element): void {
+  const reveal = pending.get(target);
+  if (!reveal) return;
+  // Once shown, an element is done — it is never re-hidden, so it is dropped
+  // from the observer instead of being watched for the life of the page.
+  pending.delete(target);
+  waiting.delete(target);
+  observer?.unobserve(target);
+  reveal();
+}
 
 function sharedObserver(): IntersectionObserver | null {
   if (observer) return observer;
   if (typeof IntersectionObserver === "undefined") return null;
   observer = new IntersectionObserver(
     (entries) => {
+      let fired = false;
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
-        const reveal = pending.get(entry.target);
-        if (!reveal) continue;
-        // Once shown, an element is done — it is never re-hidden, so it is
-        // dropped from the observer instead of being watched for the life of
-        // the page.
-        pending.delete(entry.target);
-        observer?.unobserve(entry.target);
-        reveal();
+        fired = true;
+        show(entry.target);
+      }
+
+      // Anything the viewport has already gone past is revealed too, even
+      // though it never intersected.
+      //
+      // An IntersectionObserver reports the state of its targets at delivery
+      // time, not every state they passed through. An element that goes from
+      // below the viewport to above it between two deliveries — a jump, not a
+      // scroll — therefore reads 0 → 0, crosses no threshold, and never gets a
+      // callback at all. Without this it stays at opacity 0 for the life of the
+      // page: content permanently hidden behind an effect that never ran.
+      //
+      // This is the same defect the header hit with a 1px sentinel, in a
+      // different place. There the fix was to observe something a full screen
+      // tall; here the elements are whatever size the design makes them, so the
+      // jump is caught after the fact instead.
+      //
+      // Only runs on a delivery in which something actually revealed, and only
+      // over elements still waiting, so the cost is a few reads at the moments
+      // the page was already recalculating layout for the reveal itself.
+      if (fired && waiting.size > 0) {
+        for (const target of [...waiting]) {
+          if (target.getBoundingClientRect().bottom <= 0) show(target);
+        }
       }
     },
     {
@@ -117,9 +156,11 @@ export function useReveal<T extends HTMLElement>(index = 0) {
     }
 
     pending.set(node, () => setShown(true));
+    waiting.add(node);
     obs.observe(node);
     return () => {
       pending.delete(node);
+      waiting.delete(node);
       obs.unobserve(node);
     };
   }, []);

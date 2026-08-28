@@ -14,8 +14,23 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Poppins:wght@600;800&display=swap"
       rel="stylesheet"
+    />
+
+    <!-- The hero pan is the largest contentful paint and the asset the boot
+         splash waits on, so the request starts with the document rather than
+         after the bundle has parsed and React has mounted. `imagesrcset` with
+         the same three types as the <picture> in Hero.tsx, so the preload and
+         the element resolve to the same file — a preload that picks a different
+         rendition than the markup downloads the hero twice. -->
+    <link
+      rel="preload"
+      as="image"
+      type="image/avif"
+      href="/img/cookie-plate.avif"
+      imagesrcset="/img/cookie-plate.avif 1x, /img/cookie-plate@2x.avif 2x"
+      fetchpriority="high"
     />
 
     <!-- Painted before React mounts so the brand shows instantly rather than a

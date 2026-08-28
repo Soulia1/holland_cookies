@@ -107,14 +107,40 @@ holland_cookies/
 
 ## 8. Hero implementation
 
-`src/sections/Hero.tsx`. Copy is real markup, never gated on the image — a
-visitor who lands and does not scroll is still told what the place sells. The
-photograph is `loading="eager"` + `fetchPriority="high"` (it is the LCP
-candidate and the asset the splash waits on). A hold is taken on mount,
-`img.decode()` is awaited, progress is published to the splash bar, and the hold
-is released with reason `hero-ready`; an 8s ceiling releases with
-`hero-wait-ceiling`. Entrance is CSS: copy children stagger at 60/140/220/300ms,
-the plate scales in at 180ms, the inset overshoots in at 520ms.
+`src/sections/Hero.tsx`. **Rebuilt from a reference recording** (2026-08-29):
+one full screen, centred copy over a single circular pan that bleeds off the
+bottom edge, with drawn ingredients drifting around it. It replaces the earlier
+two-column copy-beside-photograph hero; the splash contract, the ceiling and the
+reduced-motion handling are unchanged, only the composition and the subject.
+
+Copy is real markup, never gated on the image — a visitor who lands and does not
+scroll is still told what the place sells. The pan is `loading="eager"` +
+`fetchPriority="high"` (it is the LCP candidate and the asset the splash waits
+on) and is preloaded from `index.html` with the same `type`/`srcset` set the
+`<picture>` uses, so preload and element resolve to one file. A hold is taken on
+mount, `img.decode()` is awaited **on the rendered element** rather than on a
+second `new Image()` — `<picture>` means the browser picks the rendition, and a
+guess would either gate on a file nothing is waiting for or fetch the hero
+twice. The hold is released with reason `hero-ready`; an 8s ceiling releases
+with `hero-wait-ceiling`. Entrance is CSS, keyed to the same readiness flag so it
+does not play behind the splash: copy children stagger at 60/160/260ms, the pan
+scales in at 120ms, the ingredients follow from 420ms at 90ms apart.
+
+**Asset note.** `public/img/cookie-plate.*` is the pan cut to a circle out of
+`hero-main.jpg` (1408x768) — a 762px circle, which is all the detail that
+exists. Hence `--pan-size` is capped at 680–820px rather than at whatever the
+layout would allow, and the `@2x` files are an offline Lanczos + unsharp upscale
+of that same 762px, not a higher-resolution capture: a retina display resamples
+to ~1360 device pixels either way, and doing it once offline with a good kernel
+beats the browser doing it every paint. Three formats (AVIF 128KB / WebP 226KB /
+PNG 1.2MB); there is deliberately no 2x PNG, since it would be 4MB and nothing
+that falls back to PNG wants it.
+
+The ingredients (`src/components/CrumbField.tsx`) are inline SVG, not cut-out
+photographs — a chocolate chip is three tones and a highlight, so a vector beats
+a masked JPEG on fidelity, on sharpness at any size, and on not competing with
+the hero image for bandwidth. Placement, size, tilt and drift period are data in
+one array; phones drop half of them and move the rest off the headline.
 
 ## 9. Loading implementation
 
@@ -244,6 +270,20 @@ Also: `tsc --noEmit` clean; `vite build` clean.
    content. Fixed by observing the **hero** instead: it is a full screen tall, so
    any jump past it necessarily changes intersection, and as the first element
    in the document it has no ambiguous "not yet reached" case.
+
+3. **The scroll reveal had the same defect, found by the hero rebuild.** An
+   `IntersectionObserver` reports where its targets are when it *delivers*, not
+   every position they passed through. An element that is below the viewport on
+   one delivery and above it on the next crosses no threshold and receives no
+   callback at all — so it stayed at `opacity: 0` for the life of the page.
+   Latent before; the new hero is a screen shorter than the old one, which moved
+   the menu close enough to the top that the first card lands in that window on
+   a phone. Reproduced 4/4 by instrumenting `IntersectionObserver` and dumping
+   every delivery: one batch, at `scrollY: 1756`, listing cards 2 and 3 and
+   never mentioning card 1. Fixed in `reveal.tsx`: whenever a delivery reveals
+   anything, elements still waiting whose bottom edge is already above the
+   viewport are revealed too. Covered by `a card the viewport jumps clean past
+   still reveals`, verified to fail against the previous `reveal.tsx`.
 
 **Three test bugs** were also fixed, each of which had made a test measure
 something other than what it claimed: sampling the reveal mid-transition;
