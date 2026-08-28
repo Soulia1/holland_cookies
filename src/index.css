@@ -214,23 +214,33 @@
    One screen: centred copy above a single enormous pan that runs off the bottom
    edge, with ingredients drifting around it.
 
-   The section is a two-row grid rather than absolute positioning. The stage row
-   is only as tall as the *visible* sliver of the pan and the image overflows it,
-   so the section's own `overflow: hidden` does the cropping. The absolute
-   version of this needs the crop height and the image height kept in step by
-   hand, and they drift apart the first time either one is retuned. */
+   The section is a two-row grid rather than absolute positioning. The copy takes
+   the height it needs, the stage row takes everything left over, and the pan
+   overflows that row so the section's own `overflow: hidden` does the cropping.
+   The absolute version needs the crop height and the image height kept in step
+   by hand, and they drift apart the first time either is retuned. */
 .hero {
-  /* The pan's diameter, and the fraction of it that lives below the fold.
-     Everything else in this section is derived from these two numbers. */
+  /* The pan's diameter. Capped by the pixels that exist, not by the layout: the
+     source photograph is 1408x768 and the pan occupies a 762px circle inside it,
+     with a 1524px 2x rendition. At 760px CSS a 2x display asks for 1520 against
+     that 1524 — near enough 1:1 that nothing is resampled — and a 1x display
+     downscales, which is always sharp. Past this the browser is magnifying
+     pixels that were never there, and no CSS puts the chip edges back. */
   --pan-size: min(96vw, 460px);
-  --pan-hidden: 0.42;
+  /* The most of the pan that may ever show. The rest hangs below the fold. */
+  --pan-reveal: 0.58;
   /* The base size the ingredients scale against. */
   --crumb-unit: clamp(34px, 10vw, 54px);
 
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-rows: 1fr auto;
+  /* `auto` then `minmax(0, 1fr)`: the copy is never squeezed, and the stage gets
+     exactly the space that is left. This is what keeps the whole composition
+     inside one screen on a short window — with `1fr auto` the stage demanded a
+     fixed slice, the copy pushed the section past 100svh, and the pan then bled
+     off the bottom of a section that was itself below the fold. */
+  grid-template-rows: auto minmax(0, 1fr);
   justify-items: center;
   min-height: 100svh;
   overflow: hidden;
@@ -239,37 +249,41 @@
 
 @media (min-width: 768px) {
   .hero {
-    /* The cap is set by the pixels that exist, not by the layout. The source
-       photograph is 1408x768 and the pan occupies a 762px circle inside it; the
-       2x rendition is 1524px. At 820px CSS a retina display asks for 1640 —
-       a 1.08x stretch of the 2x file, which is invisible — while a 1x display
-       is downscaling 762 into 820… which is a 1.08x stretch too. Both sit right
-       at the edge of the detail that is really there. Past roughly 860px the
-       chip edges and the pan's fluting start to go soft, and no CSS can put
-       that back. */
-    --pan-size: clamp(460px, 58vw, 820px);
-    --pan-hidden: 0.46;
+    --pan-size: clamp(460px, 58vw, 760px);
     --crumb-unit: clamp(54px, 6.2vw, 92px);
   }
 }
 
+/* On a tall window the pan cannot grow to fill the space — it is capped by the
+   resolution of the photograph, not by the layout — so instead it shows more of
+   itself. Without this a 1080px-tall screen left about 190px of dead air between
+   the button and the rim. Only bites where there is slack: on any window short
+   enough for the copy to claim the room, the stage is already smaller than this
+   cap and the value is ignored. */
+@media (min-height: 940px) {
+  .hero { --pan-reveal: 0.74; }
+}
+
 .hero-copy {
   grid-row: 1;
-  align-self: center;
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  /* Clears the fixed header, which rides transparently over this section. */
-  padding: calc(88px + 4vh) var(--spacing-margin-mobile) 3vh;
+  /* Clears the fixed header, which rides transparently over this section. The
+     vh term is what gives a tall window more air above the headline without
+     stealing the pan's room on a short one. */
+  padding: calc(80px + 5vh) var(--spacing-margin-mobile) 2.5vh;
   max-width: 780px;
 }
 
 .hero-title {
   font-family: var(--font-hero);
   font-weight: 800;
-  font-size: clamp(38px, 7.4vw, 76px);
+  /* Bounded by height as well as width. On a short, wide window the width term
+     alone sets a headline tall enough to leave the pan a sliver. */
+  font-size: min(clamp(38px, 7.4vw, 76px), 11vh);
   line-height: 1;
   letter-spacing: -0.035em;
   color: var(--color-primary);
@@ -277,16 +291,16 @@
 }
 
 .hero-sub {
-  margin-top: clamp(14px, 2.2vh, 22px);
+  margin-top: clamp(12px, 2vh, 22px);
   max-width: 42ch;
   font-size: clamp(14px, 1.05vw, 16px);
-  line-height: 1.65;
+  line-height: 1.6;
   color: var(--color-on-surface-variant);
   text-wrap: pretty;
 }
 
 .hero-cta {
-  margin-top: clamp(20px, 3vh, 32px);
+  margin-top: clamp(18px, 2.6vh, 32px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -312,34 +326,64 @@
   }
 }
 
-/* Only the visible sliver is reserved in the layout; the pan overflows it. */
+/* The stage takes whatever height the copy left, up to `--pan-reveal` of the
+   pan; the pan itself overflows it and the section clips. So a tall window
+   shows the designed slice, and a short one simply shows less of the same pan
+   rather than pushing the composition past the fold. */
 .hero-stage {
   grid-row: 2;
   position: relative;
+  align-self: end;
   width: var(--pan-size);
-  height: calc(var(--pan-size) * (1 - var(--pan-hidden)));
+  height: 100%;
+  max-height: calc(var(--pan-size) * var(--pan-reveal));
+  /* A floor, so a window too short for both cannot reduce the product to a
+     hairline. Below this the section grows past 100svh and the page scrolls,
+     which is the right failure. */
+  min-height: 150px;
   z-index: 1;
 }
 
-.hero-pan {
+/* Scroll-driven rotation. `--pan-spin` is written by Hero.tsx, once per frame
+   and only while the page is moving. */
+.hero-pan-spin {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  aspect-ratio: 1;
+  transform: rotate(var(--pan-spin, 0deg));
+  /* Justified here in a way it would not be on a static element: this transform
+     genuinely changes on most frames of a scroll, and without the hint the
+     browser re-rasterises a 760px bitmap instead of re-compositing one. */
+  will-change: transform;
+}
+
+/* The arrival turn, once, on load. */
+.hero-pan-entry {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-118deg);
+}
+
+.hero-pan {
+  display: block;
   width: 100%;
   height: auto;
-  /* The idle drift is on the image and the entrance is on `.hero-stage.is-in`,
-     one transform each. Both on the same element and the loop would restart the
-     entrance transform from wherever the loop happened to be. */
+  /* The endless drift. */
   animation: pan-float 9s var(--motion-ease-in-out, ease-in-out) infinite;
 }
 
-/* A blurred ellipse standing in for the pan contact shadow. A separate element
-   rather than `filter: drop-shadow()` on the image: the pan moves continuously,
-   and a drop-shadow filter re-rasterises the whole 680px bitmap every frame it
-   moves, which is the single most expensive thing this page could be doing. */
+/* A blurred ellipse standing in for the pan's contact shadow. A separate element
+   rather than `filter: drop-shadow()` on the image: the pan turns and drifts
+   continuously, and a drop-shadow filter re-rasterises the whole 760px bitmap
+   every frame it moves, which is the single most expensive thing this page
+   could be doing. It also stays put while the pan rotates, which is what a real
+   shadow on a table does. */
 .hero-pan-shadow {
   position: absolute;
   left: 50%;
-  top: 46%;
+  top: calc(var(--pan-size) * 0.5);
   width: 88%;
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
@@ -360,7 +404,7 @@
 
 /* The entrance. A one-shot on load rather than a scroll reveal: the hero is
    already on screen, so an IntersectionObserver would fire immediately anyway
-   and the sequence is easier to read written out. Both entrances are keyed to
+   and the sequence is easier to read written out. Everything is keyed to
    `is-in`, which the hero sets once the pan has decoded — otherwise the whole
    arrival plays behind the boot splash and the first frame the visitor sees is
    a finished, already-settled page. */
@@ -381,6 +425,20 @@
   animation: pan-in 1000ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)) 120ms forwards;
 }
 
+/* Longer and later than the rise it travels with, so the pan is still turning
+   after the copy has settled. Matched durations would make the whole hero land
+   on one beat, which reads as a slide transition rather than an arrival.
+
+   Symmetric easing, not the site's usual expo-out. Expo-out puts about 97% of
+   its travel into the first 600ms — right for something that should feel like
+   it responds instantly, and wrong for a turn, which becomes a whip you cannot
+   read. A spun object accelerates and decelerates, and this is page-initiated
+   motion, which is exactly what the in-out curve is reserved for. */
+.hero-stage.is-in .hero-pan-entry {
+  animation: pan-spin-in 1800ms var(--motion-ease-in-out, cubic-bezier(0.65, 0, 0.35, 1)) 100ms
+    forwards;
+}
+
 @keyframes hero-rise {
   from { opacity: 0; transform: translate3d(0, 20px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
@@ -389,6 +447,11 @@
 @keyframes pan-in {
   from { opacity: 0; transform: translate3d(0, 7%, 0) scale(0.9); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes pan-spin-in {
+  from { transform: rotate(-118deg); }
+  to { transform: rotate(0deg); }
 }
 
 /* ─── The drifting ingredients ───
@@ -419,7 +482,7 @@
   width: 100%;
   height: 100%;
   display: block;
-  filter: drop-shadow(0 8px 10px rgb(44 24 16 / 0.22));
+  filter: drop-shadow(0 9px 11px rgb(44 24 16 / 0.2));
   animation: crumb-drift var(--crumb-drift, 0s) var(--motion-ease-in-out, ease-in-out)
     var(--crumb-phase, 0s) infinite;
 }
@@ -469,25 +532,23 @@
   }
   .hero-copy.is-in > *,
   .hero-stage.is-in,
+  .hero-stage.is-in .hero-pan-entry,
   .hero-pan,
   .crumb.is-in,
   .crumb svg {
     animation: none;
   }
+  /* Both rotations collapse to nothing: the arrival turn never plays, and
+     Hero.tsx does not install the scroll listener at all. Stated here as well
+     so the resting state is right even for the frame before the effect runs. */
+  .hero-pan-entry,
+  .hero-pan-spin {
+    transform: none;
+  }
   /* The resting tilt stays — that is layout, not motion. */
   .crumb {
     transform: translate(-50%, -50%) rotate(var(--crumb-tilt));
   }
-}
-
-/* ─── Header ───
-   Rides transparently over the hero and takes its background once the menu
-   reaches it. The state is decided by an IntersectionObserver in TopBar. */
-.site-header {
-  transition:
-    background-color var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
-    box-shadow var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
-    backdrop-filter var(--motion-glide, 0.42s) var(--motion-ease-out, ease);
 }
 
 /* The wordmark. Type, not an image — see the note in TopBar.tsx. */

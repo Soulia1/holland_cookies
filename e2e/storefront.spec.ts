@@ -83,6 +83,160 @@ test("all three menu cards reveal on scroll", async ({ page }) => {
     .toBeGreaterThan(0.9);
 });
 
+/** The pan's current rotation in degrees, read off the element's own matrix. */
+async function panAngle(page: Page, selector: string): Promise<number> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return NaN;
+    const t = getComputedStyle(el).transform;
+    if (!t || t === "none") return 0;
+    const [a, b] = t.replace(/matrix\(|\)/g, "").split(",").map(Number);
+    return Math.round((Math.atan2(b, a) * 180) / Math.PI);
+  }, selector);
+}
+
+/** The value Hero.tsx writes for the scroll-driven turn. */
+async function scrollSpin(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const el = document.querySelector<HTMLElement>(".hero-pan-spin");
+    return parseFloat(el?.style.getPropertyValue("--pan-spin") ?? "0") || 0;
+  });
+}
+
+test("the whole hero fits one screen", async ({ page }) => {
+  await page.goto("/", { waitUntil: "load" });
+  await ready(page);
+
+  // The composition is a pan bleeding off the bottom of the *viewport*. When the
+  // hero grew past the viewport instead, the pan bled off the bottom of a
+  // section that was itself below the fold — which looks, on landing, like a
+  // page that simply stops. Worth pinning: it is invisible at the viewport the
+  // design is drawn at and wrong at every shorter one.
+  const fit = await page.evaluate(() => ({
+    hero: Math.round(document.querySelector(".hero")!.getBoundingClientRect().height),
+    viewport: window.innerHeight,
+  }));
+  expect(fit.hero, `hero ${fit.hero}px in a ${fit.viewport}px viewport`).toBeLessThanOrEqual(
+    fit.viewport + 1,
+  );
+});
+
+test("the pan turns on arrival and settles square", async ({ page }) => {
+  // Recorded from inside the page, every frame. Sampling from the driver after a
+  // fixed delay measures whichever animation is still in flight — the same trap
+  // this suite already documents for the reveal and the header.
+  await page.addInitScript(() => {
+    const angles: number[] = [];
+    (window as unknown as { __panAngles: number[] }).__panAngles = angles;
+    const started = performance.now();
+    const tick = () => {
+      const el = document.querySelector(".hero-pan-entry");
+      if (el) {
+        const t = getComputedStyle(el).transform;
+        if (!t || t === "none") angles.push(0);
+        else {
+          const [a, b] = t.replace(/matrix\(|\)/g, "").split(",").map(Number);
+          angles.push(Math.round((Math.atan2(b, a) * 180) / Math.PI));
+        }
+      }
+      if (performance.now() - started < 6000) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  await page.goto("/", { waitUntil: "load" });
+  await ready(page);
+
+  // Polled, not slept: the turn is 1800ms behind a decode of unknown length.
+  await expect
+    .poll(() => panAngle(page, ".hero-pan-entry"), {
+      timeout: 8000,
+      message: "the pan never settled square",
+    })
+    .toBe(0);
+
+  const angles = await page.evaluate(
+    () => (window as unknown as { __panAngles: number[] }).__panAngles,
+  );
+  // It has to have actually turned. Without this the test passes on a pan that
+  // was never rotated in the first place — the animation silently not running is
+  // exactly the failure worth catching.
+  expect(Math.min(...angles), "the pan never left its start angle").toBeLessThan(-60);
+  // And it has to have been *seen* turning: at least a few frames in between the
+  // start angle and square, rather than a jump.
+  const midFlight = angles.filter((a) => a < -8 && a > -110).length;
+  expect(midFlight, "the turn was a jump, not an animation").toBeGreaterThan(4);
+});
+
+test("the pan turns as the hero scrolls past, then stops", async ({ page }) => {
+  await page.goto("/", { waitUntil: "load" });
+  await ready(page);
+
+  const heroHeight = await page.evaluate(
+    () => (document.querySelector(".hero") as HTMLElement).offsetHeight,
+  );
+  expect(await scrollSpin(page)).toBe(0);
+
+  await page.evaluate(
+    (y) => window.scrollTo({ top: y, behavior: "instant" as ScrollBehavior }),
+    Math.round(heroHeight / 2),
+  );
+  // rAF-driven, so the write lands a frame after the scroll.
+  await expect
+    .poll(() => scrollSpin(page), { timeout: 3000, message: "the pan did not turn on scroll" })
+    .toBeGreaterThan(8);
+
+  // Capped once the hero is behind you — an uncapped version keeps winding for
+  // the length of the page and the pan is upside down by the footer.
+  await page.evaluate(
+    (y) => window.scrollTo({ top: y, behavior: "instant" as ScrollBehavior }),
+    heroHeight * 3,
+  );
+  // Polled up to the cap, not sampled right after the scroll. WebKit does not
+  // honour `behavior: "instant"` — it inherits the stylesheet's smooth scroll —
+  // so an immediate read here catches the value the page had two screens ago.
+  await expect
+    .poll(() => scrollSpin(page), { timeout: 6000, message: "the turn never reached its cap" })
+    .toBeGreaterThan(24);
+  // …and never past it. An uncapped version keeps winding for the length of the
+  // page, and the pan is upside down by the footer.
+  expect(await scrollSpin(page)).toBeLessThanOrEqual(26);
+});
+
+test("under reduced motion neither turn runs, and nothing is left hidden behind one", async ({
+  page,
+}) => {
+  {
+    // `emulateMedia` rather than `test.use({ reducedMotion })`: the option is
+    // rejected by this version's `test.use` typing, and emulating before the
+    // first navigation is equivalent — the page never renders unemulated.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/", { waitUntil: "load" });
+    await ready(page);
+    await page.evaluate(() => window.scrollTo({ top: 600, behavior: "instant" as ScrollBehavior }));
+    await page.waitForTimeout(400);
+
+    const state = await page.evaluate(() => ({
+      spin: getComputedStyle(document.querySelector(".hero-pan-spin")!).transform,
+      entry: getComputedStyle(document.querySelector(".hero-pan-entry")!).transform,
+      spinVar:
+        document.querySelector<HTMLElement>(".hero-pan-spin")!.style.getPropertyValue("--pan-spin"),
+      stage: getComputedStyle(document.querySelector(".hero-stage")!).opacity,
+      title: getComputedStyle(document.querySelector(".hero-title")!).opacity,
+      crumbs: [...document.querySelectorAll(".crumb")].map((c) => getComputedStyle(c).opacity),
+    }));
+
+    expect(state.entry, "the arrival turn ran under reduced motion").toBe("none");
+    expect(state.spin, "the scroll turn ran under reduced motion").toBe("none");
+    expect(state.spinVar, "the scroll listener wrote a value it should not have").toBe("");
+    // The other half of the contract, and the one that actually breaks pages:
+    // removing the motion must never leave the content it was carrying at zero.
+    expect(state.stage).toBe("1");
+    expect(state.title).toBe("1");
+    expect(state.crumbs.every((o) => o === "1"), `crumb opacities ${state.crumbs}`).toBe(true);
+  }
+});
+
 test("a card the viewport jumps clean past still reveals", async ({ page }) => {
   await page.goto("/", { waitUntil: "load" });
   await ready(page);

@@ -58,12 +58,24 @@ def cut(source: Image.Image) -> Image.Image:
 
     out = crop.convert("RGBA")
     out.putalpha(mask)
-    # Edge contrast, not detail. The hero renders this larger than 750px on a
-    # retina display, so something is going to upscale it; sharpening the source
-    # first is what survives that.
-    out = out.filter(ImageFilter.UnsharpMask(radius=1.4, percent=52, threshold=3))
-    # Unsharp touches the alpha channel too, which frays the circle. Restore it.
-    out.putalpha(mask)
+    return out, mask
+
+
+def sharpen(image: Image.Image, mask: Image.Image, radius: float, percent: int) -> Image.Image:
+    """Sharpen once, then put the clean circle edge back.
+
+    Once is the operative word. The first version of this sharpened the 1x
+    output and then sharpened the 2x it built *from* that output — two passes
+    over the same edges, which is how you get the pale halo along a rim that
+    reads as "over-processed" rather than "sharp". Both sizes are now derived
+    from the same unsharpened cut and each gets a single pass tuned to its own
+    scale.
+
+    UnsharpMask works on the alpha channel too, which frays the circle into a
+    ring of half-transparent pixels, so the mask is reapplied afterwards.
+    """
+    out = image.filter(ImageFilter.UnsharpMask(radius=radius, percent=percent, threshold=3))
+    out.putalpha(mask if mask.size == out.size else mask.resize(out.size, Image.LANCZOS))
     return out
 
 
@@ -87,18 +99,27 @@ def main() -> None:
         check(source, ROOT / "cookie-plate-check.png")
         return
 
-    one = cut(source)
+    clean, mask = cut(source)
+
+    # 1x: a light pass. This rendition is only ever *downscaled* by the browser
+    # (760px CSS against a 762px file at 1x), and downscaling is already sharp,
+    # so anything heavier here is halo for no gain.
+    one = sharpen(clean, mask, radius=1.2, percent=45)
     one.save(OUT.with_suffix(".png"), optimize=True)
     one.save(OUT.with_suffix(".webp"), quality=92, method=6)
     one.save(OUT.with_suffix(".avif"), quality=68)
 
-    two = one.resize((one.width * 2, one.height * 2), Image.LANCZOS)
-    alpha = two.getchannel("A")
-    two = two.filter(ImageFilter.UnsharpMask(radius=2.2, percent=42, threshold=3))
-    two.putalpha(alpha)
+    # 2x: upscale the *clean* cut, then one heavier pass. Lanczos is soft by
+    # construction — that is the price of not ringing — and this puts back the
+    # edge contrast it costs, at the scale the edges now live at.
+    big = clean.resize((clean.width * 2, clean.height * 2), Image.LANCZOS)
+    two = sharpen(big, mask, radius=2.0, percent=60)
     retina = OUT.with_name(OUT.name + "@2x")
-    two.save(retina.with_suffix(".webp"), quality=88, method=6)
-    two.save(retina.with_suffix(".avif"), quality=62)
+    # Encoded a step above the 1x files. This is the rendition a retina display
+    # actually gets, at as near 1:1 with its device pixels as this photograph
+    # allows, so it is the one worth spending bytes on.
+    two.save(retina.with_suffix(".webp"), quality=92, method=6)
+    two.save(retina.with_suffix(".avif"), quality=72)
 
     for path in sorted(OUT.parent.glob("cookie-plate*")):
         print(f"{path.name:26} {path.stat().st_size / 1024:8.1f} KB")

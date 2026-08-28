@@ -134,13 +134,48 @@ of that same 762px, not a higher-resolution capture: a retina display resamples
 to ~1360 device pixels either way, and doing it once offline with a good kernel
 beats the browser doing it every paint. Three formats (AVIF 128KB / WebP 226KB /
 PNG 1.2MB); there is deliberately no 2x PNG, since it would be 4MB and nothing
-that falls back to PNG wants it.
+that falls back to PNG wants it. Each rendition is sharpened **once**, both
+derived from the same unsharpened cut — the first pipeline sharpened the 1x and
+then sharpened the 2x it built from that output, two passes over the same edges,
+which is how a rim picks up the pale halo that reads as over-processed.
+
+**The two turns.** The pan rotates twice, on two different clocks. On load it
+turns in from -118 degrees over 1800ms — with the *symmetric* easing token, not
+the site's usual expo-out, because expo-out puts 97% of its travel in the first
+600ms and a turn under that curve is a whip you cannot read. On scroll it tracks
+the page: 0 to 26 degrees across one screen, then capped. Four nested elements
+carry one transform each (stage entrance, scroll turn, arrival turn, idle drift),
+because any two on one element means the later animation restarts the earlier
+from wherever it happened to be.
+
+The scroll turn is driven by a passive listener coalesced to one write per frame
+— the thing this project otherwise refuses, and justified here because it never
+measures: the span is `innerHeight` and the only per-frame work is writing one
+custom property. An IntersectionObserver cannot answer "how far through it are
+we". Under reduced motion the listener is never installed and both rotations
+resolve to `transform: none` in CSS, so the resting state is right even for the
+frame before the effect runs.
+
+**One screen, at every window height.** The section is `grid-template-rows: auto
+minmax(0, 1fr)`: the copy takes what it needs, the stage takes the rest, capped
+at `--pan-reveal` of the pan. The first version reserved a fixed slice for the
+stage instead, so on any window shorter than about 915px the copy pushed the
+section past `100svh` and the pan bled off the bottom of a *section* that was
+itself below the fold — which, on landing, looks like a page that simply stops.
+Pinned by `the whole hero fits one screen`. Above 940px tall, `--pan-reveal`
+rises to 0.74: the pan cannot grow to fill a tall window because it is capped by
+the resolution of the photograph, so it shows more of itself instead.
 
 The ingredients (`src/components/CrumbField.tsx`) are inline SVG, not cut-out
 photographs — a chocolate chip is three tones and a highlight, so a vector beats
 a masked JPEG on fidelity, on sharpness at any size, and on not competing with
-the hero image for bandwidth. Placement, size, tilt and drift period are data in
-one array; phones drop half of them and move the rest off the headline.
+the hero image for bandwidth. Five shapes (chunk, chip, hazelnut, almond,
+shard), each built the same way: an irregular silhouette, a body gradient, a
+diffuse highlight, a hard specular dot, a rim light along the shadow edge, and a
+contact shadow. The specular is what separates glossy chocolate from brown
+plastic; the irregular silhouette is what stops all five reading as stickers.
+Placement, size, tilt and drift period are data in one array; phones drop half of
+them and move the rest off the headline.
 
 ## 9. Loading implementation
 
@@ -284,6 +319,21 @@ Also: `tsc --noEmit` clean; `vite build` clean.
    anything, elements still waiting whose bottom edge is already above the
    viewport are revealed too. Covered by `a card the viewport jumps clean past
    still reveals`, verified to fail against the previous `reveal.tsx`.
+
+4. **A layout read on mount measured the page before the stylesheet existed.**
+   The scroll-driven pan rotation first measured `.hero`'s own height once from
+   its mount effect, and got **12333px** for a section that is 900px tall. At
+   that moment `document.styleSheets.length` is **0**: the built page's CSS is a
+   separate file, and the module script runs before it has been applied, so the
+   measurement was of eight unstyled SVGs stacked in normal flow. The turn then
+   ran at a fourteenth of its intended rate — and nothing looked broken, it just
+   read as a very subtle effect, which is why this needed arithmetic rather than
+   eyes to find (0.95 degrees at `scrollY: 450` implies a span of 12315).
+   Fixed by not measuring at all: the hero is one viewport tall by construction,
+   so `innerHeight` is the same number with no layout read and no dependence on
+   when styles land. **The general rule for this codebase: nothing may read
+   layout from a mount effect and trust it.** The boot splash is entirely inline
+   for the same reason, which is why this never produced a visible flash.
 
 **Three test bugs** were also fixed, each of which had made a test measure
 something other than what it claimed: sampling the reveal mid-transition;
