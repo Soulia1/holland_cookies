@@ -1,0 +1,16 @@
+# Build configuration for Railway / Nixpacks.
+#
+# The one thing this exists to prevent:
+#
+# Setting NODE_ENV=production as a service variable — which you want, because
+# the server keys real behaviour off it — also tells npm to skip
+# devDependencies at install time. This project's *build* lives there: vite,
+# tailwindcss and typescript are all dev dependencies, so the install succeeds,
+# `npm run build` then fails with `vite: not found`, and the error points at the
+# build rather than at the variable that caused it.
+#
+# `--include=dev` makes the install unconditional, so the two settings stop
+# interacting.
+
+[phases.install]
+cmds = ["npm ci --include=dev"]
