@@ -55,9 +55,35 @@
   --spacing-section-gap-md: 80px;
   --spacing-section-gap-lg: 160px;
 
-  --radius-sm: 0.125rem;
-  --radius-lg: 0.25rem;
-  --radius-xl: 0.5rem;
+  /* ─── Radius scale ───
+     Was 2 / 4 / 8px, which is why a dialog and a product card looked like they
+     came from different sites: at 2px a corner reads as a printing artefact
+     rather than a decision. One geometric scale, and every surface picks a rung
+     by *size* — small controls take `sm`, cards take `lg`, panels and sheets
+     take `xl`/`2xl`. */
+  --radius-sm: 8px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+
+  /* ─── Type scale ───
+     Named by role, not by size, so a heading cannot be "whatever looked right
+     in this section". Every step is a clamp, so the scale is continuous rather
+     than three fixed sizes with breakpoint jumps between them. */
+  --text-display: clamp(38px, 7.4vw, 76px);
+  --text-h1: clamp(40px, 6vw, 72px);
+  --text-h2: clamp(28px, 3.4vw, 44px);
+  --text-h3: clamp(20px, 1.6vw, 26px);
+  --text-lead: clamp(16px, 1.2vw, 19px);
+  --text-body: 16px;
+  --text-small: 15px;
+  --text-label: 12px;
+
+  /* ─── Elevation ───
+     Three levels. Anything needing a fourth is probably the wrong shape. */
+  --shadow-raise: 0 8px 20px -10px rgb(39 19 16 / 0.18);
+  --shadow-lift: 0 18px 40px -12px rgb(39 19 16 / 0.22);
+  --shadow-float: 0 30px 60px -20px rgb(39 19 16 / 0.35);
 }
 
 @layer base {
@@ -344,12 +370,59 @@
   z-index: 1;
 }
 
+/* ===========================================================================
+   Arabic
+   ===========================================================================
+
+   Only two things actually change between the languages: the faces, because
+   the Latin ones have no Arabic glyphs at all, and a handful of places where
+   a physical direction is genuinely meant. Everything else mirrors on its own,
+   because the layout is written in logical properties — which is the whole
+   reason the RTL work here is thirty lines rather than a second stylesheet.
+
+   The families are swapped by redefining the same three custom properties the
+   rest of the sheet already reads, so no rule anywhere else needs an RTL twin.
+   Amiri is the serif standing against Playfair; Cairo carries the body and the
+   headline weight. Both are requested only for an Arabic reader — see
+   index.html and lib/i18n.tsx. */
+html[dir="rtl"] {
+  --font-display: "Amiri", "Playfair Display", Georgia, serif;
+  --font-body: "Cairo", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-hero: "Cairo", "Poppins", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Arabic script has no capitals, so uppercasing does nothing to it — but the
+   wide tracking that goes with small-caps Latin eyebrows pulls Arabic letters
+   apart from the joins that make the word legible. Both are dropped. */
+html[dir="rtl"] [class*="eyebrow"],
+html[dir="rtl"] .cat-pill,
+html[dir="rtl"] .menu-item-note,
+html[dir="rtl"] .btn {
+  letter-spacing: 0;
+}
+
+/* Arabic sits lower in its em box and carries more below the baseline than
+   Latin, so display sizes set tight enough for Playfair clip their descenders
+   in Amiri. */
+html[dir="rtl"] .hero-title,
+html[dir="rtl"] .menu-title,
+html[dir="rtl"] .menu-section-title {
+  line-height: 1.25;
+}
+
+/* The vertical spine label. `vertical-rl` already reads top-to-bottom, which is
+   correct for a label on a right-hand edge; the 180° turn exists only to make a
+   left-hand one read the right way up. See .menu-word. */
+html[dir="rtl"] .menu-word {
+  transform: none;
+}
+
 /* Scroll-driven rotation. `--pan-spin` is written by Hero.tsx, once per frame
    and only while the page is moving. */
 .hero-pan-spin {
   position: absolute;
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
   width: 100%;
   aspect-ratio: 1;
   transform: rotate(var(--pan-spin, 0deg));
@@ -467,7 +540,11 @@
 
 .crumb {
   position: absolute;
-  left: var(--crumb-x);
+  /* Logical, so the whole ingredient field mirrors in Arabic rather than
+     staying pinned to the left of a right-to-left composition. The offsets in
+     CrumbField.tsx are then read as "in from the leading edge" in both
+     directions and need no second set of numbers. */
+  inset-inline-start: var(--crumb-x);
   top: var(--crumb-y);
   display: block;
   width: calc(var(--crumb-unit) * var(--crumb-scale));
@@ -519,7 +596,7 @@
      not scenery, it is damage. The fallback means an item without an override
      simply keeps its desktop placement. */
   .crumb {
-    left: var(--crumb-x-sm, var(--crumb-x));
+    inset-inline-start: var(--crumb-x-sm, var(--crumb-x));
     top: var(--crumb-y-sm, var(--crumb-y));
   }
 }
@@ -551,24 +628,19 @@
   }
 }
 
-/* The wordmark. Type, not an image — see the note in TopBar.tsx. */
+/* The mark. Sized by height so the aspect ratio of the artwork decides the
+   width — the logotype is wide, and pinning the width instead is what makes a
+   mark look squashed at one breakpoint and enormous at the next. */
 .wordmark {
-  font-family: var(--font-hero);
-  font-weight: 800;
-  font-size: clamp(20px, 2.1vw, 26px);
-  letter-spacing: -0.03em;
-  color: var(--color-deep-burgundy);
-  line-height: 1;
+  display: block;
+  flex: none;
+  line-height: 0;
 }
 
-/* The chip after the name. Sized in em so it tracks the wordmark rather than
-   needing its own entry in the responsive clamp above. */
-.wordmark-dot {
-  width: 0.26em;
-  height: 0.26em;
-  border-radius: 50%;
-  background: currentColor;
-  flex: none;
+.wordmark img {
+  height: clamp(42px, 5vw, 64px);
+  width: auto;
+  display: block;
 }
 
 /* ─── Mobile menu ───
@@ -593,23 +665,220 @@
   .mobile-menu { transition: none; }
 }
 
-/* ─── Cards ───
-   Hover belongs to devices that have one. On touch the lift would stick after
-   a tap, because there is nothing to move the pointer away. */
+/* ─── Best sellers rail ───
+   A horizontal row of photographs, built to the reference screenshot: the row
+   starts on the page's own gutter and runs off the right edge of the viewport,
+   so the cut-off card is what says "there is more", before any arrow does. */
+.bestsellers {
+  /* The gutter the heading sits on, and the width the page is centred in. Both
+     are the values every other section uses; named here because the rail has to
+     line its first card up with them while ignoring the max-width for its own
+     overflow. */
+  --page-gutter: 20px;
+  --page-max: 1440px;
+  --card-w: clamp(240px, 38vw, 480px);
+  --card-gap: 20px;
+
+  background: var(--color-surface);
+  padding-block: 80px;
+  overflow: clip;
+}
+
+@media (min-width: 768px) {
+  .bestsellers {
+    --page-gutter: 48px;
+    --card-gap: 24px;
+    padding-block: 80px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .bestsellers { padding-block: 120px; }
+}
+
+.bestsellers-head {
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding-inline: var(--page-gutter);
+  margin-bottom: 48px;
+}
+
+@media (min-width: 768px) {
+  .bestsellers-head { margin-bottom: 64px; }
+}
+
+.rail-frame {
+  position: relative;
+}
+
+.rail {
+  display: flex;
+  gap: var(--card-gap);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  /* The left inset lines the first card up with the heading above it; the right
+     one is only a thumb's width, so the last card sits near the viewport edge
+     rather than in the middle of a wide screen. */
+  padding-inline-start: max(var(--page-gutter), calc((100% - var(--page-max)) / 2 + var(--page-gutter)));
+  padding-inline-end: var(--page-gutter);
+  /* Room for the focus ring on a card, which would otherwise be clipped by the
+     scroll container's own edge. */
+  padding-block: 4px;
+  scroll-behavior: smooth;
+  /* The rail is its own scroll container, so its bar is a second horizontal
+     scrollbar sitting in the middle of the page. The cut-off card and the arrows
+     both say the same thing without it. */
+  scrollbar-width: none;
+}
+
+.rail::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rail { scroll-behavior: auto; }
+}
+
+.rail-item {
+  flex: 0 0 var(--card-w);
+  width: var(--card-w);
+  scroll-snap-align: start;
+  /* Clears the left inset, so a snapped card does not sit flush against the
+     viewport edge. */
+  scroll-margin-inline-start: max(
+    var(--page-gutter),
+    calc((100vw - var(--page-max)) / 2 + var(--page-gutter))
+  );
+}
+
+.rail-photo {
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-container);
+}
+
+.pan-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rail-name {
+  margin-top: 20px;
+  font-family: var(--font-display);
+  font-size: clamp(20px, 1.6vw, 26px);
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.rail-price {
+  margin-top: 8px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-deep-burgundy);
+}
+
+.rail-blurb {
+  margin-top: 12px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--color-on-surface-variant);
+}
+
+/* The arrows. Vertically centred on the *photograph* rather than the card, so
+   they do not drift down the page as the titles wrap to two lines. */
+.rail-arrow {
+  position: absolute;
+  top: calc(var(--card-w) / 2 + 4px);
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  line-height: 1;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  box-shadow: 0 8px 20px -8px rgb(39 19 16 / 0.55);
+  z-index: 2;
+}
+
+.rail-arrow-prev { inset-inline-start: 16px; }
+.rail-arrow-next { inset-inline-end: 16px; }
+
+/* The glyphs are arrows, so they have to turn around with the language too —
+   in Arabic "previous" points right. Mirroring the glyph rather than swapping
+   the character keeps one source of truth for which button is which. */
+html[dir="rtl"] .rail-arrow > span { display: inline-block; transform: scaleX(-1); }
+
+@media (min-width: 768px) {
+  .rail-arrow-prev { inset-inline-start: 24px; }
+  .rail-arrow-next { inset-inline-end: 24px; }
+}
+
+.rail-arrow:disabled {
+  opacity: 0;
+  /* Faded out rather than removed: the pair appears and disappears as the rail
+     reaches its ends, and reflowing the row each time would nudge the cards. */
+  pointer-events: none;
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .pan-card {
+  .rail-arrow {
+    transition:
+      transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+      opacity var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+  }
+  .rail-arrow:hover:not(:disabled) {
+    transform: translateY(-50%) scale(1.07);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-arrow,
+  .rail-arrow:hover:not(:disabled) {
+    transition: none;
+    transform: translateY(-50%);
+  }
+}
+
+/* ─── Cards ───
+   The lift is on the photograph, not on the whole card. In the rail the card is
+   a bare photo with type under it, so a shadow around the button would draw a
+   rectangle around the words as well and reintroduce exactly the card chrome
+   this layout removed.
+
+   Hover belongs to devices that have one. On touch the lift would stick after a
+   tap, because there is nothing to move the pointer away. */
+@media (hover: hover) and (pointer: fine) {
+  .rail-photo {
     transition:
       transform var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
       box-shadow var(--motion-glide, 0.42s) var(--motion-ease-out, ease);
   }
 
-  .pan-card:hover {
+  .pan-card:hover .rail-photo {
     transform: translateY(-6px);
-    box-shadow: 0 18px 40px -12px rgb(39 19 16 / 0.18);
+    box-shadow: 0 18px 40px -12px rgb(39 19 16 / 0.22);
   }
 
   .pan-card:hover .pan-card-img {
     transform: scale(1.05);
+  }
+
+  .pan-card:hover .rail-name {
+    color: var(--color-deep-burgundy);
+  }
+
+  .rail-name {
+    transition: color var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
   }
 
   .pan-card-img {
@@ -620,20 +889,886 @@
 /* Touch gets a press state instead, which is the feedback a finger can
    actually produce. */
 @media (pointer: coarse) {
-  .pan-card:active {
+  .pan-card:active .rail-photo {
     transform: scale(0.985);
     transition: transform var(--motion-instant, 0.12s) ease-out;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pan-card,
-  .pan-card:hover,
+  .rail-photo,
+  .pan-card:hover .rail-photo,
+  .pan-card:active .rail-photo,
   .pan-card-img,
   .pan-card:hover .pan-card-img {
     transform: none;
     transition: none;
   }
+}
+
+/* ─── The menu page ───
+   A long editorial menu: one huge vertical MENU set into the left margin, a
+   sticky bar of categories, and every category anchored as its own section. */
+.menu-page {
+  --menu-header-h: 88px;
+  --menu-rail-w: 0px;
+
+  position: relative;
+  background: var(--color-soft-oat);
+  padding-top: var(--menu-header-h);
+  padding-bottom: 96px;
+  /* `clip`, not `hidden`. The decorative word hangs past the left edge on small
+     screens, and `hidden` would make this a scroll container — which silently
+     breaks `position: sticky` for the category bar inside it, because sticky
+     resolves against the nearest scrolling ancestor. `clip` crops without
+     creating one. */
+  overflow-x: clip;
+}
+
+@media (min-width: 1024px) {
+  .menu-page { --menu-rail-w: 220px; }
+}
+
+/* ─── The decorative word ───
+   Sticky rather than fixed: it belongs to this page, so it should scroll away
+   under the footer rather than hang over it. The rail spans the whole page, and
+   the word sticks inside it. */
+.menu-word-rail {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: max(var(--menu-rail-w), 120px);
+  z-index: 0;
+  display: flex;
+  justify-content: center;
+  /* `flex-start`, and it is load-bearing. A flex item stretches to its
+     container's cross size by default, and this container is as tall as the
+     page — so the word's own box became 5930px tall, `position: sticky` had
+     nothing left to travel within, and the text simply scrolled away at the top
+     of a very tall box. It looked sticky in a screenshot and was not. */
+  align-items: flex-start;
+  /* Never takes a click meant for a category or an item. */
+  pointer-events: none;
+}
+
+.menu-word {
+  position: sticky;
+  /* Below both bars, so it never appears to sit on top of the category nav. */
+  top: calc(var(--menu-nav-h, 66px) + 56px);
+  /* One rotated word running up the left edge, not four stacked upright
+     letters. `rotate(180deg)` on top of `vertical-rl` is what turns it from
+     reading downwards to reading bottom-to-top, which is the direction a spine
+     label runs and the only one that does not read as upside down.
+
+     Rotating rather than stacking also buys size: the word's length now runs
+     along the tall axis, so it can be set far larger in the same margin. */
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  /* In Arabic the rail sits against the right edge, and a spine label on a
+     right-hand edge reads top-to-bottom — which is what `vertical-rl` already
+     does on its own. The 180° turn that makes a left-hand spine read the right
+     way up is exactly what would put this one upside down. */
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(96px, 26vh, 260px);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--color-deep-burgundy);
+  opacity: 0.07;
+  user-select: none;
+}
+
+/* Below the desktop breakpoint there is no margin to put it in, so it moves to
+   the very edge and half of it hangs off — deliberately cropped rather than
+   shrunk to a size that would read as a mistake. Opacity drops because on a
+   phone the text sits directly over it. */
+@media (max-width: 1023px) {
+  .menu-word-rail {
+    justify-content: flex-start;
+    width: 100%;
+  }
+  .menu-word {
+    margin-inline-start: -0.3em;
+    font-size: clamp(80px, 22vh, 180px);
+    opacity: 0.05;
+  }
+}
+
+@media (max-width: 480px) {
+  .menu-word {
+    margin-inline-start: -0.34em;
+    opacity: 0.045;
+  }
+}
+
+/* Content sits above the word, always. */
+.menu-body {
+  position: relative;
+  z-index: 1;
+}
+
+.menu-intro,
+.menu-sections {
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-inline: 20px;
+  padding-inline-start: max(20px, var(--menu-rail-w));
+}
+
+@media (min-width: 768px) {
+  .menu-intro,
+  .menu-sections {
+    padding-inline: 48px;
+    padding-inline-start: max(48px, var(--menu-rail-w));
+  }
+}
+
+.menu-intro {
+  padding-top: 56px;
+  padding-bottom: 40px;
+}
+
+.menu-eyebrow {
+  display: block;
+  margin-bottom: 16px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-deep-burgundy);
+}
+
+.menu-title {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 1.05;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-primary);
+}
+
+.menu-lede {
+  margin-top: 20px;
+  max-width: 46ch;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 26px;
+  color: var(--color-on-surface-variant);
+}
+
+/* ─── The category bar ───
+   Sticky directly under the site header, whose height it is told rather than
+   guesses at. Full-bleed, because a sticky bar narrower than the page lets
+   content slide past in the gutters beside it. */
+/* Sticky at the very top, and the site header sits over it until the page
+   condenses — so the reveal is the header sliding up off it rather than the bar
+   jumping from one offset to another. Two elements changing position at once is
+   what makes a "merge" read as a glitch. */
+.cat-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--color-soft-oat) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-block: 1px solid rgb(211 195 192 / 0.5);
+}
+
+.cat-nav-scroll {
+  position: relative;
+  display: flex;
+  gap: 6px;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: 10px 20px;
+  padding-inline-start: max(20px, var(--menu-rail-w));
+  /* Many categories and a phone: sideways rather than four wrapped rows. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.cat-nav-scroll::-webkit-scrollbar { display: none; }
+
+@media (min-width: 768px) {
+  .cat-nav-scroll {
+    padding-inline: 48px;
+    padding-inline-start: max(48px, var(--menu-rail-w));
+  }
+}
+
+.cat-pill {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  /* 44px of height even though the text is 13px: this is the primary control on
+     a phone, and a thumb is not a mouse pointer. */
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--color-secondary);
+  background: transparent;
+  transition:
+    color var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+    background-color var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+}
+
+.cat-pill.is-active {
+  color: #fff;
+  /* No background of its own — the single travelling indicator below is the
+     background. Painting one here as well means two things claim to be the
+     selection during the 300ms the indicator is in transit. */
+}
+
+/* ─── The travelling indicator ───
+   One element that slides and resizes to whichever pill is active, rather than
+   seventeen backgrounds fading in and out.
+   Adapted from the shared-element pattern (Framer Motion's `layoutId`, as used
+   by Motion Primitives' AnimatedBackground) — but implemented on a CSS
+   transform driven by two custom properties instead of importing it. The
+   library version owns its own `activeId` state, which would fight the
+   scrollspy that actually decides what is active here, and pulling
+   framer-motion onto this page's critical path costs ~45KB gzip for one moving
+   rectangle. Two numbers and a transition buy the same motion for nothing. */
+.cat-indicator {
+  position: absolute;
+  top: 50%;
+  /* Physical, and deliberately so — unlike everything else here. `--ind-x` is
+     written from `offsetLeft`, which is measured from the left edge of the
+     padding box in both directions. Anchoring to `inset-inline-start` would
+     mean the anchor flipped while the number feeding it did not. */
+  left: 0;
+  height: 40px;
+  width: var(--ind-w, 0px);
+  transform: translate3d(var(--ind-x, 0px), -50%, 0);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-deep-burgundy);
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    transform var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
+    width var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
+    opacity var(--motion-quick, 0.22s) linear;
+}
+
+/* Revealed only once it has been measured, so it cannot animate in from x=0
+   across the whole bar on first paint. */
+.cat-indicator.is-ready { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cat-indicator { transition: opacity var(--motion-instant, 0.12s) linear; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cat-pill:hover:not(.is-active) {
+    color: var(--color-deep-burgundy);
+    background: rgb(93 16 29 / 0.07);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cat-pill { transition: none; }
+  .cat-nav-scroll { scroll-behavior: auto; }
+}
+
+/* The merge. The header slides up and the bar is what remains. `transform`
+   rather than `top` or `height`: it is the one property that moves an element
+   without touching layout, so nothing below it reflows sixty times a second
+   while it travels. */
+html.is-menu-condensed .site-header {
+  transform: translateY(-100%);
+}
+
+.site-header {
+  transition:
+    background-color var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
+    box-shadow var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
+    backdrop-filter var(--motion-glide, 0.42s) var(--motion-ease-out, ease),
+    transform var(--motion-glide, 0.42s) var(--motion-ease-out, ease);
+}
+
+/* At the top of the menu page the two bars are stacked, so the category bar
+   starts below the header rather than under it. */
+.menu-page .cat-nav {
+  margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-header { transition: none; }
+}
+
+/* ─── Sections and items ─── */
+.menu-sections {
+  padding-top: 56px;
+}
+
+.menu-section {
+  /* What keeps a heading clear of the bar when it is scrolled to, including by
+     the browser's own hash handling on a cold load. The height comes from
+     MenuPage, which measures the bar — a literal here and the JavaScript's own
+     offset drift apart the first time the bar wraps. Only the category bar is
+     counted: reaching a section condenses the page, so the site header is gone
+     by the time anything lands. */
+  scroll-margin-top: calc(var(--menu-nav-h, 66px) + 24px);
+  padding-block: 40px;
+}
+
+.menu-section + .menu-section {
+  border-top: 1px solid rgb(211 195 192 / 0.45);
+}
+
+.menu-section-title {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 3.4vw, 44px);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--color-primary);
+  margin-bottom: 28px;
+}
+
+.menu-items {
+  display: grid;
+  grid-template-columns: 1fr;
+  column-gap: 56px;
+  row-gap: 4px;
+  max-width: 1100px;
+}
+
+/* Two columns past the phone. Seventeen categories in one column is a very long
+   page to scan, and the row is a name and a price — it does not need the width. */
+@media (min-width: 768px) {
+  .menu-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-block: 10px;
+  font-family: var(--font-body);
+}
+
+.menu-item-name {
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--color-on-surface);
+}
+
+.menu-item-note {
+  margin-inline-start: 8px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+  white-space: nowrap;
+}
+
+/* The dotted leader. A border on a flexible spacer, so it fills whatever gap is
+   left between a name and a price at any width, with no character counting and
+   nothing to re-tune when the type changes. */
+.menu-item-leader {
+  flex: 1 1 auto;
+  min-width: 16px;
+  align-self: flex-end;
+  margin-bottom: 5px;
+  border-bottom: 1px dotted var(--color-outline-variant);
+}
+
+.menu-item-price {
+  flex: none;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-deep-burgundy);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-item-currency {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--color-secondary);
+}
+
+/* The home page's way through to this one. */
+.rail-cta {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 24px;
+  padding: 13px 26px;
+  border-radius: 999px;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rail-cta {
+    transition: transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+  }
+  .rail-cta:hover { transform: translate3d(0, -2px, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-cta,
+  .rail-cta:hover { transform: none; transition: none; }
+}
+
+/* ─── Build your box ───
+   Options left, the chosen box photographed large in the middle, its price and
+   the way to order it on the right. */
+.boxes {
+  background: var(--color-surface-container-low);
+  padding-block: 80px;
+}
+
+@media (min-width: 1024px) {
+  .boxes { padding-block: 120px; }
+}
+
+.boxes-head {
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-inline: 20px;
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+@media (min-width: 768px) {
+  .boxes-head { padding-inline: 48px; margin-bottom: 64px; }
+}
+
+.boxes-title {
+  font-family: var(--font-display);
+  font-size: clamp(34px, 5vw, 60px);
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-primary);
+}
+
+.boxes-sub {
+  margin-top: 14px;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 26px;
+  color: var(--color-on-surface-variant);
+}
+
+/* Ordered by grid areas rather than by DOM order, because the right order is
+   different on the two layouts and the DOM can only have one.
+
+   On a phone the source order — options, then photo, then price — put every
+   consequence of a tap a screen and a half below the control that caused it:
+   you chose a box and nothing you could see changed. The photo and the price
+   now sit above the options, so the thing you are choosing is what you are
+   looking at, and the options are a single swipeable row beneath it. */
+.boxes-grid {
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-inline: 20px;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "stage"
+    "options"
+    "detail";
+  align-items: start;
+}
+
+.box-options { grid-area: options; }
+.box-stage { grid-area: stage; }
+.box-detail { grid-area: detail; }
+
+@media (min-width: 768px) {
+  .boxes-grid { padding-inline: 48px; }
+}
+
+@media (min-width: 1024px) {
+  .boxes-grid {
+    /* Options, stage, detail. The stage takes the slack because it is the only
+       part whose size carries meaning. */
+    grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.4fr) minmax(220px, 0.8fr);
+    grid-template-areas: "options stage detail";
+    gap: 40px;
+    align-items: center;
+  }
+}
+
+.box-options {
+  display: flex;
+  gap: 12px;
+  /* A row that scrolls sideways on a phone, a stack on a desktop. Four options
+     wrapped to four full-width rows is most of a phone screen spent on a
+     control with four states. */
+  flex-direction: row;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+}
+
+.box-options::-webkit-scrollbar { display: none; }
+
+@media (min-width: 1024px) {
+  .box-options {
+    flex-direction: column;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+  .box-option { max-width: none; width: 100%; padding: 12px; }
+}
+
+.box-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* Wide enough on a phone that the next chip peeks — the affordance that says
+     the row scrolls, before any arrow does. */
+  flex: 0 0 auto;
+  max-width: 78vw;
+  padding: 10px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-lowest);
+  /* A transparent border at rest, so selecting one cannot change its size and
+     nudge every option below it. */
+  border: 2px solid transparent;
+  text-align: start;
+  width: 100%;
+}
+
+.box-option.is-selected {
+  border-color: var(--color-deep-burgundy);
+  background: color-mix(in srgb, var(--color-deep-burgundy) 5%, var(--color-surface-container-lowest));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .box-option {
+    transition:
+      border-color var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+      background-color var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+      transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+  }
+  .box-option:hover:not(.is-selected) {
+    border-color: var(--color-outline-variant);
+    transform: translate3d(2px, 0, 0);
+  }
+}
+
+.box-option-thumb {
+  flex: none;
+  width: 68px;
+  height: 68px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-surface-container);
+}
+
+.box-option-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.box-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.box-option-name {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.box-option-price {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-deep-burgundy);
+}
+
+.box-stage {
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  background: var(--color-surface-container);
+  /* Wider than tall on a phone so the photo, the options and the price all fit
+     one screen; squarer on a desktop where the column is narrow. */
+  aspect-ratio: 16 / 10;
+}
+
+@media (min-width: 1024px) {
+  .box-stage { aspect-ratio: 4 / 3; }
+}
+
+.box-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  animation: box-photo-in var(--motion-glide, 0.42s) var(--motion-ease-out, ease) both;
+}
+
+@keyframes box-photo-in {
+  from { opacity: 0; transform: scale(1.02); }
+  to { opacity: 1; transform: none; }
+}
+
+.box-detail-name {
+  font-family: var(--font-display);
+  font-size: clamp(24px, 2.4vw, 34px);
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.box-detail-price {
+  margin-top: 10px;
+  font-family: var(--font-body);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-deep-burgundy);
+}
+
+.box-detail-note {
+  margin-top: 6px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.box-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-top: 22px;
+  padding: 16px 28px;
+  border-radius: 999px;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.box-order-note {
+  margin-top: 10px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-secondary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .box-order { transition: transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease); }
+  .box-order:hover { transform: translate3d(0, -2px, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .box-option,
+  .box-option:hover:not(.is-selected),
+  .box-order,
+  .box-order:hover {
+    transition: none;
+    transform: none;
+  }
+  .box-photo { animation: none; }
+}
+
+/* ─── Footer ─── */
+.site-footer {
+  background: var(--color-soft-oat);
+  padding: 72px 20px 40px;
+  text-align: center;
+}
+
+@media (min-width: 768px) {
+  .site-footer { padding: 96px 48px 48px; }
+}
+
+.footer-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  /* Cream, not burgundy. The mark is itself red and blue; a burgundy disc
+     behind it turns the red half of the logotype into a silhouette. */
+  background: var(--color-surface-container-lowest);
+  box-shadow: 0 10px 30px -14px rgb(39 19 16 / 0.35);
+  margin-bottom: 40px;
+}
+
+.footer-badge img {
+  width: 74%;
+  height: auto;
+  display: block;
+}
+
+.footer-panel {
+  max-width: 1440px;
+  margin-inline: auto;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  border-radius: var(--radius-xl);
+  padding: 40px 24px;
+  text-align: start;
+  display: grid;
+  gap: 40px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .footer-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+    gap: 56px;
+    padding: 56px 48px;
+  }
+  /* The divider from the reference, drawn as a border so it stretches to
+     whichever column is taller without a fixed height. */
+  .footer-links { border-inline-start: 1px solid rgb(255 255 255 / 0.22); padding-inline-start: 56px; }
+}
+
+.footer-form {
+  display: flex;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: rgb(255 255 255 / 0.12);
+}
+
+.footer-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 16px 18px;
+  background: transparent;
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 15px;
+  border: 0;
+}
+
+.footer-form input::placeholder { color: rgb(255 255 255 / 0.65); }
+
+/* The focus ring is the site's burgundy, which is invisible inside a burgundy
+   panel. Overridden to the panel's own foreground. */
+.footer-form input:focus-visible,
+.footer-panel a:focus-visible,
+.footer-form button:focus-visible,
+.footer-badge:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.footer-form button {
+  flex: none;
+  padding: 16px 24px;
+  background: #fff;
+  color: var(--color-deep-burgundy);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.footer-consent {
+  margin-top: 16px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 22px;
+  color: rgb(255 255 255 / 0.75);
+  max-width: 42ch;
+}
+
+.footer-links {
+  display: grid;
+  gap: 32px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Grid items floor at `min-width: auto`, which is their content's min-content
+   width — so at 375px these columns refused to shrink and pushed 6px of
+   horizontal scroll onto the whole document. `minmax(0, 1fr)` on the tracks and
+   `min-width: 0` on the items is the pair that actually lets a grid child be
+   narrower than its contents. */
+.footer-panel > *,
+.footer-links > * {
+  min-width: 0;
+}
+
+/* The address is one long line with a slash and a dash in it; on a 300px column
+   those are the only places it can break, and neither is where it should. */
+.footer-address {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 560px) {
+  .footer-links { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+}
+
+.footer-links h2 {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.6);
+  margin-bottom: 16px;
+}
+
+.footer-links ul {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.footer-links li,
+.footer-links a {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 22px;
+  color: #fff;
+}
+
+.footer-links a {
+  transition: opacity var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .footer-links a:hover { opacity: 0.7; }
+}
+
+.footer-address {
+  color: rgb(255 255 255 / 0.75) !important;
+  font-size: 14px !important;
+  line-height: 21px !important;
+}
+
+.footer-fineprint {
+  margin-top: 32px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--color-on-surface-variant);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .footer-links a { transition: none; }
 }
 
 /* ─── Buttons ───
@@ -679,5 +1814,1695 @@ body.is-locked {
   overflow: hidden;
   /* Compensating for the scrollbar's width stops the page shifting sideways
      underneath the modal on desktop. */
-  padding-right: var(--scrollbar-width, 0px);
+  padding-inline-end: var(--scrollbar-width, 0px);
+}
+
+/* ===========================================================================
+   Cart
+   ===========================================================================
+
+   Three surfaces: the button in the header, the add control on a product, and
+   the sheet itself. All of them are written in logical properties, so none of
+   them needs an RTL twin — see the Arabic block near the top of this file. */
+
+/* --- The header button ---------------------------------------------------- */
+
+.cart-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  color: var(--color-deep-burgundy);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cart-button:hover { background: rgb(93 16 29 / 0.07); }
+}
+
+.cart-badge {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-end: 0;
+  min-width: 17px;
+  height: 17px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  /* Restarted on every change by the re-keyed element in CartButton — see the
+     note there about why that is the only reliable way to replay a CSS
+     animation which has already finished once. */
+  animation: cart-badge-pop 0.34s var(--motion-ease-out, cubic-bezier(0.2, 0.8, 0.3, 1));
+}
+
+@keyframes cart-badge-pop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  55%  { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* --- The add control ------------------------------------------------------ */
+
+.add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 999px;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.add-btn-face {
+  font-size: 15px;
+  line-height: 1;
+  /* The plus becomes a tick on add. Without a fixed box the button changes
+     width by a pixel or two as the glyph swaps, which reads as a flinch under
+     the cursor that just clicked it. */
+  width: 1ch;
+  text-align: center;
+}
+
+.add-btn.is-added { background: #2f6b3f; }
+
+@media (hover: hover) and (pointer: fine) {
+  .add-btn:hover { background: #74152a; }
+  .add-btn.is-added:hover { background: #2f6b3f; }
+}
+
+/* Hover-to-reveal, but ONLY where hovering is possible.
+   ----------------------------------------------------
+   Everything in this block is inside `(hover: hover) and (pointer: fine)`, so
+   a touch device never sees a hidden control at all — the default state below
+   the query is "visible", and the query subtracts. Written the other way round
+   — hidden by default, revealed by a hover the device cannot perform — a phone
+   gets a menu it cannot order from, which is the single most common way this
+   interaction is shipped broken.
+
+   Opacity and transform only: both are compositor properties, and this is a
+   hundred and ten rows on one page. Animating width or display here would
+   relayout the row under the cursor. */
+@media (hover: hover) and (pointer: fine) {
+  .menu-item-add,
+  .rail-add {
+    opacity: 0;
+    transform: translateY(4px);
+    transition:
+      opacity var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+      transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+      background-color var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+    /* Deliberately opacity and not `visibility: hidden` or `display: none`: the
+       control must stay focusable, so a keyboard user can tab to it without a
+       pointer ever having been near the row. The focus-within rule below is
+       what brings it back into view when they get there.
+
+       And deliberately NO `pointer-events: none`, which is the obvious
+       companion to hiding something and is wrong here. The control lives inside
+       the element that reveals it, so the cursor cannot be over an invisible
+       one — by the time the pointer reaches the button, the row is hovered and
+       the button is opaque. Adding it created a genuine deadlock instead: the
+       hit test at the button returned the row underneath, so the click landed
+       on the wrong element and the add never fired. */
+  }
+
+  .menu-item:hover .menu-item-add,
+  .menu-item:focus-within .menu-item-add,
+  .rail-item:hover .rail-add,
+  .rail-item:focus-within .rail-add {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* A row that has just been added to keeps its tick on screen for as long as
+     the confirmation lasts, even if the pointer has already moved away. */
+  .menu-item-add.is-added,
+  .rail-add.is-added {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-item-add,
+  .rail-add,
+  .cart-badge {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* --- The add control on a menu row ---------------------------------------- */
+
+/* The row is a price list, not a card: there is nothing to lift and no image to
+   scale. The control sits in the leader space — the one part of the row that is
+   empty by design — so revealing it displaces nothing. */
+.menu-item-add {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 5px 11px;
+  font-size: 11px;
+}
+
+.menu-item-add .add-btn-face { font-size: 13px; }
+
+/* On touch the control is always there, so the row is given a little more room
+   for it not to crowd the name and the price it sits between. */
+@media not all and (hover: hover) {
+  .menu-item { gap: 8px; }
+  .menu-item-add { padding: 4px 9px; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .menu-item {
+    transition: background-color var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+    border-radius: 6px;
+    /* Negative inline margin with matching padding, so the warm background
+       extends past the text without the contents of the row shifting when it
+       appears. */
+    margin-inline: -10px;
+    padding-inline: 10px;
+  }
+  .menu-item:hover { background: rgb(93 16 29 / 0.045); }
+}
+
+/* --- The add control on a best-seller card -------------------------------- */
+
+/* Here there IS a card, so this is the treatment the card deserves: the photo
+   scales inside its frame, the card lifts, and the control rises over the
+   bottom of the image. */
+.rail-item { position: relative; }
+
+/* In normal flow by default, and floated over the photograph only where there
+   is a hover to reveal it.
+   ----------------------------------------------------------------------------
+   This is not a styling preference, it is a tap-target bug. The card is itself
+   a button that opens the product detail, and on a touch device the add control
+   has to be permanently visible — so an absolutely-positioned one sits on top
+   of the card and swallows the taps meant for it. Playwright caught it outright
+   ("<button class=add-btn rail-add> intercepts pointer events"), but a person
+   would only have found it as "tapping the cookie does nothing sometimes",
+   which is far worse.
+
+   So on touch the button is a real block below the card, with its own space and
+   nothing underneath it. On a pointer device it lifts out of the flow onto the
+   photograph, where it is only present while the cursor is on the card and the
+   cursor is precise enough for the two targets not to compete. */
+.rail-add {
+  display: flex;
+  width: 100%;
+  margin-block-start: 12px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rail-add {
+    position: absolute;
+    inset-inline-end: 18px;
+    /* `--card-w` is set on `.bestsellers` and the photograph is square, so the
+       card width is also the photograph's height: this lands the control just
+       inside its lower edge, clear of the name and price below. */
+    top: calc(var(--card-w, 300px) - 56px);
+    width: auto;
+    margin-block-start: 0;
+    z-index: 2;
+    box-shadow: 0 10px 24px -10px rgb(39 19 16 / 0.6);
+  }
+
+  .rail-item .pan-card {
+    transition: transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+  }
+  .rail-item:hover .pan-card { transform: translateY(-4px); }
+  .rail-item .rail-photo img {
+    transition: transform 0.5s var(--motion-ease-out, ease);
+  }
+  .rail-item:hover .rail-photo img { transform: scale(1.045); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-item:hover .pan-card,
+  .rail-item:hover .rail-photo img { transform: none; }
+}
+
+/* --- Build-your-box ------------------------------------------------------- */
+
+.box-order {
+  margin-block-start: 20px;
+  padding: 14px 26px;
+  font-size: 12px;
+}
+
+/* --- The sheet ------------------------------------------------------------ */
+
+.cart-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgb(39 19 16 / 0.42);
+  backdrop-filter: blur(2px);
+  animation: cart-fade 0.24s var(--motion-ease-out, ease);
+}
+
+.cart-panel {
+  position: fixed;
+  z-index: 201;
+  inset-block: 0;
+  /* The trailing edge in both languages: the right of an English page, the
+     left of an Arabic one. */
+  inset-inline-end: 0;
+  width: min(430px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-soft-oat);
+  box-shadow: -18px 0 60px -30px rgb(39 19 16 / 0.75);
+  animation: cart-slide 0.3s var(--motion-ease-out, cubic-bezier(0.2, 0.8, 0.3, 1));
+}
+
+/* On a phone it is a full-height sheet rather than a narrow column.
+   `100dvh`, not `100vh`: on iOS `vh` is measured against the viewport with the
+   browser chrome retracted, so a `100vh` sheet is taller than the screen and
+   its checkout button sits underneath the address bar — reachable only by
+   scrolling a panel that does not look scrollable. */
+@media (max-width: 520px) {
+  .cart-panel {
+    width: 100vw;
+    height: 100dvh;
+  }
+}
+
+@keyframes cart-fade { from { opacity: 0; } }
+@keyframes cart-slide {
+  from { transform: translateX(100%); }
+}
+/* The panel enters from the right in English and from the left in Arabic, and
+   a percentage translate has no idea which. */
+html[dir="rtl"] .cart-panel { animation-name: cart-slide-rtl; }
+@keyframes cart-slide-rtl {
+  from { transform: translateX(-100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cart-overlay,
+  .cart-panel { animation: none; }
+}
+
+.cart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 16px;
+  border-block-end: 1px solid rgb(93 16 29 / 0.12);
+}
+
+.cart-title {
+  font-family: var(--font-display);
+  font-size: 25px;
+  font-weight: 700;
+  color: var(--color-deep-burgundy);
+}
+
+.cart-count {
+  margin-block-start: 2px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.cart-close {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--color-deep-burgundy);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cart-close:hover { background: rgb(93 16 29 / 0.08); }
+}
+
+/* The one scrolling region. The header and the totals are pinned, so the
+   checkout button is reachable however long the list gets. */
+.cart-lines {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 24px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cart-line {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px 12px;
+  padding-block: 14px;
+  border-block-end: 1px solid rgb(93 16 29 / 0.08);
+}
+
+.cart-line-text { grid-column: 1; min-width: 0; }
+
+.cart-line-name {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.cart-line-note,
+.cart-line-unit {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--color-secondary);
+  margin-block-start: 2px;
+}
+
+.cart-line-note { text-transform: uppercase; letter-spacing: 0.06em; }
+
+.cart-qty {
+  grid-column: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid rgb(93 16 29 / 0.2);
+  border-radius: 999px;
+  padding: 2px;
+}
+
+.cart-qty-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--color-deep-burgundy);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cart-qty-btn:hover { background: rgb(93 16 29 / 0.1); }
+}
+
+.cart-qty-value {
+  min-width: 22px;
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  /* Latin digits in both languages — see the note on phone numbers in
+     Footer.tsx. A quantity is a number you compare, not prose. */
+  font-variant-numeric: tabular-nums;
+}
+
+.cart-line-total {
+  grid-column: 3;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-deep-burgundy);
+  white-space: nowrap;
+}
+
+.cart-line-remove {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--color-secondary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cart-line-remove:hover {
+    color: var(--color-deep-burgundy);
+    background: rgb(93 16 29 / 0.08);
+  }
+}
+
+.cart-foot {
+  flex: 0 0 auto;
+  padding: 18px 24px calc(18px + env(safe-area-inset-bottom, 0px));
+  border-block-start: 1px solid rgb(93 16 29 / 0.12);
+  background: var(--color-soft-oat);
+}
+
+.cart-subtotal {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-on-surface);
+  margin-block-end: 14px;
+}
+
+.cart-subtotal strong {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-deep-burgundy);
+}
+
+.cart-checkout {
+  display: block;
+  width: 100%;
+  padding: 15px;
+  border-radius: 4px;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cart-checkout:hover { background: #74152a; }
+}
+
+.cart-handoff-note {
+  margin-block-start: 10px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--color-secondary);
+  text-align: center;
+}
+
+.cart-clear {
+  display: block;
+  margin: 12px auto 0;
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cart-clear:hover { color: var(--color-deep-burgundy); }
+}
+
+.cart-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 32px;
+  text-align: center;
+}
+
+.cart-empty-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-deep-burgundy);
+}
+
+.cart-empty-body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--color-secondary);
+  max-width: 30ch;
+}
+
+.cart-empty-cta {
+  margin-block-start: 14px;
+  padding: 13px 26px;
+  border-radius: 4px;
+  background: var(--color-deep-burgundy);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+/* ===========================================================================
+   Language switch
+   =========================================================================== */
+
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  /* Always Latin order. "EN | AR" reads the same either way, and it has to stay
+     in a stable order so the option a returning visitor reached for last time
+     has not swapped sides on them. */
+  direction: ltr;
+}
+
+.lang-opt {
+  color: var(--color-secondary);
+  padding: 4px 2px;
+  cursor: pointer;
+  transition: color var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+}
+
+.lang-opt.is-active {
+  color: var(--color-deep-burgundy);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1.5px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .lang-opt:hover { color: var(--color-deep-burgundy); }
+}
+
+.lang-sep { color: rgb(93 16 29 / 0.3); }
+
+/* ===========================================================================
+   Checkout, tracking and order history — the editorial pages
+   ===========================================================================
+
+   Ported from Scooby's `ed-*` layer (storefront-src/src/index.css), which is
+   the proven shape for this, and re-skinned to Holland's palette: burgundy for
+   Scooby's brown, oat for its cream, navy for its caramel accent. The class
+   names are kept so the two codebases stay legible side by side.
+
+   The signature of this layout is that the inputs are RULES, not boxes —
+   `border-bottom` only, transparent background. That is what makes the form
+   read as editorial rather than as an admin panel, and it is the single
+   biggest difference from a generic checkout. The summary is likewise a
+   hairline rule under a small-caps heading, not a bordered card.
+
+   Everything is in logical properties, so all of it mirrors in Arabic. */
+
+.ed-page {
+  min-height: 100vh;
+  background: var(--color-soft-oat);
+}
+
+.ed-shell {
+  max-width: 1120px;
+  margin-inline: auto;
+  /* The top pad clears the fixed 88px header. */
+  padding: 88px 48px 96px;
+}
+
+.ed-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: 26px 20px;
+  border-block-end: 1px solid rgb(93 16 29 / 0.1);
+  margin-block-end: 48px;
+}
+
+.ed-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.5px;
+  color: var(--color-deep-burgundy);
+}
+
+.ed-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-deep-burgundy);
+  font-size: 15px;
+  padding: 8px;
+  transition: transform 0.2s, color 0.2s;
+}
+
+.ed-close:hover { color: var(--color-dutch-navy); transform: rotate(90deg); }
+
+.ed-back {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgb(93 16 29 / 0.55);
+  margin-block-end: 30px;
+  transition: color 0.2s;
+}
+
+.ed-back:hover { color: var(--color-dutch-navy); }
+
+/* The arrow points the other way in Arabic. */
+html[dir="rtl"] .ed-back > span[aria-hidden] { display: inline-block; transform: scaleX(-1); }
+
+.ed-tag {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--color-dutch-navy);
+  margin-block-end: 10px;
+}
+
+.ed-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(32px, 4vw, 46px);
+  line-height: 1.1;
+  color: var(--color-deep-burgundy);
+  margin-block-end: 52px;
+}
+
+.ed-grid {
+  display: grid;
+  grid-template-columns: 1.55fr 1fr;
+  gap: 72px;
+  align-items: start;
+}
+
+.ed-empty { max-width: 380px; }
+.ed-empty .ed-ghost { text-align: start; margin-block-start: 18px; }
+
+/* --- Summary column ------------------------------------------------------- */
+
+.ed-summary {
+  border-block-start: 1px solid var(--color-deep-burgundy);
+  padding-block-start: 18px;
+  position: sticky;
+  /* Clears the fixed header rather than Scooby's bare 40px — this site has one
+     and Scooby's checkout overlay does not. */
+  top: calc(88px + 24px);
+}
+
+.ed-summary h3 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--color-deep-burgundy);
+  margin-block-end: 16px;
+}
+
+.ed-srow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  padding-block: 6px;
+  color: rgb(93 16 29 / 0.7);
+}
+
+.ed-srow.discount { color: #1e8e50; }
+
+.ed-srow.total {
+  border-block-start: 1px solid rgb(93 16 29 / 0.15);
+  margin-block-start: 10px;
+  padding-block-start: 14px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-deep-burgundy);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.ed-btn {
+  display: block;
+  width: 100%;
+  margin-block-start: 24px;
+  background: var(--color-deep-burgundy);
+  color: var(--color-soft-oat);
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  padding: 17px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  text-align: center;
+  transition: background 0.2s;
+}
+
+.ed-btn:hover:enabled { background: var(--color-dutch-navy); }
+.ed-btn:disabled { opacity: 0.6; cursor: wait; }
+
+.ed-ghost {
+  display: block;
+  width: 100%;
+  margin-block-start: 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgb(93 16 29 / 0.5);
+  text-align: center;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  transition: color 0.2s;
+}
+
+.ed-ghost:hover { color: var(--color-deep-burgundy); }
+
+.ed-fine {
+  margin-block-start: 24px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgb(93 16 29 / 0.5);
+}
+
+/* --- Form ----------------------------------------------------------------- */
+
+.ed-field { margin-block-end: 26px; }
+
+.ed-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgb(93 16 29 / 0.55);
+  margin-block-end: 6px;
+}
+
+/* Arabic has no capitals and the wide tracking pulls its joins apart. */
+html[dir="rtl"] .ed-label,
+html[dir="rtl"] .ed-tag,
+html[dir="rtl"] .ed-summary h3,
+html[dir="rtl"] .ed-srow.total,
+html[dir="rtl"] .ed-btn,
+html[dir="rtl"] .ed-back,
+html[dir="rtl"] .ed-ghost,
+html[dir="rtl"] .ed-apply { letter-spacing: 0; }
+
+.ed-input,
+.ed-select,
+.ed-textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-block-end: 1px solid rgb(93 16 29 / 0.25);
+  border-radius: 0;
+  padding-block: 10px;
+  padding-inline: 0;
+  font-family: inherit;
+  /* 16px on touch. iOS Safari zooms the page when a focused input is smaller
+     than this and does not zoom back out on blur. */
+  font-size: 16px;
+  color: var(--color-deep-burgundy);
+  outline: none;
+  transition: border-color 0.2s;
+  resize: none;
+}
+
+@media (min-width: 768px) {
+  .ed-input, .ed-select, .ed-textarea { font-size: 15px; }
+}
+
+.ed-input:focus,
+.ed-select:focus,
+.ed-textarea:focus { border-block-end-color: var(--color-dutch-navy); }
+
+.ed-input::placeholder,
+.ed-textarea::placeholder { color: rgb(93 16 29 / 0.3); }
+
+.ed-field.has-error .ed-input,
+.ed-field.has-error .ed-select,
+.ed-field.has-error .ed-textarea { border-block-end-color: #c0392b; }
+
+.ed-select {
+  appearance: none;
+  cursor: pointer;
+  /* One SVG chevron rather than two overlapping CSS gradients. The gradient
+     trick needs its two halves to meet exactly, and at this size they did not
+     — it rendered as a pair of stray marks beside the value. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235D101D' stroke-opacity='0.55' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 10px 6px;
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+  padding-inline-end: 22px;
+}
+
+html[dir="rtl"] .ed-select {
+  background-position: left 2px center;
+  padding-inline-end: 0;
+  padding-inline-start: 22px;
+}
+
+.ed-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; }
+
+.ed-error { color: #c0392b; font-size: 12px; margin-block-start: 6px; }
+
+.ed-note {
+  margin-block-start: 10px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: rgb(93 16 29 / 0.55);
+}
+
+.ed-choice { display: flex; gap: 12px; margin-block-start: 4px; }
+
+.ed-choice button {
+  flex: 1 1 0;
+  background: none;
+  cursor: pointer;
+  border: 1px solid rgb(93 16 29 / 0.25);
+  border-radius: 2px;
+  padding: 13px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgb(93 16 29 / 0.6);
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.ed-choice button:hover { border-color: var(--color-deep-burgundy); color: var(--color-deep-burgundy); }
+
+.ed-choice button.active {
+  border-color: var(--color-deep-burgundy);
+  background: var(--color-deep-burgundy);
+  color: var(--color-soft-oat);
+}
+
+html[dir="rtl"] .ed-choice button { letter-spacing: 0; }
+
+.ed-pay { margin-block-start: 4px; }
+
+.ed-pay label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0;
+  border-block-end: 1px solid rgb(93 16 29 / 0.12);
+  cursor: default;
+}
+
+.ed-pay input { accent-color: var(--color-deep-burgundy); }
+
+.ed-pay-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(93 16 29 / 0.75);
+}
+
+.ed-pay label.active .ed-pay-label { color: var(--color-deep-burgundy); font-weight: 600; }
+
+.ed-pay-sub {
+  margin-inline-start: auto;
+  font-size: 12px;
+  color: rgb(93 16 29 / 0.4);
+  text-align: end;
+}
+
+/* --- Summary items + promo ------------------------------------------------ */
+
+.ed-sum-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-block: 10px;
+  border-block-end: 1px solid rgb(93 16 29 / 0.08);
+}
+
+.ed-sum-item.is-gone { opacity: 0.5; }
+
+.ed-sum-thumb {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  background: rgb(93 16 29 / 0.07);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.ed-sum-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+
+.ed-sum-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ed-sum-info span { font-size: 13.5px; font-weight: 500; color: var(--color-deep-burgundy); }
+.ed-sum-info small { font-size: 12px; color: rgb(93 16 29 / 0.45); }
+.ed-sum-price { font-size: 13px; font-weight: 600; color: var(--color-deep-burgundy); white-space: nowrap; }
+
+.ed-promo { display: flex; align-items: flex-end; gap: 12px; margin-block-start: 16px; }
+.ed-promo .ed-field { flex: 1; margin-block-end: 0; }
+.ed-promo .ed-input { text-transform: uppercase; font-size: 13px; }
+.ed-promo .ed-input::placeholder { text-transform: none; }
+
+.ed-apply {
+  background: none;
+  cursor: pointer;
+  border: 1px solid rgb(93 16 29 / 0.3);
+  border-radius: 2px;
+  padding: 9px 18px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--color-deep-burgundy);
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.ed-apply:hover:enabled {
+  background: var(--color-deep-burgundy);
+  color: var(--color-soft-oat);
+  border-color: var(--color-deep-burgundy);
+}
+
+.ed-apply:disabled { opacity: 0.5; cursor: wait; }
+
+.ed-promo-msg { font-size: 12px; margin-block-start: 8px; }
+.ed-promo-msg.ok { color: #1e8e50; }
+.ed-promo-msg.bad { color: #c0392b; }
+
+.ed-alert {
+  padding: 14px 16px;
+  margin-block-end: 22px;
+  border-inline-start: 3px solid #c0392b;
+  background: rgb(192 57 43 / 0.07);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #8d2a20;
+}
+
+@media (max-width: 860px) {
+  .ed-shell { padding: 88px 22px 64px; }
+  .ed-top { margin-block-end: 32px; }
+  .ed-title { margin-block-end: 32px; }
+  .ed-grid { grid-template-columns: 1fr; gap: 44px; }
+  /* Sticky is meaningless in one column and would pin the summary over the
+     form the customer is filling in. */
+  .ed-summary { position: static; }
+  .ed-2col { gap: 22px; }
+}
+
+@media (max-width: 520px) {
+  .ed-2col { grid-template-columns: 1fr; }
+  .ed-choice { flex-direction: column; }
+}
+
+/* --- Order placed --------------------------------------------------------- */
+
+.ed-placed { max-width: 560px; }
+
+.ed-placed-tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: #1e8e50;
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+  margin-block-end: 20px;
+}
+
+/* Large, selectable, and left-to-right in both languages: this is the string a
+   customer reads down a phone and types into the tracking form. */
+.ed-ref {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-deep-burgundy);
+  user-select: all;
+  margin-block: 4px 24px;
+}
+
+/* --- Tracking ------------------------------------------------------------- */
+
+.ed-steps { display: flex; flex-direction: column; gap: 2px; margin-block-end: 28px; }
+
+.ed-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block: 9px;
+  font-size: 13.5px;
+  color: rgb(93 16 29 / 0.55);
+}
+
+.ed-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid rgb(93 16 29 / 0.25);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.ed-step.is-done { color: var(--color-deep-burgundy); font-weight: 600; }
+.ed-step.is-done .ed-step-dot { background: #1e8e50; border-color: #1e8e50; color: #fff; }
+
+/* --- Order history -------------------------------------------------------- */
+
+.ed-order {
+  padding-block: 18px;
+  border-block-end: 1px solid rgb(93 16 29 / 0.1);
+}
+
+.ed-order-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ed-order-ref {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--color-deep-burgundy);
+}
+
+.ed-order-status {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgb(93 16 29 / 0.55);
+}
+
+.ed-order-status.is-completed { color: #1e8e50; }
+.ed-order-status.is-cancelled { color: #c0392b; }
+
+.ed-order-meta,
+.ed-order-items {
+  margin-block-start: 6px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: rgb(93 16 29 / 0.55);
+}
+
+.ed-order-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-start: 10px;
+}
+
+.ed-order-foot strong { font-size: 15px; color: var(--color-deep-burgundy); }
+
+.ed-order-foot a {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--color-deep-burgundy);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* The signed-in marker on the account button. Deliberately a dot rather than a
+   name: the header has no room for one, and the only question it has to answer
+   at a glance is whether you are signed in. */
+.account-dot {
+  position: absolute;
+  inset-block-start: 6px;
+  inset-inline-end: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #1e8e50;
+  /* Ringed in the page colour so it reads as a badge on the icon rather than a
+     speck floating over it, on both the transparent and the solid header. */
+  box-shadow: 0 0 0 2px var(--color-soft-oat);
+}
+
+/* ===========================================================================
+   Order tracking
+   ===========================================================================
+
+   Ported from Scooby's track page and re-skinned: a white summary card on the
+   oat ground, then a vertical timeline whose marks are joined by a connector,
+   then the lines. The timestamps beside each step are the point of the whole
+   screen — a list of step names tells a customer nothing they could not guess.
+
+   Logical properties throughout, so the whole thing mirrors in Arabic. */
+
+.trk-card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 22px 24px;
+  margin-block-end: 30px;
+  box-shadow: 0 1px 0 rgb(93 16 29 / 0.06), 0 10px 30px -22px rgb(39 19 16 / 0.35);
+}
+
+.trk-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 12px;
+}
+
+.trk-ref {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+  color: var(--color-deep-burgundy);
+}
+
+.trk-badge {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgb(93 16 29 / 0.09);
+  color: var(--color-deep-burgundy);
+}
+
+html[dir="rtl"] .trk-badge { letter-spacing: 0; }
+
+.trk-badge.is-pickup { background: rgb(26 35 126 / 0.1); color: var(--color-dutch-navy); }
+.trk-badge.is-cancelled { background: rgb(192 57 43 / 0.1); color: #b3261e; }
+
+.trk-line {
+  font-size: 14px;
+  line-height: 1.65;
+  color: rgb(93 16 29 / 0.62);
+}
+
+.trk-total {
+  margin-block-start: 10px;
+  font-size: 15px;
+  color: rgb(93 16 29 / 0.62);
+}
+
+.trk-total strong { color: var(--color-deep-burgundy); font-weight: 700; }
+
+/* --- The timeline --------------------------------------------------------- */
+
+.trk-steps { margin-block-end: 30px; }
+
+.trk-step { display: flex; gap: 14px; }
+
+/* The mark and the connector share a column, so the line runs from the centre
+   of one mark to the centre of the next without any magic offsets. */
+.trk-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.trk-mark {
+  display: flex;
+  color: rgb(93 16 29 / 0.28);
+  transition: color 0.2s ease;
+}
+
+.trk-step.is-done .trk-mark { color: #1e8e50; }
+
+/* `flex: 1` rather than a fixed height: the row's height is set by its text,
+   which is one line or two depending on whether the step has a timestamp. */
+.trk-connector {
+  flex: 1;
+  width: 1.5px;
+  min-height: 18px;
+  background: rgb(93 16 29 / 0.18);
+}
+
+.trk-connector.is-done { background: #1e8e50; }
+
+.trk-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-block: 1px 22px;
+}
+
+.trk-step-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgb(93 16 29 / 0.45);
+}
+
+.trk-step.is-done .trk-step-name { color: var(--color-deep-burgundy); }
+
+.trk-step-at {
+  font-size: 13px;
+  color: rgb(93 16 29 / 0.5);
+  /* Tabular, so a column of times lines up down the timeline. */
+  font-variant-numeric: tabular-nums;
+}
+
+.trk-cancelled {
+  padding: 18px 20px;
+  margin-block-end: 30px;
+  border-radius: 12px;
+  background: rgb(192 57 43 / 0.07);
+  border-inline-start: 3px solid #c0392b;
+}
+
+.trk-cancelled-title {
+  font-weight: 700;
+  color: #8d2a20;
+  margin-block-end: 4px;
+}
+
+/* --- The lines ------------------------------------------------------------ */
+
+.trk-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-block: 20px;
+  border-block-start: 1px solid rgb(93 16 29 / 0.12);
+}
+
+.trk-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 14px;
+  color: var(--color-on-surface);
+}
+
+.trk-items li span:last-child {
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--color-deep-burgundy);
+}
+
+/* ===========================================================================
+   The receipt printer
+   ===========================================================================
+
+   The order confirmation, built to the reference recording: a card that feeds a
+   paper receipt out of a slot along its bottom edge.
+
+   The mechanic is one transform on one element. `.rcpt-feed` is a clipping box
+   whose top edge IS the slot; the paper inside it starts at `translateY(-100%)`
+   — entirely above the box, therefore invisible — and animates to
+   `translateY(0)`. That order matters: it is what makes the *bottom* of the
+   receipt emerge first, so the barcode and the torn edge appear before the
+   lines above them, exactly as paper leaves a printer. Animating the other way
+   reads as a panel sliding down, which is a completely different gesture.
+
+   Only `transform` animates, so the whole feed runs on the compositor and never
+   touches layout. */
+
+.rcpt-page {
+  min-height: 100vh;
+  background: var(--color-soft-oat);
+  padding: calc(88px + 40px) 20px 96px;
+  font-family: var(--font-body);
+}
+
+.rcpt-stage {
+  max-width: 420px;
+  margin-inline: auto;
+  /* The strip of machine below the slot that the paper falls over, and the
+     height of the slot itself. The feed is pulled up by the lip so its top
+     lands on the slot. */
+  --rcpt-lip: 22px;
+  --rcpt-mouth-h: 8px;
+}
+
+/* --- The printer ---------------------------------------------------------- */
+
+/* Behind the paper, not in front of it.
+   ------------------------------------
+   This is the whole fix. With the card above, its background covered the slot,
+   so the sheet could only ever appear *below* the entire bar — which read as a
+   second card sliding out from underneath rather than paper leaving a port.
+   Now the paper comes out of the opening and drapes down over the card's lower
+   lip, which is what a receipt actually does. */
+.rcpt-card {
+  position: relative;
+  z-index: 1;
+  border-radius: 22px;
+  /* The lip: the strip of machine below the slot that the paper falls over. */
+  padding: 14px 14px 22px;
+  background: linear-gradient(180deg, #6a1524 0%, var(--color-deep-burgundy) 100%);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.08) inset,
+    0 18px 40px -24px rgb(39 12 18 / 0.75);
+}
+
+.rcpt-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px 14px;
+}
+
+.rcpt-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255 / 0.85);
+}
+
+.rcpt-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  transition: background 0.2s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rcpt-home:hover { background: rgb(255 255 255 / 0.2); }
+}
+
+.rcpt-panel {
+  border-radius: 15px;
+  padding: 18px 18px 16px;
+  background: rgb(0 0 0 / 0.22);
+}
+
+.rcpt-panel-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rcpt-plan {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.rcpt-plan-sub {
+  margin-block-start: 2px;
+  font-size: 13px;
+  color: rgb(255 255 255 / 0.62);
+}
+
+.rcpt-total-block { text-align: end; flex-shrink: 0; }
+
+.rcpt-total-label {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.55);
+}
+
+html[dir="rtl"] .rcpt-total-label { letter-spacing: 0; }
+
+.rcpt-total-value {
+  font-size: 21px;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.rcpt-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-block-start: 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.8);
+}
+
+/* A ring that spins while printing, a filled dot once it is done — so the two
+   states differ in shape as well as colour. */
+.rcpt-status-dot {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 2px solid rgb(255 255 255 / 0.35);
+  border-block-start-color: #fff;
+  animation: rcpt-spin 0.9s linear infinite;
+}
+
+.rcpt-status-dot.is-done {
+  border-color: #35c46b;
+  background: #35c46b;
+  animation: none;
+}
+
+@keyframes rcpt-spin { to { transform: rotate(360deg); } }
+
+/* The output slot.
+   ----------------
+   A full-width bar forming the card's bottom edge, with a dark groove down its
+   middle — so the paper is seen to leave the card through the groove rather
+   than to appear from behind a solid lip. It was previously a short bar
+   floating 9px above the card's bottom, which left a visible band of card
+   between the "slot" and the place the paper actually emerged; the paper read
+   as sliding out from underneath the whole card. */
+/* --- The paper ------------------------------------------------------------ */
+
+/* The clipping box.
+   -----------------
+   Pulled up over the card's lip and painted above it, so its top edge sits at
+   the slot. The paper inside is therefore visible from the slot downwards and
+   passes in front of the lip on its way out.
+
+   Inset from the card's edges, because the paper is narrower than the machine
+   that prints it. */
+.rcpt-feed {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  margin-block-start: calc(-1 * var(--rcpt-lip));
+  margin-inline: 26px;
+}
+
+/* The slot itself: a dark gap across the top of the feed, drawn OVER the paper
+   so the sheet's leading edge slides up underneath it and out of sight. That is
+   what makes the paper look like it is coming through an opening rather than
+   starting at one. */
+.rcpt-mouth {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  top: 0;
+  height: var(--rcpt-mouth-h);
+  background: #170509;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.08),
+    0 3px 6px rgb(0 0 0 / 0.55) inset;
+}
+
+/* The machine's shadow falling on the paper just below the slot. Fixed to the
+   feed rather than to the sheet, so it stays at the opening while the paper
+   travels through it — a shade attached to the paper would slide down with it,
+   which is not how a shadow works. */
+.rcpt-feed::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  inset-inline: 0;
+  top: var(--rcpt-mouth-h);
+  height: 14px;
+  background: linear-gradient(180deg, rgb(23 5 9 / 0.42), rgb(23 5 9 / 0));
+  pointer-events: none;
+}
+
+.rcpt-paper {
+  position: relative;
+  filter: drop-shadow(0 14px 22px rgb(39 19 16 / 0.28));
+  transform: translateY(-100%);
+  animation-name: rcpt-feed;
+  /* Duration and step count are set from the component, which measures the
+     rendered sheet: one step per printed line. These are the fallbacks for the
+     moment before that runs. A real platen advances at a constant line rate, so
+     there is no easing — an ease-out would read as the paper being placed
+     rather than driven. */
+  animation-duration: 2200ms;
+  animation-timing-function: steps(28, end);
+  animation-fill-mode: forwards;
+}
+
+@keyframes rcpt-feed {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+/* Reduced motion: the receipt is simply there. It is a confirmation, and
+   nobody should have to sit through two seconds of paper feed to read the
+   reference number they came for. */
+.rcpt-paper.is-instant {
+  transform: none;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rcpt-paper { transform: none; animation: none; }
+  .rcpt-status-dot { animation: none; }
+}
+
+.rcpt-brand {
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.rcpt-brand-sub {
+  text-align: center;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: rgb(74 58 51 / 0.6);
+  margin-block-end: 14px;
+}
+
+.rcpt-rule {
+  border-block-start: 1px dashed rgb(74 58 51 / 0.3);
+  margin-block: 10px;
+}
+
+.rcpt-lines { display: flex; flex-direction: column; gap: 3px; }
+
+.rcpt-lines li,
+.rcpt-meta li,
+.rcpt-paid {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+/* The right column is money and reads down the receipt, so it aligns. */
+.rcpt-lines li span:last-child,
+.rcpt-paid span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.rcpt-lines li span:first-child { min-width: 0; }
+
+.rcpt-paid {
+  margin-block-start: 10px;
+  padding-block: 9px;
+  border-block: 1px solid rgb(74 58 51 / 0.45);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.rcpt-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-block-start: 14px;
+  color: rgb(74 58 51 / 0.72);
+}
+
+/* --- Barcode -------------------------------------------------------------- */
+
+.rcpt-barcode {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  height: 42px;
+  margin-block-start: 18px;
+}
+
+.rcpt-barcode i { display: block; height: 100%; background: #4a3a33; }
+
+.rcpt-barcode-text {
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  color: rgb(74 58 51 / 0.65);
+  margin-block-start: 5px;
+}
+
+/* --- The sheet, and its torn edge ----------------------------------------- */
+
+/* Two mask layers: everything above the teeth is solid, and the bottom strip is
+   a row of triangles. Masking the paper is what makes the teeth *cut* it — a
+   zigzag painted on top in the page colour would have to be kept in step with
+   the background and would be wrong the moment anything sat behind it. */
+.rcpt-sheet {
+  position: relative;
+  --tear: 13px;
+  --tear-h: 9px;
+  padding: 20px 20px calc(28px + var(--tear-h));
+  background: #fdfbf6;
+  color: #4a3a33;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.75;
+  -webkit-mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tear-h)) no-repeat,
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg)
+      bottom / var(--tear) var(--tear-h) repeat-x;
+  mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tear-h)) no-repeat,
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg)
+      bottom / var(--tear) var(--tear-h) repeat-x;
+}
+
+/* --- What follows --------------------------------------------------------- */
+
+/* Held back until the paper has finished, so the confirmation is read before
+   the next action is offered. */
+.rcpt-actions {
+  margin-block-start: 30px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.rcpt-actions.is-in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rcpt-actions { transition: none; }
 }

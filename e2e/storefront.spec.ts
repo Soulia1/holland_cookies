@@ -24,8 +24,8 @@ test("the homepage loads with every section and no console errors", async ({ pag
 
   await expect(page.locator("h1")).toContainText("Your Cookie Party");
   await expect(page.locator("#menu")).toBeVisible();
+  await expect(page.locator("#boxes")).toBeVisible();
   await expect(page.locator("#craft")).toBeVisible();
-  await expect(page.locator("#visit")).toBeVisible();
   await expect(page.locator("footer")).toBeVisible();
 
   expect(errors, `console errors: ${errors.join(" | ")}`).toEqual([]);
@@ -49,16 +49,15 @@ test("all three menu cards reveal on scroll", async ({ page }) => {
   const cards = page.locator(".pan-card");
   await expect(cards).toHaveCount(3);
 
-  // Each card is scrolled past in turn. On a phone the grid collapses to one
-  // column, so the three cards are spread over more than a screen — bringing
-  // only the section heading into view leaves the lower two below the fold,
-  // correctly unrevealed. Walking them is what makes this test mean the same
-  // thing at every viewport.
+  // Each card is brought into view in turn, and `scrollIntoViewIfNeeded` is
+  // load-bearing rather than convenience: the cards live in a horizontal rail,
+  // so the third is off the right edge of its own scroll container at most
+  // viewports. An IntersectionObserver clips against every ancestor scroller, so
+  // a card outside the rail genuinely is not intersecting and correctly has not
+  // revealed — scrolling the *page* to it would prove nothing. This moves both
+  // axes, which is what a visitor reaching that card does too.
   for (let i = 0; i < 3; i += 1) {
-    await cards.nth(i).evaluate((el) => {
-      const y = el.getBoundingClientRect().top + window.scrollY;
-      window.scrollTo({ top: y - 200, behavior: "instant" as ScrollBehavior });
-    });
+    await cards.nth(i).scrollIntoViewIfNeeded();
     await expect(cards.nth(i)).toBeVisible();
   }
 
@@ -237,36 +236,42 @@ test("under reduced motion neither turn runs, and nothing is left hidden behind 
   }
 });
 
-test("a card the viewport jumps clean past still reveals", async ({ page }) => {
+test("content the viewport jumps clean past still reveals", async ({ page }) => {
   await page.goto("/", { waitUntil: "load" });
   await ready(page);
 
-  // One instantaneous move, from the top of the page to the last card. That
-  // carries the FIRST card from below the viewport to above it inside a single
-  // frame, so it never intersects.
+  // One instantaneous move, from the top of the page to Our Craft — the last
+  // section. That carries Build Your Box from below the viewport to above it
+  // inside a single frame, so neither of its two revealed blocks ever
+  // intersects.
   //
   // An IntersectionObserver reports where its targets are when it delivers, not
   // every position they passed through, so a target that is below on one
   // delivery and above on the next crosses no threshold and gets no callback at
-  // all. Before reveal.tsx swept for this, that card stayed at opacity 0 for the
-  // life of the page — content permanently hidden behind an effect that never
-  // ran. It is the same failure the header hit with a 1px sentinel.
-  await page.locator(".pan-card").last().evaluate((el) => {
+  // all. Before reveal.tsx swept for this, those blocks stayed at opacity 0 for
+  // the life of the page — content permanently hidden behind an effect that
+  // never ran. It is the same failure the header hit with a 1px sentinel.
+  //
+  // The jump used to land on the Visit section, which sat below Our Craft. That
+  // section is gone and Our Craft is now last, so the move is one section
+  // earlier and the skipped content is Build Your Box. Landing on the footer
+  // instead would prove nothing: the footer holds no revealed elements, so the
+  // delivery that triggers the sweep would never happen and the assertion would
+  // fail whether the sweep worked or not.
+  await page.locator("#craft").evaluate((el) => {
     const y = el.getBoundingClientRect().top + window.scrollY;
-    window.scrollTo({ top: y - 200, behavior: "instant" as ScrollBehavior });
+    window.scrollTo({ top: y, behavior: "instant" as ScrollBehavior });
   });
 
   await expect
     .poll(
       async () =>
-        page.locator(".pan-card").evaluateAll((nodes) =>
-          Math.min(
-            ...nodes.map((n) =>
-              Number(getComputedStyle(n.parentElement as Element).opacity),
-            ),
-          ),
+        page.locator("#boxes .boxes-head, #boxes .boxes-grid").evaluateAll((nodes) =>
+          nodes.length === 0
+            ? -1
+            : Math.min(...nodes.map((n) => Number(getComputedStyle(n).opacity))),
         ),
-      { timeout: 5000, message: "a jumped-past card never revealed" },
+      { timeout: 6000, message: "jumped-past content never revealed" },
     )
     .toBeGreaterThan(0.9);
 });
@@ -363,7 +368,7 @@ test("anchor navigation reaches each section", async ({ page }) => {
   await page.goto("/", { waitUntil: "load" });
   await ready(page);
 
-  for (const id of ["menu", "craft", "visit"]) {
+  for (const id of ["menu", "boxes", "craft"]) {
     await page.evaluate((target) => {
       document.getElementById(target)?.scrollIntoView();
     }, id);
@@ -425,7 +430,7 @@ test.describe("phone", () => {
   test("no horizontal overflow anywhere down the page", async ({ page }) => {
     await page.goto("/", { waitUntil: "load" });
     await ready(page);
-    for (const id of ["menu", "craft", "visit"]) {
+    for (const id of ["menu", "boxes", "craft"]) {
       await page.evaluate((t) => document.getElementById(t)?.scrollIntoView(), id);
       await page.waitForTimeout(200);
       const overflows = await page.evaluate(

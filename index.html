@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,6 +10,43 @@
       content="Thick, hand-stuffed pans of soft cookie dough and warm chocolate, baked to order in Cairo. Pickup in Nasr City or same-day delivery across greater Cairo."
     />
     <meta name="theme-color" content="#FAF7F2" />
+
+    <!-- Language, resolved before the first paint.
+         =========================================
+         The React provider in src/lib/i18n.tsx is the owner of this state, but
+         it cannot be the one to *apply* it: by the time a component effect
+         runs, the browser has already painted an LTR document, and an Arabic
+         visitor sees the whole page flip a frame after it appears. So the
+         stored choice is read and applied here, inline, before anything is
+         painted — the same reasoning that puts the splash markup in the
+         document rather than in the bundle.
+
+         The Arabic faces are requested from here too, and only for an Arabic
+         visitor. Latin faces have no Arabic glyphs, so without this the page
+         would render Arabic in whatever the OS falls back to — Segoe UI on
+         Windows, Geeza Pro on iOS — and the identity would quietly disappear
+         in exactly one of the two languages. An English visitor pays nothing
+         for them; i18n.tsx injects the same link if they switch at runtime. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("holland-lang");
+          if (stored !== "ar" && stored !== "en") stored = "en";
+          document.documentElement.lang = stored;
+          document.documentElement.dir = stored === "ar" ? "rtl" : "ltr";
+          if (stored === "ar") {
+            var link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.id = "arabic-fonts";
+            link.href =
+              "https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap";
+            document.head.appendChild(link);
+          }
+        } catch (e) {
+          /* private mode: fall through to the document's own lang/dir */
+        }
+      })();
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

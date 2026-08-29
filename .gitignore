@@ -7,3 +7,7 @@ playwright-report/
 .env
 .env.*
 !.env.example
+data/
+dist-dashboard/
+*.db
+shot-*.png

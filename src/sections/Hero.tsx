@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import CrumbField from "@/components/CrumbField";
+import { useLang } from "@/lib/i18n";
+import { Link } from "@/lib/router";
 import { useCapability } from "@/lib/motion/useCapability";
 import { holdSplash, setSplashProgress, type SplashExitReason } from "@/lib/splash";
 
@@ -68,6 +70,7 @@ const SCROLL_SPIN_DEG = 26;
 const PAN_PNG = "/img/cookie-plate.png";
 
 export default function Hero() {
+  const { t } = useLang();
   const [ready, setReady] = useState(false);
   const { reduced } = useCapability();
   const panRef = useRef<HTMLImageElement>(null);
@@ -197,17 +200,14 @@ export default function Hero() {
           be told what this place sells. */}
       <div className={`hero-copy ${ready ? "is-in" : ""}`}>
         <h1 className="hero-title">
-          Your Cookie Party
+          {t.heroTitleLine1}
           <br />
-          Starts Here!
+          {t.heroTitleLine2}
         </h1>
-        <p className="hero-sub">
-          Gather your friends and family around the warmest pan in Cairo. Hand-stuffed
-          with molten chocolate, baked to order and delivered hot.
-        </p>
-        <a className="hero-cta btn" href="#menu">
-          View Our Menu
-        </a>
+        <p className="hero-sub">{t.heroSub}</p>
+        <Link className="hero-cta btn" href="/menu">
+          {t.heroCta}
+        </Link>
       </div>
 
       {/* The pan.
@@ -232,7 +232,7 @@ export default function Hero() {
               <img
                 ref={panRef}
                 src={PAN_PNG}
-                alt="A thick chocolate chip cookie pie in an aluminium pan, its surface pooled with melted milk chocolate."
+                alt={t.heroPanAlt}
                 className="hero-pan"
                 width={762}
                 height={762}

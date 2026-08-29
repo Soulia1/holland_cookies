@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -9,6 +10,24 @@ export default defineConfig({
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
+  },
+  // The API runs as its own process in development. In production the Express
+  // server serves this bundle and the API from one origin, so nothing is
+  // proxied and `VITE_API_BASE` stays empty.
+  server: {
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:3000",
+        changeOrigin: true,
+      },
+    },
+  },
+  // Unit tests only. `e2e/` is Playwright — its `test()` is a different function
+  // with a different signature, and Vitest collecting those files reports three
+  // spurious failures that have nothing to do with the code under test.
+  test: {
+    include: ["src/**/*.test.{ts,tsx}"],
+    environment: "node",
   },
   build: {
     target: "es2020",

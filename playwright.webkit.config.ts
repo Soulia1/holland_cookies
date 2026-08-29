@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /(splash-lifecycle|storefront)\.spec\.ts$/,
+  testMatch: /(splash-lifecycle|storefront|menu|bilingual-cart)\.spec\.ts$/,
   timeout: 45_000,
   workers: 1,
   retries: 0,
