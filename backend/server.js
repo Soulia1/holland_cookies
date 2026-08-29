@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { EOL } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import compression from 'compression';
@@ -188,17 +189,69 @@ app.use((error, _req, res, _next) => {
 
 const port = Number(process.env.PORT) || 3000;
 
-if (process.env.NODE_ENV !== 'test') {
+/**
+ * Boot checks.
+ *
+ * Each of these is about a failure that is silent and expensive rather than
+ * loud and cheap, so it is shouted about at start-up instead of being
+ * discovered later by a customer.
+ */
+async function boot() {
   if (isAdminAuthDisabled()) {
     console.warn('[holland] Admin authentication is disabled for local development.');
   } else if (!process.env.ADMIN_KEY) {
-    // Fail loudly at boot rather than at the first sign-in attempt: a server
-    // running with no admin key is a dashboard nobody can ever get into.
+    // Loud at boot rather than at the first sign-in attempt: a server running
+    // with no admin key is a dashboard nobody can ever get into.
     console.error('[holland] ADMIN_KEY is not set — the dashboard will be unreachable.');
   }
-  db.get();
+
+  const database = db.get();
+
+  // ── Is the database on storage that survives a deploy? ──────────────────
+  //
+  // SQLite is a file, and a container's filesystem is thrown away every time it
+  // is rebuilt. Without a mounted volume the shop loses every order and every
+  // customer on the next deploy, and nothing anywhere says so — the site simply
+  // comes back looking brand new. That is the worst possible way to find out.
+  const dbPath = db.currentPath();
+  const volume = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  const onVolume = Boolean(volume) && dbPath.startsWith(volume);
+  if (process.env.NODE_ENV === 'production' && !onVolume && dbPath !== ':memory:') {
+    console.error([
+      '',
+      '[holland] ***************************************************************',
+      `[holland] The database is at ${dbPath}, which is NOT on a mounted volume.`,
+      '[holland] Every order and customer will be LOST on the next deploy.',
+      '[holland] Attach a volume and point DATABASE_PATH at a file inside it.',
+      '[holland] ***************************************************************',
+      '',
+    ].join(EOL));
+  }
+
+  // ── A fresh volume has no menu ──────────────────────────────────────────
+  //
+  // Seeded on first boot only. `seed()` is idempotent and never overwrites an
+  // edited price, so running it again would be harmless; the guard just avoids
+  // the work and the log line on an established database.
+  const products = database.prepare('SELECT COUNT(*) AS count FROM products').get().count;
+  if (products === 0) {
+    const { seed } = await import('./seed.js');
+    const result = await seed();
+    console.log(
+      `[holland] empty catalogue — seeded ${result.products} products `
+      + `across ${result.categories} categories`,
+    );
+  }
+
   app.listen(port, () => {
-    console.log(`[holland] listening on http://127.0.0.1:${port}`);
+    console.log(`[holland] listening on port ${port}`);
+  });
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  boot().catch((error) => {
+    console.error('[holland] failed to start:', error);
+    process.exit(1);
   });
 }
 

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run build:storefront && npm run build:dashboard",
+    "start": "node backend/server.js",
     "preview": "vite preview --port 4173",
     "typecheck": "tsc --noEmit && tsc --noEmit -p dashboard-src/tsconfig.json",
     "test:e2e": "playwright test",
