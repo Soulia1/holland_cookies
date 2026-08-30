@@ -11,6 +11,13 @@
 #
 # `--include=dev` makes the install unconditional, so the two settings stop
 # interacting.
+#
+# better-sqlite3 also compiles a native binding at install time via
+# node-gyp, which needs python3 and a C++ toolchain — neither is in the
+# base Nixpacks Node image, so they're added explicitly below.
+
+[phases.setup]
+nixPkgs = ["python3", "gcc", "gnumake"]
 
 [phases.install]
 cmds = ["npm ci --include=dev"]
