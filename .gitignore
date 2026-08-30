@@ -7,7 +7,9 @@ playwright-report/
 .env
 .env.*
 !.env.example
-data/
+# Leading slash matters: an unanchored `data/` also matches src/data/,
+# which is source, not the SQLite directory this is meant to ignore.
+/data/
 dist-dashboard/
 *.db
 shot-*.png
