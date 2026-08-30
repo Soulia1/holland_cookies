@@ -15,9 +15,14 @@
 # better-sqlite3 also compiles a native binding at install time via
 # node-gyp, which needs python3 and a C++ toolchain — neither is in the
 # base Nixpacks Node image, so they're added explicitly below.
+#
+# These go through aptPkgs rather than nixPkgs: declaring nixPkgs here
+# would replace the Node provider's own setup phase outright (it also sets
+# nixPkgs), dropping nodejs/npm from the image entirely. aptPkgs merges in
+# alongside the provider's packages instead of overriding them.
 
 [phases.setup]
-nixPkgs = ["python3", "gcc", "gnumake"]
+aptPkgs = ["python3", "build-essential"]
 
 [phases.install]
 cmds = ["npm ci --include=dev"]
