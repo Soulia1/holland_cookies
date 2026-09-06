@@ -1,125 +1,326 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import AddToCart from "@/components/AddToCart";
-import { MENU } from "@/data/menu";
+import { MENU_GROUPS, priceFrom, type MenuCategory, type MenuGroup } from "@/data/menu";
 import { localized, useLang } from "@/lib/i18n";
-import { useCapability } from "@/lib/motion/useCapability";
+import { Link } from "@/lib/router";
 import { cx, useReveal } from "@/lib/reveal";
 
 /**
- * The full menu.
+ * One group of the menu, as its own page.
  *
- * A long editorial page: one huge vertical MENU set into the left margin, a
- * sticky bar of the real categories, and every category as its own anchored
- * section. Interaction philosophy is taken from Scooby's menu — the active
- * category is resolved by one IntersectionObserver over the section headings
- * rather than by measuring on every scroll tick, and the mobile bar centres the
- * active pill by moving its own scrollLeft and nothing else. The look is this
- * site's: Playfair headings, burgundy accent, oat ground.
+ * This page has been through two shapes before this one and both are worth
+ * knowing, because this is the synthesis of them rather than a third idea.
+ *
+ * It began as the *whole* menu on one route: seventeen anchored sections, a
+ * scrollspy resolving which one you were reading, six thousand pixels of page.
+ * Then it became a page per category — `/menu/cookie-pans` — which deleted the
+ * scrollspy and made the active category the URL instead of a guess made from
+ * scroll geometry. What that traded away only showed up in the bar: seventeen
+ * pills, seven of which begin with the word "Cookie", scrolling sideways on a
+ * phone. Finding the coffee meant swiping past six kinds of cookie, and two
+ * kinds of cookie that a customer would compare — a Cookie Cup against a Cookie
+ * Scoop — could not be seen at the same time at all.
+ *
+ * So the categories are grouped. The bar carries three groups; the page carries
+ * that group's categories as sections, one under the next, with a second bar of
+ * section chips under the first. Both halves of the history are kept:
+ *
+ *  - From the page-per-category version: the *group* is the URL, not a guess.
+ *    Which of the three pages you are on is never inferred from scroll.
+ *  - From the one-page version: a scrollspy, because within a page the section
+ *    you are reading genuinely is a fact about scroll position and there is
+ *    nothing else it could be read from.
+ *
+ * The scrollspy is a scroll listener rather than an IntersectionObserver, which
+ * is a deliberate reversal of the original. An observer reports where its
+ * targets are when it *delivers*, not every position they passed through, so a
+ * jump — an anchor click, exactly what the chips below do — can move a section
+ * from below the viewport to above it without crossing a threshold in any
+ * delivery. This project has been bitten by that three times now (see the reveal
+ * helper and the condense observer below, which survives it only because it
+ * watches something hundreds of pixels tall). A listener reading positions each
+ * frame cannot miss a state, because it does not depend on transitions at all.
  */
 
 /** The fixed site header's height. Matches HEADER_HEIGHT in TopBar.tsx. */
 const HEADER_H = 88;
-/** Air between the sticky bars and the heading they scroll a section under. */
-const HEADING_GAP = 24;
 
-function CategorySection({
-  category,
-  index,
-  register,
+/** Where each group sits in the bar, so prev/next is a lookup and not a scan. */
+const ORDER = new Map(MENU_GROUPS.map((group, index) => [group.id, index]));
+
+export default function MenuPage({
+  group,
+  section,
 }: {
-  category: (typeof MENU)[number];
-  index: number;
-  register: (id: string, node: HTMLElement | null) => void;
+  group: MenuGroup;
+  /**
+   * A category id inside `group` that the URL named, if any.
+   *
+   * Resolved by the router, not here, because it is a fact about the address
+   * rather than about this component — and because deciding it here would mean
+   * reading `window.location` during render, which is the one thing that makes
+   * a page render differently on two calls with the same props.
+   */
+  section: string | null;
 }) {
-  const [revealRef, anim] = useReveal<HTMLDivElement>(Math.min(index, 3));
   const { t, lang } = useLang();
-
-  return (
-    <section
-      id={category.id}
-      className="menu-section"
-      aria-labelledby={`${category.id}-heading`}
-      ref={(node) => register(category.id, node)}
-    >
-      <div ref={revealRef} className={cx(anim.className)} style={anim.style}>
-        <h2 id={`${category.id}-heading`} className="menu-section-title">
-          {localized(lang, category.name, category.nameAr)}
-        </h2>
-        {/* A list, because it is one. A screen reader announcing "list, seven
-            items" before a category is the fastest possible summary of it. */}
-        <ul className="menu-items">
-          {category.items.map((item) => {
-            // The name the customer is reading, resolved once and used for both
-            // the row and the cart line it creates.
-            const name = localized(lang, item.name, item.nameAr);
-            const note = item.note ? localized(lang, item.note, item.noteAr) : undefined;
-
-            return (
-              <li key={item.id} className="menu-item">
-                <span className="menu-item-name">
-                  {name}
-                  {note ? <span className="menu-item-note">{note}</span> : null}
-                </span>
-                {/* The dotted leader is a border on a spacer, so it stretches to
-                    whatever gap is left between a name and its price and never
-                    needs a character count. */}
-                <span className="menu-item-leader" aria-hidden="true" />
-                {/* The add control lives in the leader space, which is the one
-                    part of this row that is empty by design. It is a price list
-                    and not a card grid, so there is no card to lift and no image
-                    to scale — the row simply warms and the control fades up
-                    where the dots were. On touch it is always there; see
-                    AddToCart. */}
-                <AddToCart
-                  className="menu-item-add"
-                  item={{ productId: item.id, name, price: item.price, ...(note ? { note } : {}) }}
-                />
-                <span className="menu-item-price">{t.price(item.price)}</span>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </section>
-  );
-}
-
-export default function MenuPage() {
-  const { t, lang } = useLang();
-  const { reduced } = useCapability();
+  const barRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
+  const subNavRef = useRef<HTMLDivElement>(null);
   const introRef = useRef<HTMLElement>(null);
   const indicatorRef = useRef<HTMLSpanElement>(null);
-  const sections = useRef(new Map<string, HTMLElement>());
-  const [active, setActive] = useState<string>(MENU[0].id);
-  /** The sticky category bar's own height, measured rather than assumed. */
-  const [navH, setNavH] = useState(64);
 
-  const register = useCallback((id: string, node: HTMLElement | null) => {
-    if (node) sections.current.set(id, node);
-    else sections.current.delete(id);
-  }, []);
+  const active = group.id;
+  const index = ORDER.get(active) ?? 0;
+  const previous = index > 0 ? MENU_GROUPS[index - 1] : null;
+  const next = index < MENU_GROUPS.length - 1 ? MENU_GROUPS[index + 1] : null;
 
-  // Measured, not hard-coded: the bar wraps to two rows at some widths and the
-  // scroll offset below is wrong the moment the two disagree.
+  const name = localized(lang, group.name, group.nameAr);
+
+  /**
+   * Which section the reader is in.
+   *
+   * Seeded from the URL rather than from the first category, so a `#cookie-pans`
+   * arrival has the right chip lit on the first frame instead of lighting the
+   * first chip and correcting itself once the scroll lands.
+   */
+  const [reading, setReading] = useState<string>(section ?? group.categories[0].id);
+
+  /**
+   * Everything the bar has to be told, in one pass: its own height, where the
+   * group indicator goes, and how far each of the two rows has to scroll
+   * sideways for its active control to be on screen.
+   *
+   * One function rather than several effects, because they all read the same
+   * boxes and all go stale for the same reasons — and one of those reasons was
+   * a real bug. Splitting the category page out of the one-page menu removed a
+   * piece of measured `navH` state that had quietly been doubling as the
+   * trigger that re-measured the indicator. Without it the first measurement
+   * was the only measurement: on the Arabic page the pills lay out in the
+   * fallback font, Cairo arrives a moment later and every label narrows, and
+   * the indicator sat 25px to the side of the pill it was meant to be under for
+   * the life of the page.
+   *
+   * So it is re-run from three places below: a layout effect, a ResizeObserver,
+   * and `document.fonts.ready`.
+   */
+  const sync = useCallback(() => {
+    const bar = barRef.current;
+    const nav = navRef.current;
+    if (!bar || !nav) return;
+
+    // Measured, not hard-coded, and measured on the whole sticky bar rather
+    // than on either row: the rows can wrap, and the stylesheet's own offsets
+    // are wrong the moment a literal and the real height disagree. This is what
+    // `.menu-section`'s scroll-margin is built from, so a section heading
+    // landing under the bar is exactly this number being wrong.
+    document.documentElement.style.setProperty("--menu-nav-h", `${bar.offsetHeight}px`);
+
+    const pill = nav.querySelector<HTMLElement>(`[data-cat="${active}"]`);
+    if (!pill) return;
+
+    // Measured against `offsetLeft` inside the scroller rather than
+    // getBoundingClientRect against the viewport, so the value is independent
+    // of how far the bar happens to be scrolled sideways and does not need
+    // recomputing while the bar itself is moving.
+    const indicator = indicatorRef.current;
+    if (indicator) {
+      indicator.style.setProperty("--ind-x", `${pill.offsetLeft}px`);
+      indicator.style.setProperty("--ind-w", `${pill.offsetWidth}px`);
+      indicator.classList.add("is-ready");
+    }
+
+    // `auto`, never smooth, and that is a change from the one-page menu. There
+    // the bar moved while the reader watched it, so the slide explained itself.
+    // Here the page underneath has just been replaced, and a bar that arrives
+    // already scrolled to the right pill reads as the new page's own state
+    // rather than as something reacting after the fact.
+    centre(nav, pill, "auto");
+  }, [active]);
+
+  /**
+   * Keep the active *chip* in view, which on a phone is most of what the second
+   * row does — there are seven of them under Cookies and perhaps three fit.
+   *
+   * Split from `sync` because it fires for a different reason: `sync` runs when
+   * the page or the fonts change, this runs every time the reader scrolls past
+   * a heading. Smooth here, unlike the row above: the reader is looking at the
+   * page while it happens, so a chip that slides into place is the bar
+   * following them rather than a jump they did not ask for.
+   */
   useEffect(() => {
-    const node = navRef.current;
+    const scroller = subNavRef.current;
+    if (!scroller) return;
+    const chip = scroller.querySelector<HTMLElement>(`[data-sub="${reading}"]`);
+    if (chip) centre(scroller, chip, "smooth");
+  }, [reading, lang]);
+
+  /**
+   * `useLayoutEffect`, not `useEffect`: this reads the pill's box and writes the
+   * indicator's, and doing that after paint shows one frame of the indicator in
+   * its old place — a visible stutter on every group change.
+   *
+   * `lang` is a dependency because switching language re-labels every pill, so
+   * both the width being measured and the offset it sits at change.
+   */
+  useLayoutEffect(sync, [sync, lang]);
+
+  useEffect(() => {
+    const node = barRef.current;
     if (!node) return;
-    const publish = () => {
-      const height = node.offsetHeight;
-      setNavH(height);
-      // The stylesheet needs the same number for `scroll-margin-top`, which is
-      // what makes the browser's own hash landing agree with ours.
-      document.documentElement.style.setProperty("--menu-nav-h", `${height}px`);
-    };
-    const observer = new ResizeObserver(publish);
+    const observer = new ResizeObserver(sync);
     observer.observe(node);
-    publish();
+
+    // The bar can be re-laid-out without its own box ever changing: a webfont
+    // swap moves every pill sideways while the bar they sit in keeps exactly
+    // the same width and height, so the observer above never fires for the one
+    // case that actually broke this. `fonts.ready` is that case.
+    let live = true;
+    void document.fonts?.ready.then(() => {
+      if (live) sync();
+    });
+
     return () => {
+      live = false;
       observer.disconnect();
       document.documentElement.style.removeProperty("--menu-nav-h");
     };
-  }, []);
+  }, [sync]);
+
+  /**
+   * The scrollspy.
+   *
+   * The line it measures against is the sticky bar's own bottom edge, read
+   * fresh each time rather than computed from `HEADER_H` plus a nav height.
+   * That edge moves — the site header slides up out of it a few hundred pixels
+   * down the page — and a spy using a fixed offset is off by the header's
+   * height for the whole first screen, which is precisely the stretch where the
+   * first two sections are being read.
+   *
+   * A section is "being read" once its top has gone under that line, so the
+   * answer is the last one that has. The bottom-of-page case is separate and is
+   * not an optimisation: the final section is usually shorter than a viewport,
+   * so its top may never reach the line at all and it could otherwise never
+   * become active however far down the reader goes.
+   */
+  const ids = group.categories.map((category) => category.id).join(" ");
+  useEffect(() => {
+    const list = ids.split(" ");
+    let frame = 0;
+
+    const measure = () => {
+      frame = 0;
+      const bar = barRef.current;
+      if (!bar) return;
+      const line = bar.getBoundingClientRect().bottom + 4;
+
+      let found = list[0];
+      for (const id of list) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= line) found = id;
+      }
+
+      const doc = document.documentElement;
+      if (window.innerHeight + window.scrollY >= doc.scrollHeight - 2) found = list[list.length - 1];
+
+      setReading((current) => (current === found ? current : found));
+    };
+
+    // Coalesced to one measurement per frame. A scroll event can fire many
+    // times between paints, and every one of these reads layout.
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+
+    measure();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [ids]);
+
+  /**
+   * Land on the section the URL named.
+   *
+   * Only on arrival, and only for a hash that came in with the page — the chips
+   * below route through `navigate`, which does its own scrolling, and the spy
+   * above never writes the URL. So this runs when the *page* changes and not
+   * when the reading position does.
+   *
+   * `scroll-behavior` is forced to `auto` around the jump. The stylesheet sets
+   * `smooth` globally, which is right for a click on a chip and wrong here: a
+   * deep link would otherwise open at the top of the page and then travel down
+   * through several thousand pixels of menu the reader did not ask to see.
+   *
+   * And it lands more than once, which is not belt and braces — a single
+   * landing is measurably wrong, and both reasons are worth writing down
+   * because neither is visible from the code that does the scrolling.
+   *
+   *  1. **The stylesheet is not applied yet.** A module script is deferred, so
+   *     it runs once the document has been *parsed*; a stylesheet only blocks
+   *     rendering, not that. So the first thing this component does on a cold
+   *     load happens against an unstyled page. Measured on the built site with
+   *     `scrollIntoView` instrumented: at the moment of the jump the sticky bar
+   *     was 36px tall rather than 115, `scroll-padding-top` was `auto` and the
+   *     section's `scroll-margin-top` was `0px` — none of the arithmetic the
+   *     stylesheet does existed. The page then restyled underneath the scroll
+   *     and `/menu/cookie-pans` came to rest with its heading 55px *behind* the
+   *     bar, which is the one place a heading must never be.
+   *  2. **The webfonts land later still**, and every heading above the target
+   *     changes height when they do. The same hazard the indicator above
+   *     re-measures for, for the same reason.
+   *
+   * So: land now, land again on `load` (which does wait for stylesheets), and
+   * land again after `fonts.ready`. All three are the same call; the page is
+   * simply asked where the section is at three moments when the answer differs.
+   *
+   * Any real input from the reader ends it. From the first wheel, touch, key or
+   * pointer the scroll position is theirs, and a correction that arrives after
+   * someone has started reading is not a correction — it is the page taking the
+   * page away from them. Deliberately not a scroll-position check: the restyle
+   * in (1) moves the page on its own, so "has it moved?" cannot tell the
+   * difference between the bug and the reader.
+   */
+  useEffect(() => {
+    if (!section) return;
+    const target = document.getElementById(section);
+    if (!target) return;
+
+    let live = true;
+    const surrender = () => {
+      live = false;
+    };
+    const gestures = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    for (const gesture of gestures) {
+      window.addEventListener(gesture, surrender, { passive: true });
+    }
+
+    const land = () => {
+      if (!live) return;
+      const root = document.documentElement;
+      const previousBehavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = "auto";
+      target.scrollIntoView();
+      root.style.scrollBehavior = previousBehavior;
+    };
+
+    land();
+    if (document.readyState !== "complete") window.addEventListener("load", land);
+    // A frame after, so the reflow the new fonts cause has been laid out and
+    // not merely scheduled.
+    void document.fonts?.ready.then(() => requestAnimationFrame(land));
+
+    return () => {
+      live = false;
+      window.removeEventListener("load", land);
+      for (const gesture of gestures) window.removeEventListener(gesture, surrender);
+    };
+    // `group.id` is in here so that arriving at a *different* group at the same
+    // section id — impossible today, but a regrouping away — still lands.
+  }, [section, group.id]);
 
   /**
    * Merge the two bars.
@@ -150,280 +351,236 @@ export default function MenuPage() {
     observer.observe(intro);
     return () => {
       observer.disconnect();
-      // Never left behind on the home page, where there is no category bar for
-      // the hidden header to have merged with.
+      // Never left behind on a page that has no category bar for the hidden
+      // header to have merged with.
       root.classList.remove("is-menu-condensed");
     };
-  }, []);
-
-  /**
-   * Where the page must land for a section heading to clear the bar.
-   *
-   * The site header is not in this sum. Scrolling to any section condenses the
-   * page — the header slides away and the category bar takes the top — so by the
-   * time the scroll lands there is only one bar to clear. Including the header
-   * here would leave an 88px hole above every heading you jumped to.
-   */
-  const offsetFor = useCallback(
-    (node: HTMLElement) =>
-      node.getBoundingClientRect().top + window.scrollY - navH - HEADING_GAP,
-    [navH],
-  );
-
-  /**
-   * The active category follows the scroll: whichever heading most recently
-   * passed under the sticky bar wins.
-   *
-   * One IntersectionObserver over the sections, adapted from Scooby. The naive
-   * version runs on every scroll tick and calls getBoundingClientRect once per
-   * category inside the handler — a forced synchronous layout per section, per
-   * event, on the main thread, for an answer that changes a handful of times in
-   * a whole page of scrolling. With seventeen categories that is seventeen
-   * measurements a tick. The observer computes the same crossings off the main
-   * thread and calls back only when one actually happens.
-   */
-  useEffect(() => {
-    const line = navH + HEADING_GAP + 8;
-
-    // Which sections currently reach below the bar. `isIntersecting` is state
-    // the observer maintains, so it is always current; `entry.boundingClientRect`
-    // is a snapshot from the moment a crossing was *recorded*, which is not the
-    // same thing. Resolving from the rect is what made this lag by one category:
-    // a smooth scroll finishes between crossings, and the last rect anyone saw
-    // was measured mid-flight.
-    const visible = new Set<string>();
-    const order = MENU.map((category) => category.id);
-
-    /**
-     * The last category can never win on crossings alone.
-     *
-     * A section stops being the answer when it scrolls above the bar, and the
-     * page hits its bottom stop before the last, shortest section can get there
-     * — so standing at the bottom of the menu looking at Milkshakes, the bar
-     * said Frappés. Answered here rather than by padding the page out with half
-     * a screen of empty space to make the geometry work.
-     */
-    const atPageBottom = () =>
-      window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const id = (entry.target as HTMLElement).id;
-          if (!id) continue;
-          if (entry.isIntersecting) visible.add(id);
-          else visible.delete(id);
-        }
-
-        if (atPageBottom()) {
-          setActive(order[order.length - 1]);
-          return;
-        }
-
-        // The root is the viewport with everything above the bar trimmed off, so
-        // the first section in document order that still reaches into it is
-        // exactly the one being read. Everything earlier has gone by entirely.
-        for (const id of order) {
-          if (visible.has(id)) {
-            setActive(id);
-            return;
-          }
-        }
-        // Nothing reaches below the bar — mid-flight between two sections on a
-        // very short viewport. Leaving the previous answer standing is better
-        // than guessing, and the next crossing corrects it a frame later.
-      },
-      { rootMargin: `-${line}px 0px 0px 0px`, threshold: 0 },
-    );
-
-    for (const node of sections.current.values()) observer.observe(node);
-
-    /**
-     * The bottom needs a scroll signal, because crossings stop happening there.
-     *
-     * The check above only runs when the observer fires, and the observer fires
-     * on crossings — so arriving at the page's bottom stop mid-flight leaves the
-     * last resolved answer standing. That is exactly the Milkshakes case: the
-     * final crossing happened while the smooth scroll was still moving, and
-     * nothing fired again once it stopped.
-     *
-     * One rAF-coalesced listener that does nothing but ask "are we at the
-     * bottom". It reads `scrollHeight`, which during an ordinary scroll is a
-     * cached value — nothing has dirtied layout — so this is not the
-     * per-category `getBoundingClientRect` the observer exists to avoid.
-     */
-    let frame = 0;
-    const checkBottom = () => {
-      frame = 0;
-      if (atPageBottom()) setActive(order[order.length - 1]);
-    };
-    const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(checkBottom);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll, { passive: true });
-
-    return () => {
-      observer.disconnect();
-      if (frame) cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-    // Rebuilt when the bar is re-measured: navH sets the root inset, and a
-    // stale inset switches the pill at the wrong moment.
-  }, [navH]);
-
-  /**
-   * Move the indicator to the active pill.
-   *
-   * `useLayoutEffect`, not `useEffect`: this reads the pill's box and writes the
-   * indicator's, and doing that after paint shows one frame of the indicator in
-   * its old place — a visible stutter on every category change.
-   *
-   * Measured against `offsetLeft` inside the scroller rather than
-   * getBoundingClientRect against the viewport, so the value is independent of
-   * how far the bar happens to be scrolled sideways and does not need
-   * recomputing while the bar itself is moving.
-   */
-  useLayoutEffect(() => {
-    const nav = navRef.current;
-    const indicator = indicatorRef.current;
-    if (!nav || !indicator) return;
-    const pill = nav.querySelector<HTMLElement>(`[data-cat="${active}"]`);
-    if (!pill) return;
-    indicator.style.setProperty("--ind-x", `${pill.offsetLeft}px`);
-    indicator.style.setProperty("--ind-w", `${pill.offsetWidth}px`);
-    indicator.classList.add("is-ready");
-    // Same reason as the centring effect below: switching language re-labels
-    // every pill, so both the width and the offset it is measuring change.
-  }, [active, navH, lang]);
-
-  // Keep the active pill in view on mobile, where the bar scrolls sideways.
-  //
-  // Deliberately not scrollIntoView: that scrolls every scrollable ancestor,
-  // the page included. The first category is active the moment the page loads,
-  // so on arrival it would drag the viewport down to the bar. Only the bar's
-  // own horizontal offset is touched here.
-  useEffect(() => {
-    const nav = navRef.current;
-    if (!nav) return;
-    const pill = nav.querySelector<HTMLElement>(`[data-cat="${active}"]`);
-    if (!pill) return;
-
-    // Right-to-left scroll containers count backwards. `scrollLeft` is 0 at the
-    // *start* — which in Arabic is the right-hand end — and runs down to
-    // -(scrollWidth - clientWidth) at the far left. Two consequences, and the
-    // original code was wrong about both:
-    //
-    //  1. The measurement below lands `max` short of the pill's real distance
-    //     from the content's left edge, because the rect difference is a
-    //     physical measurement while `scrollLeft` is a signed one.
-    //  2. `Math.max(0, ...)` clamps every target to zero, since every valid
-    //     RTL scroll position except the very start *is* negative. The bar
-    //     simply never moved in Arabic, and the active pill stayed off screen.
-    //
-    // So the sum is normalised to one direction-free quantity — how much
-    // content is hidden past the left edge, always 0…max — the centring is done
-    // in that space, and the result is converted back at the end.
-    const rtl = getComputedStyle(nav).direction === "rtl";
-    const max = Math.max(0, nav.scrollWidth - nav.clientWidth);
-    const hiddenLeft =
-      pill.getBoundingClientRect().left
-      - nav.getBoundingClientRect().left
-      + nav.scrollLeft
-      + (rtl ? max : 0);
-
-    const centred = hiddenLeft - (nav.clientWidth - pill.offsetWidth) / 2;
-    const clamped = Math.min(max, Math.max(0, centred));
-    nav.scrollTo({
-      left: rtl ? clamped - max : clamped,
-      behavior: reduced ? "auto" : "smooth",
-    });
-    // `lang` is a dependency because the pills are re-labelled when it changes:
-    // an Arabic label is a different width, so the position centred for the
-    // English one is no longer centred.
-  }, [active, reduced, lang]);
-
-  const goTo = useCallback(
-    (id: string) => {
-      const node = sections.current.get(id);
-      if (!node) return;
-      setActive(id);
-      // replaceState, not pushState: seventeen categories would otherwise put
-      // seventeen entries in the history and turn Back into a tour of the page.
-      window.history.replaceState(null, "", `#${id}`);
-      window.scrollTo({ top: offsetFor(node), behavior: reduced ? "auto" : "smooth" });
-    },
-    [offsetFor, reduced],
-  );
-
-  // A `/menu#gateaux` link has to land in the right place. The browser's own
-  // hash scrolling runs before React has rendered the sections and before the
-  // bar has been measured, so it either does nothing or lands under the bars.
-  useEffect(() => {
-    const id = window.location.hash.slice(1);
-    if (!id) return;
-    const node = sections.current.get(id);
-    if (!node) return;
-    // One frame, so the measurement above has published a real bar height.
-    const frame = requestAnimationFrame(() => {
-      window.scrollTo({ top: offsetFor(node), behavior: "auto" });
-      setActive(id);
-    });
-    return () => cancelAnimationFrame(frame);
-    // Mount only: re-running this on every navH change would yank a reader who
-    // has since scrolled somewhere else back to the anchor.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <main className="menu-page">
       {/* The decorative word. aria-hidden and pointer-events: none — it is
           scenery, and a screen reader announcing "MENU" between the header and
-          the heading that already says Menu is a duplicate the sighted
-          experience does not have. Sticky rather than fixed so it belongs to
-          this page and scrolls away with the footer instead of hanging over it. */}
+          the heading is a duplicate the sighted experience does not have.
+          Sticky rather than fixed so it belongs to this page and scrolls away
+          with the footer instead of hanging over it. */}
       <div className="menu-word-rail" aria-hidden="true">
         <span className="menu-word">{t.menuWord}</span>
       </div>
 
       <div className="menu-body" id="menu-content">
+        {/* The group is the page, so its name is the page's h1. The sections
+            below carry h2s, which is the whole reason the grouping is worth
+            doing to a screen reader as well: one heading level to skim by. */}
         <header className="menu-intro" ref={introRef}>
-          <span className="menu-eyebrow">{t.menuEyebrow}</span>
-          <h1 className="menu-title">{t.menuTitle}</h1>
+          <span className="menu-eyebrow">{t.menuTitle}</span>
+          <h1 className="menu-title">{name}</h1>
         </header>
 
-        <nav className="cat-nav" aria-label={t.menuCategoriesLabel}>
-          <div className="cat-nav-scroll" ref={navRef}>
-            {/* Decorative: the pills carry the state via aria-current, so this
-                must not be announced as anything. */}
-            <span className="cat-indicator" ref={indicatorRef} aria-hidden="true" />
-            {MENU.map((category) => (
-              <button
-                key={category.id}
-                type="button"
-                data-cat={category.id}
-                className={`cat-pill ${active === category.id ? "is-active" : ""}`}
-                aria-current={active === category.id ? "true" : undefined}
-                onClick={() => goTo(category.id)}
-              >
-                {localized(lang, category.name, category.nameAr)}
-              </button>
-            ))}
-          </div>
-        </nav>
+        {/* One sticky element holding both rows, rather than two stickies at two
+            offsets. They travel together, they are measured together, and
+            `--menu-nav-h` is one number instead of a sum that any change to
+            either row can put out of step. */}
+        <div className="cat-nav" ref={barRef}>
+          <nav className="cat-nav-row" aria-label={t.menuCategoriesLabel}>
+            <div className="cat-nav-scroll" ref={navRef}>
+              {/* Decorative: the pills carry the state via aria-current, so this
+                  must not be announced as anything. */}
+              <span className="cat-indicator" ref={indicatorRef} aria-hidden="true" />
+              {MENU_GROUPS.map((entry) => (
+                <Link
+                  key={entry.id}
+                  href={`/menu/${entry.id}`}
+                  data-cat={entry.id}
+                  className={`cat-pill ${active === entry.id ? "is-active" : ""}`}
+                  // "page", not "true". These are links to pages, and the page
+                  // one of them leads to is the one being read.
+                  aria-current={active === entry.id ? "page" : undefined}
+                >
+                  {localized(lang, entry.name, entry.nameAr)}
+                </Link>
+              ))}
+            </div>
+          </nav>
+
+          {/* The second row. Deliberately a different shape from the first — no
+              travelling indicator, no filled pill — because these two rows are
+              not peers: one changes the page, the other moves within it. Two
+              identical-looking bars stacked would read as one control that had
+              been split in half. */}
+          <nav className="subcat-nav" aria-label={t.menuSectionsLabel(name)}>
+            <div className="subcat-scroll" ref={subNavRef}>
+              {group.categories.map((category) => (
+                <Link
+                  key={category.id}
+                  // A full address, not a bare `#id`. It is the same page, so
+                  // the router treats it as a hash change and scrolls, but what
+                  // the status bar shows and what a copied link contains is the
+                  // canonical address of that section.
+                  href={`/menu/${group.id}#${category.id}`}
+                  data-sub={category.id}
+                  className={`subcat-chip ${reading === category.id ? "is-reading" : ""}`}
+                  // "location", not "page": this names a place within the page
+                  // being read, which is exactly the distinction that value is
+                  // for. The pills above are the ones that say "page".
+                  aria-current={reading === category.id ? "location" : undefined}
+                >
+                  {localized(lang, category.name, category.nameAr)}
+                </Link>
+              ))}
+            </div>
+          </nav>
+        </div>
 
         <div className="menu-sections">
-          {MENU.map((category, index) => (
-            <CategorySection
-              key={category.id}
-              category={category}
-              index={index}
-              register={register}
-            />
+          {group.categories.map((category) => (
+            <Section key={category.id} category={category} />
           ))}
+
+          {/* The way on, for a reader who has finished this group and is at the
+              bottom of the page with the bar off screen above them. */}
+          <nav className="menu-pager" aria-label={t.menuPagerLabel}>
+            {previous ? (
+              <Link className="menu-pager-link is-prev" href={`/menu/${previous.id}`} rel="prev">
+                <span className="menu-pager-dir">
+                  <span className="menu-pager-arrow" aria-hidden="true">
+                    ←
+                  </span>
+                  {t.menuPrevCategory}
+                </span>
+                <span className="menu-pager-name">
+                  {localized(lang, previous.name, previous.nameAr)}
+                </span>
+              </Link>
+            ) : (
+              // A placeholder, so the single remaining link does not slide
+              // across into the space the missing one would have held.
+              <span className="menu-pager-gap" aria-hidden="true" />
+            )}
+            {next ? (
+              <Link className="menu-pager-link is-next" href={`/menu/${next.id}`} rel="next">
+                <span className="menu-pager-dir">
+                  {t.menuNextCategory}
+                  <span className="menu-pager-arrow" aria-hidden="true">
+                    →
+                  </span>
+                </span>
+                <span className="menu-pager-name">{localized(lang, next.name, next.nameAr)}</span>
+              </Link>
+            ) : (
+              <span className="menu-pager-gap" aria-hidden="true" />
+            )}
+          </nav>
         </div>
       </div>
     </main>
   );
+}
+
+/**
+ * One category, as a section of the group's page.
+ *
+ * A component rather than a loop body inside `MenuPage`, and that is a
+ * constraint rather than a preference: `useReveal` is a hook, so calling it once
+ * per category inline would change the number of hooks the page runs when the
+ * reader moves from Cookies (seven) to Drinks (four) — the one thing React
+ * cannot survive. Giving each section its own component gives each its own
+ * reveal, which is also the better effect: the sections arrive as the reader
+ * reaches them instead of the whole page fading in at once.
+ */
+function Section({ category }: { category: MenuCategory }) {
+  const { t, lang } = useLang();
+  const [listRef, listAnim] = useReveal<HTMLUListElement>(0);
+  const name = localized(lang, category.name, category.nameAr);
+
+  return (
+    <section id={category.id} className="menu-section" aria-labelledby={`heading-${category.id}`}>
+      <div className="menu-section-head">
+        <h2 id={`heading-${category.id}`} className="menu-section-title">
+          {name}
+        </h2>
+        <p className="menu-section-meta">
+          {t.menuItemCount(category.items.length)}
+          <span aria-hidden="true"> · </span>
+          {t.menuPriceFrom(t.price(priceFrom(category)))}
+        </p>
+      </div>
+      {/* A list, because it is one. A screen reader announcing "list, seven
+          items" before a section is the fastest possible summary. */}
+      <ul ref={listRef} className={cx("menu-items", listAnim.className)} style={listAnim.style}>
+        {category.items.map((item) => {
+          // The name the customer is reading, resolved once and used for both
+          // the row and the cart line it creates.
+          const itemName = localized(lang, item.name, item.nameAr);
+          const note = item.note ? localized(lang, item.note, item.noteAr) : undefined;
+
+          return (
+            <li key={item.id} className="menu-item">
+              <span className="menu-item-name">
+                {itemName}
+                {note ? <span className="menu-item-note">{note}</span> : null}
+              </span>
+              {/* The dotted leader is a border on a spacer, so it stretches to
+                  whatever gap is left between a name and its price and never
+                  needs a character count. */}
+              <span className="menu-item-leader" aria-hidden="true" />
+              {/* The add control lives in the leader space, which is the one
+                  part of this row that is empty by design. It is a price list
+                  and not a card grid, so there is no card to lift and no image
+                  to scale — the row simply warms and the control fades up where
+                  the dots were. On touch it is always there; see AddToCart. */}
+              <AddToCart
+                className="menu-item-add"
+                item={{
+                  productId: item.id,
+                  name: itemName,
+                  price: item.price,
+                  ...(note ? { note } : {}),
+                }}
+              />
+              <span className="menu-item-price">{t.price(item.price)}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Scroll a horizontal bar so one of its children is centred.
+ *
+ * Deliberately not `scrollIntoView`: that scrolls every scrollable ancestor,
+ * the page included, so on arrival it would drag the viewport down to the bar
+ * instead of leaving the reader where they are. Only the bar's own horizontal
+ * offset is touched here.
+ *
+ * Right-to-left scroll containers count backwards. `scrollLeft` is 0 at the
+ * *start* — which in Arabic is the right-hand end — and runs down to
+ * -(scrollWidth - clientWidth) at the far left. Two consequences, and the
+ * original code was wrong about both:
+ *
+ *  1. A raw rect difference lands short of the child's real distance from the
+ *     content's left edge, because the rect measurement is physical while
+ *     `scrollLeft` is signed.
+ *  2. `Math.max(0, …)` clamps every target to zero, since every valid RTL
+ *     scroll position except the very start *is* negative. The bar simply never
+ *     moved in Arabic, and the active pill stayed off screen.
+ *
+ * So the sum is normalised to one direction-free quantity — how much content is
+ * hidden past the left edge, always 0…max — the centring is done in that space,
+ * and the result is converted back at the end.
+ */
+function centre(scroller: HTMLElement, child: HTMLElement, behavior: ScrollBehavior): void {
+  const rtl = getComputedStyle(scroller).direction === "rtl";
+  const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+  const hiddenLeft =
+    child.getBoundingClientRect().left
+    - scroller.getBoundingClientRect().left
+    + scroller.scrollLeft
+    + (rtl ? max : 0);
+
+  const centred = hiddenLeft - (scroller.clientWidth - child.offsetWidth) / 2;
+  const clamped = Math.min(max, Math.max(0, centred));
+  scroller.scrollTo({ left: rtl ? clamped - max : clamped, behavior });
 }

@@ -4,8 +4,9 @@ import { CartProvider, useCart } from "@/lib/cart";
 import { useOnceOpened } from "@/lib/useOnceOpened";
 import { LanguageProvider, useLang } from "@/lib/i18n";
 import MotionVars from "@/lib/motion/MotionVars";
-import { usePath } from "@/lib/router";
+import { navigate, usePath } from "@/lib/router";
 import { dismissSplash } from "@/lib/splash";
+import { GROUP_BY_CATEGORY_ID, GROUP_BY_ID, MENU_GROUPS, type MenuGroup } from "@/data/menu";
 import MenuPage from "@/pages/MenuPage";
 
 // Loaded on demand.
@@ -53,18 +54,101 @@ function Home() {
 /**
  * The routes.
  *
- * Still a lookup table rather than a router library — the site now has five
- * pages instead of two, which is exactly the growth the comment in
- * lib/router.tsx anticipated and still well short of needing parameters or
- * nested outlets. When one of these needs a path segment, replace the router
- * wholesale rather than growing it.
+ * A lookup table for the routes that are just a path, and `menuSlug` below for
+ * the one that is not. That is twenty-one addressable pages — four here, and
+ * seventeen menu categories — served by a matcher of two string comparisons.
+ *
+ * The comment in lib/router.tsx anticipated exactly this and said to replace the
+ * router wholesale rather than grow it once parameters arrived. The judgement
+ * here is that one optional segment under one fixed prefix is still the small
+ * version done properly rather than the beginning of a matcher; the moment a
+ * second parameterised route appears, or one of them needs to nest, that advice
+ * comes back into force.
  */
 const PAGES: Record<string, () => React.ReactElement> = {
-  "/menu": () => <MenuPage />,
   "/checkout": () => <CheckoutPage />,
   "/track": () => <TrackPage />,
   "/account": () => <AccountPage />,
 };
+
+/** Everything the menu lives under. */
+const MENU_ROOT = "/menu";
+
+/**
+ * The one path segment the lookup table above cannot express.
+ *
+ * The menu is a page per group — `/menu/cookies` — so it is the first route
+ * here with a variable in it. That is deliberately still not a reason to take a
+ * routing library: one prefix and one segment is the entire requirement, and
+ * `lib/router.tsx` says to replace it wholesale rather than grow it the day that
+ * stops being true.
+ *
+ * Returns the slug for any menu URL and `null` for anything that is not one.
+ * The bare `/menu` yields `""`, which resolves to the first group below — every
+ * "Menu" link on the site points there, and keeping those pointing at a stable
+ * root rather than at whichever group happens to be first is what stops a
+ * reordering of the data from breaking the header, the footer, the hero, the
+ * cart and four order pages at once.
+ */
+function menuSlug(route: string): string | null {
+  if (route === MENU_ROOT) return "";
+  if (!route.startsWith(`${MENU_ROOT}/`)) return null;
+  // Decoded: the Arabic pills link to the same ASCII ids as the English ones,
+  // but a pasted or hand-edited URL can still arrive percent-encoded.
+  try {
+    return decodeURIComponent(route.slice(MENU_ROOT.length + 1));
+  } catch {
+    // A malformed escape is not a group, and throwing here would take the
+    // whole page down over a bad URL.
+    return "";
+  }
+}
+
+/**
+ * Where a menu URL points: always a group, and sometimes a section within it.
+ *
+ * Never fails. An unknown slug falls through to the first group rather than to
+ * a dead end, and the effect below corrects the URL to match what was rendered.
+ *
+ * Three kinds of address arrive here and only the first is current:
+ *
+ *  - `/menu/cookies` — a group. What every link on the site now produces.
+ *  - `/menu/cookie-pans` — a *category*. This was a real page until the
+ *    seventeen categories were folded into three groups, so those addresses are
+ *    in the wild. A category is still a real thing; it is a section now, so the
+ *    reader lands on its group with that section named.
+ *  - `/menu#gateaux` — how the original one-page menu deep-linked, older still
+ *    and handled the same way.
+ *
+ * The `section` is what the page scrolls to and what the URL keeps as its hash,
+ * so an old link ends up at an address that is both canonical and still points
+ * at exactly what it always meant.
+ */
+interface MenuTarget {
+  group: MenuGroup;
+  /** A category id inside `group`, when the URL named one. */
+  section: string | null;
+}
+
+function resolveMenuTarget(slug: string): MenuTarget {
+  const group = GROUP_BY_ID.get(slug);
+  if (group) {
+    // A group page can still carry a section in its hash — that is how an old
+    // category link ends up addressed, and it is what the sub-category bar
+    // writes. A hash naming a category in some *other* group is ignored rather
+    // than followed: the path is the more specific half of the address.
+    const hash = decodeURIComponent(window.location.hash.slice(1));
+    return { group, section: GROUP_BY_CATEGORY_ID.get(hash) === group ? hash : null };
+  }
+
+  const byCategory = GROUP_BY_CATEGORY_ID.get(slug);
+  if (byCategory) return { group: byCategory, section: slug };
+
+  const hash = decodeURIComponent(window.location.hash.slice(1));
+  const byHash = GROUP_BY_CATEGORY_ID.get(hash);
+  if (byHash) return { group: byHash, section: hash };
+  return { group: GROUP_BY_ID.get(hash) ?? MENU_GROUPS[0], section: null };
+}
 
 /**
  * Mounts the cart drawer, but only once the cart has actually been opened.
@@ -88,7 +172,13 @@ function Shell() {
   const { t } = useLang();
   // Trailing slashes normalised so `/checkout/` and `/checkout` are one route.
   const route = path.length > 1 ? path.replace(/\/+$/, "") : path;
-  const isMenu = route === "/menu";
+  const slug = menuSlug(route);
+  const isMenu = slug !== null;
+  // Resolved during render rather than in an effect, so the group the URL names
+  // is the one painted on the very first frame. Doing it in an effect would
+  // show the wrong group — or nothing — for a frame on every load of a deep
+  // link.
+  const target = slug === null ? null : resolveMenuTarget(slug);
   const page = PAGES[route];
   // The order flow: checkout, its confirmation, tracking and history.
   const isEditorial = route === "/checkout" || route === "/track" || route === "/account";
@@ -120,6 +210,29 @@ function Shell() {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [path]);
 
+  // Put the URL where the rendered page says it should be.
+  //
+  // Four cases arrive here and all four are already showing the right page: the
+  // bare `/menu` that every "Menu" link on the site points at, an old
+  // `/menu/cookie-pans` category address, an older `/menu#gateaux` deep link,
+  // and a slug that names nothing at all. Each is corrected to its canonical
+  // `/menu/<group>`, keeping `#<category>` where one was named — that hash is
+  // the difference between "the cookies page" and "the cookie pans on the
+  // cookies page", so dropping it would quietly downgrade every old link. What
+  // gets bookmarked, shared or reloaded is then the real address of what is on
+  // screen.
+  //
+  // `replace`, never push: this is a correction rather than a navigation, and
+  // pushing would put a step in the history whose only effect on Back is to
+  // bounce the reader straight forward again.
+  const wantPath = target ? `${MENU_ROOT}/${target.group.id}` : null;
+  const wantHash = target?.section ? `#${target.section}` : "";
+  useEffect(() => {
+    if (!wantPath) return;
+    if (window.location.pathname === wantPath && window.location.hash === wantHash) return;
+    navigate(`${wantPath}${wantHash}`, { replace: true });
+  }, [wantPath, wantHash]);
+
   return (
     <>
       {/* Mounted unconditionally and eagerly: several stylesheet rules read the
@@ -139,7 +252,13 @@ function Shell() {
       {/* No fallback element: these are whole pages reached by a click, and a
           spinner that flashes for one frame on a warm chunk is worse than the
           brief nothing it replaces. */}
-      {page ? <Suspense fallback={null}>{page()}</Suspense> : <Home />}
+      {target ? (
+        <MenuPage group={target.group} section={target.section} />
+      ) : page ? (
+        <Suspense fallback={null}>{page()}</Suspense>
+      ) : (
+        <Home />
+      )}
 
       {/* No marketing footer over the order flow. Scooby's checkout is an
           overlay and so has none by construction; here it is a route, and a

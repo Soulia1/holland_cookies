@@ -68,7 +68,10 @@ test.describe("placing an order", () => {
   });
 
   test("delivery is waived over the threshold", async ({ page }) => {
-    await page.goto("/menu", { waitUntil: "load" });
+    // Straight to the gateaux, not `/menu`: the bare root lands on the cookies,
+    // which have nothing near 450 EGP. Addressed as a section of the desserts
+    // page, which is where a category lives now.
+    await page.goto("/menu/desserts#gateaux", { waitUntil: "load" });
     await ready(page);
     // 450 EGP each; two clears the 600 threshold.
     const add = page.getByRole("button", { name: "Add Lotus Gateau to cart" }).first();

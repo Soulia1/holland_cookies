@@ -135,6 +135,12 @@ const translations = {
     menuTitle: "The Menu",
     menuWord: "Menu",
     menuCategoriesLabel: "Menu categories",
+    menuSectionsLabel: (group: string) => `Sections in ${group}`,
+    menuItemCount: (count: number) => (count === 1 ? "1 item" : `${count} items`),
+    menuPriceFrom: (price: string) => `from ${price}`,
+    menuPagerLabel: "Nearby categories",
+    menuPrevCategory: "Previous",
+    menuNextCategory: "Next",
 
     // — Cart ———————————————————————————————————————————————————
     addToCart: "Add to cart",
@@ -368,6 +374,21 @@ const translations = {
     menuTitle: "المنيو",
     menuWord: "المنيو",
     menuCategoriesLabel: "أقسام المنيو",
+    menuSectionsLabel: (group: string) => `أقسام ${group}`,
+    // Arabic counts four ways, not two. Egyptian colloquial, matching the rest
+    // of this dictionary: one, a dual, a small plural for three to ten, and the
+    // singular again above that. Category sizes here run from two to seventeen,
+    // so every one of those branches is reachable.
+    menuItemCount: (count: number) => {
+      if (count === 1) return "صنف واحد";
+      if (count === 2) return "صنفين";
+      if (count <= 10) return `${count} أصناف`;
+      return `${count} صنف`;
+    },
+    menuPriceFrom: (price: string) => `يبدأ من ${price}`,
+    menuPagerLabel: "أقسام قريبة",
+    menuPrevCategory: "السابق",
+    menuNextCategory: "التالي",
 
     // — Cart ———————————————————————————————————————————————————
     addToCart: "ضيف للسلة",

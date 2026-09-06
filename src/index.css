@@ -90,8 +90,17 @@
   html {
     scroll-behavior: smooth;
     /* The header is fixed, so an anchor jump would otherwise land the section
-       title underneath it. */
-    scroll-padding-top: 96px;
+       title underneath it.
+
+       Named as well as set, because scroll-padding and scroll-margin *add* —
+       an element with a scroll-margin of its own lands this far below where
+       the margin alone would put it, and anything computing a landing position
+       has to subtract this back out. That was a real bug on the menu page: its
+       sections carry a scroll-margin measured off the sticky bar, and with this
+       96px silently on top the heading a reader clicked landed three hundred
+       pixels down the screen. Nothing can subtract a number it cannot see. */
+    --scroll-pad-top: 96px;
+    scroll-padding-top: var(--scroll-pad-top);
   }
 
   /* A visitor who asked for less motion did not ask for a smooth scroll
@@ -396,6 +405,7 @@ html[dir="rtl"] {
    apart from the joins that make the word legible. Both are dropped. */
 html[dir="rtl"] [class*="eyebrow"],
 html[dir="rtl"] .cat-pill,
+html[dir="rtl"] .subcat-chip,
 html[dir="rtl"] .menu-item-note,
 html[dir="rtl"] .btn {
   letter-spacing: 0;
@@ -412,9 +422,26 @@ html[dir="rtl"] .menu-section-title {
 
 /* The vertical spine label. `vertical-rl` already reads top-to-bottom, which is
    correct for a label on a right-hand edge; the 180° turn exists only to make a
-   left-hand one read the right way up. See .menu-word. */
+   left-hand one read the right way up. See .menu-word.
+
+   The size is not the same number, and it is not a taste decision. A spine label
+   is as long as its text, and the two words are nothing like the same length at
+   the same font-size: measured in the browser, "Menu" in Playfair runs 2.87em
+   and "المنيو" in Amiri runs 1.41em — Arabic joins, and Amiri sets small on its
+   em besides. Sharing one font-size made the Arabic spine less than half the
+   height of the English one, which did not read as a smaller word so much as a
+   smudge in the margin. 2.04x is the ratio between those two measurements, so
+   both languages get a spine of the same *length*. Re-measure if either face
+   or either word ever changes. */
 html[dir="rtl"] .menu-word {
   transform: none;
+  font-size: clamp(147px, 28.6vh, 388px);
+}
+
+@media (max-width: 1023px) {
+  html[dir="rtl"] .menu-word {
+    font-size: clamp(122px, 24.5vh, 306px);
+  }
 }
 
 /* Scroll-driven rotation. `--pan-spin` is written by Hero.tsx, once per frame
@@ -917,6 +944,11 @@ html[dir="rtl"] .rail-arrow > span { display: inline-block; transform: scaleX(-1
   background: var(--color-soft-oat);
   padding-top: var(--menu-header-h);
   padding-bottom: 96px;
+  /* A category is a page now, and Coffee is four items — without this the
+     shortest ones end a third of the way down the screen with the footer pulled
+     up under them. It is also what bounds the decorative word: see .menu-word,
+     whose size is picked so that it fits inside one of these. */
+  min-height: 100svh;
   /* `clip`, not `hidden`. The decorative word hangs past the left edge on small
      screens, and `hidden` would make this a scroll container — which silently
      breaks `position: sticky` for the category bar inside it, because sticky
@@ -970,7 +1002,22 @@ html[dir="rtl"] .rail-arrow > span { display: inline-block; transform: scaleX(-1
      way up is exactly what would put this one upside down. */
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(96px, 26vh, 260px);
+  /* Sized to fit one screen, which is a change forced by the split.
+     `writing-mode: vertical-rl` turns the font size into the word's *height*
+     budget: each glyph advances a full em down the rail, so the word is roughly
+     `characters x font-size` tall. On the old six-thousand-pixel menu that could
+     be anything; on a page that is now often exactly `min-height` tall it
+     cannot. The rail spans the page, so a word taller than the page overflows
+     it — and because the rail is absolutely positioned, that overflow does not
+     grow its parent, it just extends the document and paints "Menu" straight
+     down over the footer.
+
+     The budget is the screen less where the word starts (~122px) and the page's
+     own bottom padding (96px), so about 78vh. "Menu" in Playfair measures 2.87em
+     long, so 2.87 x 14vh = 40vh clears that at every height with room to spare.
+     Arabic is a different length per em and so a different size; see the
+     `html[dir="rtl"]` rule beside the other RTL overrides. */
+  font-size: clamp(72px, 14vh, 190px);
   line-height: 1;
   letter-spacing: 0.06em;
   color: var(--color-deep-burgundy);
@@ -989,7 +1036,7 @@ html[dir="rtl"] .rail-arrow > span { display: inline-block; transform: scaleX(-1
   }
   .menu-word {
     margin-inline-start: -0.3em;
-    font-size: clamp(80px, 22vh, 180px);
+    font-size: clamp(60px, 12vh, 150px);
     opacity: 0.05;
   }
 }
@@ -1097,10 +1144,116 @@ html[dir="rtl"] .rail-arrow > span { display: inline-block; transform: scaleX(-1
   }
 }
 
+/* ─── The second row: sections within the group ───
+   Inside the same sticky element as the row above, so the pair travels as one
+   bar and `--menu-nav-h` is a single measurement rather than a sum. */
+.subcat-nav {
+  border-top: 1px solid rgb(211 195 192 / 0.4);
+}
+
+.subcat-scroll {
+  display: flex;
+  gap: 4px;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: 4px 20px;
+  padding-inline-start: max(20px, var(--menu-rail-w));
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* Written by JavaScript, which centres the chip for the section being read.
+     Left to itself the browser would also try to keep the focused chip in view
+     after a click, and the two would fight. */
+  scroll-behavior: auto;
+}
+
+.subcat-scroll::-webkit-scrollbar { display: none; }
+
+@media (min-width: 768px) {
+  .subcat-scroll {
+    padding-inline: 48px;
+    padding-inline-start: max(48px, var(--menu-rail-w));
+  }
+}
+
+/* Deliberately not a second set of pills. These two rows are not peers — one
+   changes the page, the other moves within it — and two identical bars stacked
+   would read as one control someone had split in half. So: no fill, no
+   travelling indicator, and the state is carried by weight, colour and a rule
+   under the label. */
+.subcat-chip {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  /* Still 40px of height on a row whose text is 12px. It is a touch target
+     before it is a label, and this row is the one a phone reader uses most. */
+  min-height: 40px;
+  padding: 0 10px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  /* One weight for every chip, read and unread alike. Bolding the active one is
+     the obvious treatment and it is a layout bug: a heavier label is a wider
+     label, so every chip after it shifts sideways — and this row's active chip
+     changes as the reader *scrolls*, which would make the whole bar twitch its
+     way down the page. The state is carried by colour and the rule below, both
+     of which cost no width. */
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--color-on-surface-variant);
+  background: transparent;
+  transition: color var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+}
+
+/* The rule, as a pseudo-element rather than a border: a border would add two
+   pixels to the chip's height the moment it appeared and nudge every other chip
+   in the row. */
+.subcat-chip::after {
+  content: "";
+  position: absolute;
+  inset-inline: 10px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-deep-burgundy);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+}
+
+.subcat-chip.is-reading {
+  color: var(--color-deep-burgundy);
+}
+
+.subcat-chip.is-reading::after {
+  transform: scaleX(1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .subcat-chip:hover:not(.is-reading) {
+    color: var(--color-primary);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subcat-chip,
+  .subcat-chip::after {
+    transition: none;
+  }
+}
+
 .cat-pill {
   position: relative;
   z-index: 1;
   flex: none;
+  /* An anchor, not a button, now that each pill goes to its own page. Two things
+     a `<button>` gave for free have to be asked for: the label centring itself
+     in a box taller than the text, and the absence of an underline. */
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
   /* 44px of height even though the text is 13px: this is the primary control on
      a phone, and a thumb is not a mouse pointer. */
   min-height: 44px;
@@ -1204,32 +1357,74 @@ html.is-menu-condensed .site-header {
 
 /* ─── Sections and items ─── */
 .menu-sections {
-  padding-top: 56px;
+  padding-top: 48px;
 }
 
+/* What keeps a heading clear of the bar when it is scrolled to — by a chip in
+   the row above, by the router's own hash handling, and by the browser's own on
+   a cold load. Three things have to come out of one number, and leaving any of
+   them out is a heading in the wrong place:
+
+     + the sticky bar's height, measured by MenuPage rather than written here,
+       because a literal and the JavaScript's own offset drift apart the first
+       time either row wraps. Only that bar is counted, not the site header:
+       reaching a section condenses the page, so the header is gone by the time
+       anything lands. The fallback is the two rows' resting height, for the
+       frame before the measurement arrives.
+     + 24px, so the heading sits under the bar rather than against it.
+     − the document's `scroll-padding-top`, which the browser adds to this on
+       top of everything else and which is sized for the *header* — a thing that
+       is not there when a section lands.
+     − whatever padding sits between the section's own top edge and its heading,
+       since the scroll aligns the box and the reader is looking at the words.
+
+   The last two are why this is arithmetic rather than a single value, and both
+   were caught by measuring a heading against the bar in a real browser. */
 .menu-section {
-  /* What keeps a heading clear of the bar when it is scrolled to, including by
-     the browser's own hash handling on a cold load. The height comes from
-     MenuPage, which measures the bar — a literal here and the JavaScript's own
-     offset drift apart the first time the bar wraps. Only the category bar is
-     counted: reaching a section condenses the page, so the site header is gone
-     by the time anything lands. */
-  scroll-margin-top: calc(var(--menu-nav-h, 66px) + 24px);
-  padding-block: 40px;
+  --menu-section-lead: 0px;
+  scroll-margin-top: calc(
+    var(--menu-nav-h, 114px) + 24px - var(--scroll-pad-top, 96px) - var(--menu-section-lead)
+  );
+  padding-block: 0 44px;
 }
 
+/* Air above every section but the first, which already has the gap
+   `.menu-sections` sets under the bar. */
 .menu-section + .menu-section {
+  --menu-section-lead: 44px;
   border-top: 1px solid rgb(211 195 192 / 0.45);
+  padding-top: var(--menu-section-lead);
+}
+
+/* The heading and its count on one baseline where there is room, stacked where
+   there is not. The count is genuinely secondary — it belongs beside the name,
+   not under it as a second line of display type. */
+.menu-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  margin-bottom: 24px;
 }
 
 .menu-section-title {
   font-family: var(--font-display);
-  font-size: clamp(28px, 3.4vw, 44px);
+  /* Smaller than it was when a category was a whole page and this was the only
+     heading on it. It sits under the group's h1 now, and a section title set at
+     the same weight and nearly the same size as the page title reads as a
+     second page title rather than as something inside the first. */
+  font-size: clamp(24px, 2.6vw, 34px);
   line-height: 1.15;
   font-weight: 700;
   letter-spacing: -0.015em;
   color: var(--color-primary);
-  margin-bottom: 28px;
+}
+
+.menu-section-meta {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--color-on-surface-variant);
 }
 
 .menu-items {
@@ -1293,6 +1488,134 @@ html.is-menu-condensed .site-header {
   font-weight: 600;
   letter-spacing: 0.1em;
   color: var(--color-secondary);
+}
+
+/* ─── The pager ───
+   The way out of a category for a reader who has reached the bottom of one with
+   the sticky bar long gone off the top of the screen. Two links, pinned to the
+   two edges, with an empty span holding the place of whichever one does not
+   exist at the two ends of the menu — otherwise "Next" slides left into the
+   space "Previous" would have occupied and the pair look like different
+   components on the first and last pages. */
+.menu-pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 16px;
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid rgb(211 195 192 / 0.45);
+  max-width: 1100px;
+}
+
+.menu-pager-gap {
+  flex: 1 1 0;
+}
+
+.menu-pager-link {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  text-decoration: none;
+  font-family: var(--font-body);
+  transition:
+    background-color var(--motion-quick, 0.22s) var(--motion-ease-out, ease),
+    transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+}
+
+/* Each link hugs its own end, so the pair read as "back that way" and "on this
+   way" rather than as two buttons that happen to be side by side. Logical, so
+   Arabic reverses both without a second rule. */
+.menu-pager-link.is-prev {
+  align-items: flex-start;
+  text-align: start;
+}
+
+.menu-pager-link.is-next {
+  align-items: flex-end;
+  text-align: end;
+}
+
+.menu-pager-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-deep-burgundy);
+}
+
+.menu-pager-name {
+  font-family: var(--font-display);
+  font-size: clamp(18px, 2.2vw, 26px);
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-primary);
+}
+
+/* The arrows are the one genuinely directional thing here, and they are text —
+   so they are mirrored rather than swapped for different characters. Writing
+   `←` for previous and flipping it in RTL keeps one arrow per direction in the
+   markup; picking the glyph per language would put the decision in two places
+   and eventually disagree with itself. */
+html[dir="rtl"] .menu-pager-arrow {
+  display: inline-block;
+  transform: scaleX(-1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .menu-pager-link:hover {
+    background: rgb(93 16 29 / 0.05);
+  }
+  .menu-pager-link:hover .menu-pager-arrow {
+    /* Toward the edge it points at, in whichever direction that is. The RTL
+       mirror above is on the same element, so this composes with it: the flip
+       turns a leftward nudge into a rightward one for free. */
+    transform: translateX(-3px);
+  }
+  html[dir="rtl"] .menu-pager-link:hover .menu-pager-arrow {
+    transform: scaleX(-1) translateX(-3px);
+  }
+  .menu-pager-link.is-next:hover .menu-pager-arrow {
+    transform: translateX(3px);
+  }
+  html[dir="rtl"] .menu-pager-link.is-next:hover .menu-pager-arrow {
+    transform: scaleX(-1) translateX(3px);
+  }
+}
+
+.menu-pager-arrow {
+  display: inline-block;
+  transition: transform var(--motion-quick, 0.22s) var(--motion-ease-out, ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-pager-link,
+  .menu-pager-arrow {
+    transition: none;
+  }
+}
+
+/* Under the phone breakpoint the two stack, because a display-sized category
+   name in half a 390px screen wraps to three lines. */
+@media (max-width: 560px) {
+  .menu-pager {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .menu-pager-gap {
+    display: none;
+  }
+  .menu-pager-link.is-next {
+    align-items: flex-start;
+    text-align: start;
+  }
 }
 
 /* The home page's way through to this one. */

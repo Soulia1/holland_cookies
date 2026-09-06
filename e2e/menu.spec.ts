@@ -1,158 +1,351 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ITEM_COUNT, MENU } from "../src/data/menu";
+import { ITEM_COUNT, MENU, MENU_GROUPS, groupItemCount } from "../src/data/menu";
 
-// The dedicated menu page: routing, the category bar, active tracking, the
-// merge with the site header, and the decorative word.
+// The menu, which is a page per *group* with the group's categories as sections
+// on it: routing and its redirects, the two bars, the scrollspy that links the
+// second to the page, the pager, the merge with the site header, and the
+// decorative word.
 
 async function ready(page: Page) {
   await expect(page.locator("#boot-splash")).toHaveCount(0, { timeout: 20_000 });
 }
 
-const activePill = (page: Page) =>
-  page.evaluate(() => document.querySelector(".cat-pill.is-active")?.textContent ?? null);
-
 /**
- * Scroll so a section's own top sits `offset` below the viewport top.
+ * Answer the session probe the way the real server answers a guest.
  *
- * The default has to be *above* the line the active category is resolved at —
- * the bar's height plus its gap, about 96px. At 100 the section is four pixels
- * short of counting, and the test failed on an off-by-four rather than on
- * anything the page does wrong.
+ * `AuthProvider` asks `/api/account/me` on every page load, and this suite runs
+ * against `vite preview` — a static file server with no backend, which hands the
+ * SPA fallback back for that path and fails the request. That is a fact about
+ * the harness rather than about the page, but it puts a failed-resource error in
+ * the console on every single load, which would either drown a real error or
+ * force the console assertion below to be dropped entirely.
+ *
+ * The payload is `backend/routes/account.js`'s own answer for a signed-out
+ * visitor: 200 with a null customer, chosen there for exactly this reason — so
+ * that the ordinary anonymous case is not console noise.
  */
-async function scrollToSection(page: Page, id: string, offset = 40) {
-  await page.evaluate(
-    ([target, gap]) => {
-      const node = document.getElementById(target as string);
-      if (!node) return;
-      window.scrollTo({
-        top: node.getBoundingClientRect().top + window.scrollY - (gap as number),
-        behavior: "auto",
-      });
-    },
-    [id, offset] as const,
+async function stubSession(page: Page) {
+  await page.route("**/api/account/me", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ customer: null, mailConfigured: true }),
+    }),
   );
 }
 
-test("the menu page renders every category and item from the data", async ({ page }) => {
+const activePill = (page: Page) =>
+  page.evaluate(() => document.querySelector(".cat-pill.is-active")?.textContent ?? null);
+
+const readingChip = (page: Page) =>
+  page.evaluate(() => document.querySelector(".subcat-chip.is-reading")?.textContent ?? null);
+
+/** Where the sticky bar's bottom edge is — the line a heading has to clear. */
+const barBottom = (page: Page) =>
+  page.evaluate(() => document.querySelector(".cat-nav")!.getBoundingClientRect().bottom);
+
+const COOKIES = MENU_GROUPS[0];
+const DESSERTS = MENU_GROUPS[1];
+
+test("every group has its own page, carrying exactly its own sections", async ({ page }) => {
+  await stubSession(page);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
   });
 
+  // Walked against the data module rather than a literal list, so adding a
+  // group or moving a category between them cannot leave this passing on a site
+  // that does not show it — and the running total is what says no item was
+  // dropped or duplicated in the fold from seventeen pages to three.
+  let seen = 0;
+  for (const group of MENU_GROUPS) {
+    await page.goto(`/menu/${group.id}`, { waitUntil: "load" });
+    await ready(page);
+
+    await expect(page.locator("h1")).toHaveText(group.name);
+    // One section per category in this group, in the group's own order, and
+    // nobody else's.
+    await expect(page.locator(".menu-section")).toHaveCount(group.categories.length);
+    await expect(page.locator(".menu-section-title")).toHaveText(
+      group.categories.map((category) => category.name),
+    );
+    await expect(page.locator(".menu-item")).toHaveCount(groupItemCount(group));
+    // The bar carries every group on every page — it is the navigation now —
+    // and the second row carries this group's sections.
+    await expect(page.locator(".cat-pill")).toHaveCount(MENU_GROUPS.length);
+    await expect(page.locator(".subcat-chip")).toHaveCount(group.categories.length);
+    expect(await activePill(page)).toBe(group.name);
+
+    for (const category of group.categories) {
+      await expect(page.locator(`#${category.id}`)).toHaveCount(1);
+    }
+
+    seen += groupItemCount(group);
+  }
+  expect(seen, "the three pages between them show the whole menu, once").toBe(ITEM_COUNT);
+
+  expect(errors, `console errors: ${errors.join(" | ")}`).toEqual([]);
+});
+
+test("the bare /menu redirects to the first group without trapping Back", async ({ page }) => {
+  await page.goto("/", { waitUntil: "load" });
+  await ready(page);
+
+  // Navigated rather than clicked the header link, because on the phone project
+  // that link lives inside a closed drawer and the test would be measuring the
+  // hamburger rather than the redirect. `/menu` is the address every link on the
+  // site uses, so arriving at it directly is the same journey.
   await page.goto("/menu", { waitUntil: "load" });
   await ready(page);
 
-  // Counted against the data module rather than a literal, so adding a category
-  // to the menu cannot leave this test passing on a page that dropped it.
-  await expect(page.locator(".menu-section")).toHaveCount(MENU.length);
-  await expect(page.locator(".cat-pill")).toHaveCount(MENU.length);
-  await expect(page.locator(".menu-item")).toHaveCount(ITEM_COUNT);
+  await expect(page).toHaveURL(new RegExp(`/menu/${COOKIES.id}$`));
+  await expect(page.locator("h1")).toHaveText(COOKIES.name);
 
-  // Every category is anchored by its own stable id.
-  for (const category of MENU) {
-    await expect(page.locator(`#${category.id}`)).toHaveCount(1);
-  }
+  // The redirect must replace rather than push. Pushing would put a `/menu`
+  // entry in the history whose only effect on Back is to send the reader
+  // forward again, which is a trap: one press has to reach the home page.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator(".bestsellers")).toBeVisible();
+});
 
-  expect(errors, `console errors: ${errors.join(" | ")}`).toEqual([]);
+test("an old per-category address lands on that section of its group", async ({ page }) => {
+  // `/menu/cookie-pans` was a real page until the categories were folded into
+  // groups, so those addresses are in the wild — bookmarked, shared, and in
+  // this project's own history. A category is a section now, and the link still
+  // means exactly what it always meant.
+  await page.goto("/menu/cookie-pans", { waitUntil: "load" });
+  await ready(page);
+
+  await expect(page).toHaveURL(/\/menu\/cookies#cookie-pans$/);
+  await expect(page.locator("h1")).toHaveText("Cookies");
+
+  // And it arrives *at* that section rather than at the top of a page that
+  // merely contains it, with the heading clear of the sticky bar.
+  const landed = await page.evaluate(() => {
+    const heading = document.querySelector("#cookie-pans .menu-section-title")!;
+    const bar = document.querySelector(".cat-nav")!.getBoundingClientRect();
+    return { top: heading.getBoundingClientRect().top, bar: bar.bottom, scrollY: window.scrollY };
+  });
+  expect(landed.scrollY, "did not scroll to the section at all").toBeGreaterThan(0);
+  expect(landed.top, "the heading landed under the sticky bar").toBeGreaterThanOrEqual(landed.bar);
+  expect(landed.top - landed.bar, "the heading landed miles below the bar").toBeLessThan(120);
+});
+
+test("an old /menu#category deep link lands on that section too", async ({ page }) => {
+  // How the original one-page menu deep-linked. Older still, same promise.
+  await page.goto("/menu#biscuits-kahk", { waitUntil: "load" });
+  await ready(page);
+
+  await expect(page).toHaveURL(/\/menu\/desserts#biscuits-kahk$/);
+  await expect(page.locator("h1")).toHaveText("Desserts");
+  await expect(page.locator("#biscuits-kahk")).toHaveCount(1);
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+});
+
+test("a hash naming a section of another group is ignored, not followed", async ({ page }) => {
+  // The path is the more specific half of the address. A `#gateaux` on the
+  // cookies page names nothing there, and quietly rewriting the URL to the
+  // desserts page would be the address changing the page rather than the other
+  // way round.
+  await page.goto("/menu/cookies#gateaux", { waitUntil: "load" });
+  await ready(page);
+
+  await expect(page).toHaveURL(/\/menu\/cookies$/);
+  await expect(page.locator("h1")).toHaveText("Cookies");
+  expect(await page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+});
+
+test("a slug that names nothing at all falls back rather than dead-ending", async ({ page }) => {
+  await page.goto("/menu/no-such-thing", { waitUntil: "load" });
+  await ready(page);
+
+  await expect(page).toHaveURL(new RegExp(`/menu/${COOKIES.id}$`));
+  await expect(page.locator("h1")).toHaveText(COOKIES.name);
+});
+
+test("the group bar routes between pages without reloading the document", async ({ page }) => {
+  await page.goto("/menu/cookies", { waitUntil: "load" });
+  await ready(page);
+
+  // Marked at the top of the page, so this is a route change and not a fetch.
+  await page.evaluate(() => {
+    (window as unknown as { __alive?: boolean }).__alive = true;
+  });
+
+  await page.locator('.cat-pill[data-cat="drinks"]').click();
+
+  await expect(page).toHaveURL(/\/menu\/drinks$/);
+  await expect(page.locator("h1")).toHaveText("Drinks");
+  expect(await activePill(page)).toBe("Drinks");
+  expect(
+    await page.evaluate(() => (window as unknown as { __alive?: boolean }).__alive === true),
+    "the click reloaded the document instead of routing",
+  ).toBe(true);
+
+  // A new page starts at the top, rather than at wherever the last one was left.
+  expect(await page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+  // And the second row has been rebuilt for the group that is now on screen.
+  await expect(page.locator(".subcat-chip")).toHaveText(
+    MENU_GROUPS[2].categories.map((category) => category.name),
+  );
+});
+
+test("a section chip scrolls to its section and clears the sticky bar", async ({ page }) => {
+  await page.goto("/menu/cookies", { waitUntil: "load" });
+  await ready(page);
+  await page.evaluate(() => document.fonts.ready);
+
+  // The last chip, so the scroll is a long one and the section it lands on is
+  // near the bottom — where a wrong offset shows up worst.
+  const last = COOKIES.categories[COOKIES.categories.length - 1];
+  await page.locator(`.subcat-chip[data-sub="${last.id}"]`).click();
+
+  // Same page: the chip is an in-page anchor, not a navigation.
+  await expect(page).toHaveURL(new RegExp(`/menu/cookies#${last.id}$`));
+
+  // Smooth by stylesheet, so polled rather than measured once.
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(
+          (id) => Math.round(document.getElementById(id)!.getBoundingClientRect().top),
+          last.id,
+        ),
+      { timeout: 4000, message: "the chip never scrolled to its section" },
+    )
+    .toBeLessThan(400);
+
+  const bar = await barBottom(page);
+  const heading = await page.evaluate(
+    (id) => document.querySelector(`#${id} .menu-section-title`)!.getBoundingClientRect().top,
+    last.id,
+  );
+  // The whole point of `scroll-margin-top`: the heading you asked for is the
+  // heading you can see, not one hidden behind the bar that took you there.
+  expect(heading, `heading at ${heading}, bar bottom at ${bar}`).toBeGreaterThanOrEqual(bar);
+  expect(heading - bar).toBeLessThan(120);
+});
+
+test("the scrollspy lights the section being read, bottom of the page included", async ({
+  page,
+}) => {
+  await page.goto("/menu/cookies", { waitUntil: "load" });
+  await ready(page);
+  await page.evaluate(() => document.fonts.ready);
+
+  // At the top: the first section.
+  expect(await readingChip(page)).toBe(COOKIES.categories[0].name);
+
+  // Put a middle section's top just past the bar and the chip has to follow.
+  // Scrolled by measurement rather than by a guessed pixel count, since section
+  // heights depend on which fonts have landed.
+  //
+  // Twice, and that is not belt and braces. The site header sits above the bar
+  // at the top of the page and slides away once the intro has gone by, so the
+  // bar's bottom edge measured at rest is ~88px lower than where it will be
+  // after any scroll worth making. Measuring once, scrolling, and asserting
+  // lands the section that far off and reads the *previous* one — which is what
+  // this test did on its first run, and which is a fact about the header rather
+  // than about the spy.
+  const middle = COOKIES.categories[3];
+  const place = (id: string) =>
+    page.evaluate((target) => {
+      const bar = document.querySelector(".cat-nav")!.getBoundingClientRect().bottom;
+      const top = document.getElementById(target)!.getBoundingClientRect().top;
+      window.scrollTo({ top: window.scrollY + top - bar + 8, behavior: "auto" });
+    }, id);
+
+  await place(middle.id);
+  await page.waitForTimeout(150);
+  await place(middle.id);
+
+  await expect
+    .poll(() => readingChip(page), { timeout: 4000, message: "the spy did not follow the scroll" })
+    .toBe(middle.name);
+
+  // The bottom of the page is its own case and not an optimisation: the last
+  // section is shorter than a viewport, so its top never reaches the line and
+  // it could otherwise never light however far down the reader goes.
+  await page.evaluate(() =>
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" }),
+  );
+  await expect
+    .poll(() => readingChip(page), {
+      timeout: 4000,
+      message: "the last section never lit at the bottom of the page",
+    })
+    .toBe(COOKIES.categories[COOKIES.categories.length - 1].name);
+
+  // Exactly one chip claims to be the one being read, at every position above.
+  expect(await page.locator(".subcat-chip.is-reading").count()).toBe(1);
+});
+
+test("the indicator sits exactly under the active pill, after the fonts land", async ({ page }) => {
+  // The pills are laid out in the fallback font and re-laid-out when the real
+  // one arrives. Measured once and never again, the indicator ends up beside
+  // the pill rather than under it — which is what happened in Arabic, where
+  // Cairo narrows every label.
+  await page.goto("/menu/desserts", { waitUntil: "load" });
+  await ready(page);
+  await page.evaluate(() => document.fonts.ready);
+
+  const drift = await page.evaluate(() => {
+    const pill = document.querySelector(".cat-pill.is-active")!.getBoundingClientRect();
+    const indicator = document.querySelector(".cat-indicator")!.getBoundingClientRect();
+    return {
+      left: Math.round(indicator.left - pill.left),
+      width: Math.round(indicator.width - pill.width),
+    };
+  });
+  expect(Math.abs(drift.left), `indicator ${drift.left}px off the pill`).toBeLessThanOrEqual(1);
+  expect(Math.abs(drift.width)).toBeLessThanOrEqual(1);
+});
+
+test("the pager walks the groups in order and stops at both ends", async ({ page }) => {
+  const [first, second] = MENU_GROUPS;
+  const last = MENU_GROUPS[MENU_GROUPS.length - 1];
+
+  // The first page has a next and no previous…
+  await page.goto(`/menu/${first.id}`, { waitUntil: "load" });
+  await ready(page);
+  await expect(page.locator(".menu-pager-link.is-prev")).toHaveCount(0);
+  await expect(page.locator(".menu-pager-link.is-next")).toContainText(second.name);
+
+  await page.locator(".menu-pager-link.is-next").click();
+  await expect(page).toHaveURL(new RegExp(`/menu/${second.id}$`));
+  await expect(page.locator(".menu-pager-link.is-prev")).toContainText(first.name);
+
+  // …and the last has a previous and no next.
+  await page.goto(`/menu/${last.id}`, { waitUntil: "load" });
+  await ready(page);
+  await expect(page.locator(".menu-pager-link.is-next")).toHaveCount(0);
+  await expect(page.locator(".menu-pager-link.is-prev")).toContainText(
+    MENU_GROUPS[MENU_GROUPS.length - 2].name,
+  );
 });
 
 test("the home page links to the menu instead of listing it", async ({ page }) => {
   await page.goto("/", { waitUntil: "load" });
   await ready(page);
 
-  // The teaser rail, not the full menu. If the whole thing ever gets rendered
-  // on the home page again, this is what says so.
+  // The teaser rail, not the menu. If the whole thing ever gets rendered on the
+  // home page again, this is what says so.
   await expect(page.locator(".menu-section")).toHaveCount(0);
   await expect(page.locator(".pan-card")).toHaveCount(3);
 
   await page.getByRole("link", { name: "See the full menu" }).click();
-  await expect(page).toHaveURL(/\/menu$/);
-  await expect(page.locator(".menu-section").first()).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/menu/${COOKIES.id}$`));
+  await expect(page.locator(".menu-item").first()).toBeVisible();
   // A route, not a reload: the boot splash belongs to a cold document, and
   // seeing it again would mean the click went to the network.
   await expect(page.locator("#boot-splash")).toHaveCount(0);
 });
 
-test("clicking a category scrolls to it, clear of the bar, and marks it active", async ({
-  page,
-}) => {
-  await page.goto("/menu", { waitUntil: "load" });
-  await ready(page);
-
-  await page.locator('.cat-pill[data-cat="gateaux"]').click();
-
-  // Polled: the scroll is smooth and its length depends on where the page was.
-  await expect
-    .poll(() => activePill(page), { timeout: 6000, message: "the pill did not follow the click" })
-    .toBe("Gateaux");
-
-  const geometry = await page.evaluate(() => {
-    const heading = document.querySelector("#gateaux .menu-section-title")!.getBoundingClientRect();
-    const bar = document.querySelector(".cat-nav")!.getBoundingClientRect();
-    return { headingTop: Math.round(heading.top), barBottom: Math.round(bar.bottom) };
-  });
-  // The heading must be *below* the sticky bar, not under it. This is the whole
-  // point of the scroll offset, and it is invisible in a screenshot taken a
-  // moment too early.
-  expect(
-    geometry.headingTop,
-    `heading at ${geometry.headingTop}, bar ends at ${geometry.barBottom}`,
-  ).toBeGreaterThan(geometry.barBottom);
-
-  expect(page.url()).toContain("#gateaux");
-});
-
-test("the last category becomes active at the bottom of the page", async ({ page }) => {
-  await page.goto("/menu", { waitUntil: "load" });
-  await ready(page);
-
-  // The last section is short, so the page hits its bottom stop before that
-  // heading can scroll under the bar. Resolved by crossings alone, the bar named
-  // the category before it.
-  await page.evaluate(() =>
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" }),
-  );
-  await expect
-    .poll(() => activePill(page), { timeout: 5000, message: "the last category never activated" })
-    .toBe(MENU[MENU.length - 1].name);
-});
-
-test("scrolling by hand moves the active category", async ({ page }) => {
-  await page.goto("/menu", { waitUntil: "load" });
-  await ready(page);
-  expect(await activePill(page)).toBe(MENU[0].name);
-
-  for (const id of ["cookie-scoops", "gateaux", "coffee"]) {
-    await scrollToSection(page, id);
-    await expect
-      .poll(() => activePill(page), { timeout: 4000, message: `scrolling to ${id}` })
-      .toBe(MENU.find((category) => category.id === id)!.name);
-  }
-});
-
-test("a deep link lands on the right category, below the bar", async ({ page }) => {
-  await page.goto("/menu#biscuits-kahk", { waitUntil: "load" });
-  await ready(page);
-
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const heading = document.querySelector("#biscuits-kahk .menu-section-title");
-          const bar = document.querySelector(".cat-nav");
-          if (!heading || !bar) return -1;
-          return Math.round(
-            heading.getBoundingClientRect().top - bar.getBoundingClientRect().bottom,
-          );
-        }),
-      { timeout: 6000, message: "the deep link never settled below the bar" },
-    )
-    .toBeGreaterThan(0);
-});
-
 test("the header and the category bar merge on scroll and come back apart", async ({ page }) => {
-  await page.goto("/menu", { waitUntil: "load" });
+  await page.goto("/menu/cookies", { waitUntil: "load" });
   await ready(page);
 
   const bars = () =>
@@ -171,7 +364,7 @@ test("the header and the category bar merge on scroll and come back apart", asyn
   expect(top.headerVisible).toBe(true);
   expect(top.barTop).toBeGreaterThan(top.headerBottom);
 
-  await page.evaluate(() => window.scrollTo({ top: 1600, behavior: "auto" }));
+  await page.evaluate(() => window.scrollTo({ top: 600, behavior: "auto" }));
   await expect
     .poll(async () => (await bars()).headerVisible, {
       timeout: 4000,
@@ -190,21 +383,32 @@ test("the header and the category bar merge on scroll and come back apart", asyn
     .toBe(true);
 });
 
-test("the decorative word stays anchored, stays behind, and takes no clicks", async ({ page }) => {
-  await page.goto("/menu", { waitUntil: "load" });
+test("the decorative word stays behind, takes no clicks, and fits its page", async ({ page }) => {
+  // The shortest group. Grouping made every page taller than the per-category
+  // pages were, but the word is still sized to fit inside the shortest of them —
+  // too large and it overflows the rail and paints down over the footer, which
+  // is invisible to every other check here.
+  await page.goto(`/menu/${MENU_GROUPS[MENU_GROUPS.length - 1].id}`, { waitUntil: "load" });
   await ready(page);
+  await page.evaluate(() => document.fonts.ready);
 
   const word = page.locator(".menu-word");
-  await expect(word).toHaveAttribute; // presence only; it is aria-hidden scenery
   const before = await word.evaluate((el) => Math.round(el.getBoundingClientRect().top));
 
-  await page.evaluate(() => window.scrollTo({ top: 2400, behavior: "auto" }));
-  await page.waitForTimeout(400);
-  const after = await word.evaluate((el) => Math.round(el.getBoundingClientRect().top));
+  const fits = await page.evaluate(() => {
+    const w = document.querySelector(".menu-word")!.getBoundingClientRect();
+    const page = document.querySelector(".menu-page")!.getBoundingClientRect();
+    return { overhang: Math.round(w.bottom - page.bottom), height: Math.round(w.height) };
+  });
+  expect(fits.overhang, "the word hangs out of the bottom of its page").toBeLessThanOrEqual(0);
+  // And it is still a spine rather than a smudge — the failure mode in Arabic,
+  // where the same font-size buys less than half the length.
+  expect(fits.height).toBeGreaterThan(150);
 
-  // Sticky, so it holds its offset rather than travelling 2400px with the page.
-  // Without the fix that made it sticky it was a 5900px-tall box whose text sat
-  // at the top and scrolled straight out of view.
+  await page.evaluate(() => window.scrollTo({ top: 400, behavior: "auto" }));
+  await page.waitForTimeout(300);
+  const after = await word.evaluate((el) => Math.round(el.getBoundingClientRect().top));
+  // Sticky, so it holds its offset rather than travelling with the page.
   expect(Math.abs(after - before), `word moved from ${before} to ${after}`).toBeLessThan(120);
 
   const guards = await page.evaluate(() => {
@@ -219,22 +423,45 @@ test("the decorative word stays anchored, stays behind, and takes no clicks", as
   expect(guards.pointer).toBe("none");
   expect(guards.opacity).toBeLessThan(0.15);
 
-  // And a category directly over it is still clickable.
+  // And a pill directly over it is still clickable.
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" }));
-  await page.locator('.cat-pill[data-cat="molten-cakes"]').click();
-  await expect.poll(() => activePill(page), { timeout: 5000 }).toBe("Molten Cakes");
+  await page.locator(`.cat-pill[data-cat="${DESSERTS.id}"]`).click();
+  await expect(page).toHaveURL(new RegExp(`/menu/${DESSERTS.id}$`));
 });
 
-test("no horizontal overflow anywhere down the menu", async ({ page }) => {
-  await page.goto("/menu", { waitUntil: "load" });
-  await ready(page);
-
-  for (const y of [0, 1200, 2600, 4200]) {
-    await page.evaluate((top) => window.scrollTo({ top, behavior: "auto" }), y);
-    await page.waitForTimeout(150);
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow, `overflow at scrollY ${y}`).toBeLessThanOrEqual(0);
+test("no horizontal overflow on the longest group or the shortest", async ({ page }) => {
+  // Cookies is seven sections and the widest second row; Drinks is four and the
+  // shortest page. Two bars that scroll sideways are two more chances for
+  // something to push the document wider than the viewport.
+  for (const id of [COOKIES.id, MENU_GROUPS[MENU_GROUPS.length - 1].id]) {
+    await page.goto(`/menu/${id}`, { waitUntil: "load" });
+    await ready(page);
+    for (const y of [0, 400, 900, 2400]) {
+      await page.evaluate((top) => window.scrollTo({ top, behavior: "auto" }), y);
+      await page.waitForTimeout(120);
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow, `overflow on ${id} at scrollY ${y}`).toBeLessThanOrEqual(0);
+    }
   }
+});
+
+test("no category was orphaned by the grouping", async ({ page }) => {
+  // The quiet failure this whole restructure risks: a category that no group
+  // claims does not throw and does not look broken — it just stops existing.
+  // `menu.test.ts` proves the data agrees with itself; this proves the running
+  // site agrees with the data, by asking the browser for every category id.
+  await stubSession(page);
+  const reachable = new Set<string>();
+  for (const group of MENU_GROUPS) {
+    await page.goto(`/menu/${group.id}`, { waitUntil: "load" });
+    await ready(page);
+    for (const id of await page.locator(".menu-section").evaluateAll((nodes) =>
+      nodes.map((node) => node.id),
+    )) {
+      reachable.add(id);
+    }
+  }
+  expect([...reachable].sort()).toEqual(MENU.map((category) => category.id).sort());
 });

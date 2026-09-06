@@ -392,3 +392,142 @@ export const MENU: MenuCategory[] = [
 export const CATEGORY_IDS = MENU.map((category) => category.id);
 
 export const ITEM_COUNT = MENU.reduce((total, category) => total + category.items.length, 0);
+
+/**
+ * Categories by id, for the router.
+ *
+ * `/menu/cookie-pans` has to resolve to a category before anything can be
+ * rendered, and doing that with `MENU.find` inside a component means a linear
+ * scan of seventeen entries on every render of the page *and* of the category
+ * bar's seventeen links. Built once, here, beside the data it indexes.
+ */
+export const CATEGORY_BY_ID: ReadonlyMap<string, MenuCategory> = new Map(
+  MENU.map((category) => [category.id, category]),
+);
+
+/** The cheapest item in a category, for the "from …" line under its heading. */
+export function priceFrom(category: MenuCategory): number {
+  return category.items.reduce((low, item) => Math.min(low, item.price), Infinity);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Groups
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * A top-level section of the menu, holding several of the categories above.
+ *
+ * Seventeen printed headings is the right level of detail for a *price list*
+ * and the wrong one for *navigation*: seven of them are kinds of cookie, and a
+ * bar carrying all seventeen made the reader scroll sideways through a list
+ * whose first half all said "cookie" before they could find the coffee. So the
+ * bar now carries three groups and each group's page shows its categories in
+ * full, one under the next.
+ *
+ * The categories themselves are untouched. They are what the sheets print, they
+ * are what the Arabic names and the ids belong to, and they are still the unit
+ * a heading and an anchor correspond to — `/menu/cookies#cookie-pans`. A group
+ * is purely a layer of navigation over them, which is why it is defined as a
+ * list of ids rather than by moving the category literals around: the printed
+ * order of the sheets stays readable in one place, and regrouping is a
+ * three-line edit that cannot lose an item.
+ */
+export interface MenuGroup {
+  /** Stable, and the route: `/menu/cookies`. */
+  id: string;
+  name: string;
+  nameAr: string;
+  categories: MenuCategory[];
+}
+
+/**
+ * Which categories each group holds, in the order they are shown.
+ *
+ * Order within a group is deliberate and is *not* the order of `MENU` — the
+ * sheets print Brownies & Brookies between Cookie Cake and Cookie Boxes, which
+ * puts a non-cookie in the middle of the cookies. Here the seven cookie
+ * categories run together and the brownies sit with the other desserts.
+ */
+const GROUP_PLAN = [
+  {
+    id: "cookies",
+    name: "Cookies",
+    nameAr: "كوكيز",
+    categoryIds: [
+      "plain-cookies",
+      "cookie-pans",
+      "cookie-cups",
+      "cookie-tagines",
+      "cookie-scoops",
+      "cookie-cake",
+      "cookie-boxes",
+    ],
+  },
+  {
+    id: "desserts",
+    name: "Desserts",
+    nameAr: "حلويات",
+    categoryIds: [
+      "brownies-brookies",
+      "tagines",
+      "molten-cakes",
+      "cheesecakes-tarts",
+      "gateaux",
+      "biscuits-kahk",
+    ],
+  },
+  {
+    id: "drinks",
+    name: "Drinks",
+    nameAr: "مشروبات",
+    categoryIds: ["coffee", "iced-coffee", "frappes", "milkshakes"],
+  },
+] as const;
+
+/**
+ * Resolved once, at module load.
+ *
+ * An id in `GROUP_PLAN` that names no category would otherwise render as a hole
+ * in the page — a group one section short, with no error anywhere. It throws
+ * instead: this is static data read at import time, so a typo here is a
+ * build-and-first-load failure rather than something a customer discovers.
+ * `menu.test.ts` covers the other half, that no category is left out of every
+ * group or claimed by two.
+ */
+export const MENU_GROUPS: MenuGroup[] = GROUP_PLAN.map((plan) => ({
+  id: plan.id,
+  name: plan.name,
+  nameAr: plan.nameAr,
+  categories: plan.categoryIds.map((id) => {
+    const category = CATEGORY_BY_ID.get(id);
+    if (!category) throw new Error(`Menu group "${plan.id}" names unknown category "${id}"`);
+    return category;
+  }),
+}));
+
+/** Groups by id, for the router. */
+export const GROUP_BY_ID: ReadonlyMap<string, MenuGroup> = new Map(
+  MENU_GROUPS.map((group) => [group.id, group]),
+);
+
+/**
+ * The group a category belongs to.
+ *
+ * This is what keeps every `/menu/cookie-pans` link that was ever shared or
+ * bookmarked working: it still names a real thing, and that thing is now a
+ * section of a page rather than a page. The router resolves it here and lands
+ * the reader on `/menu/cookies#cookie-pans`.
+ */
+export const GROUP_BY_CATEGORY_ID: ReadonlyMap<string, MenuGroup> = new Map(
+  MENU_GROUPS.flatMap((group) => group.categories.map((category) => [category.id, group] as const)),
+);
+
+/** Every item in a group, for the count under its heading. */
+export function groupItemCount(group: MenuGroup): number {
+  return group.categories.reduce((total, category) => total + category.items.length, 0);
+}
+
+/** The cheapest item anywhere in a group, for the "from …" line. */
+export function groupPriceFrom(group: MenuGroup): number {
+  return group.categories.reduce((low, category) => Math.min(low, priceFrom(category)), Infinity);
+}

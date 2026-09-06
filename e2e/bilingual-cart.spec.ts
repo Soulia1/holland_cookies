@@ -131,7 +131,12 @@ test.describe("language", () => {
     await page.goto("/menu", { waitUntil: "load" });
     await ready(page);
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-    await expect(page.locator("h1")).toContainText("المنيو");
+    // The h1 is the group and "the menu" is the eyebrow above it — a page per
+    // group means the page's own name is the group's name. The categories are
+    // the h2s below it, so both levels have to be in Arabic.
+    await expect(page.locator(".menu-eyebrow")).toContainText("المنيو");
+    await expect(page.locator("h1")).toContainText("كوكيز");
+    await expect(page.locator(".menu-section-title").first()).toContainText("كوكيز سادة");
   });
 
   test("switching back to English restores it", async ({ page }) => {
