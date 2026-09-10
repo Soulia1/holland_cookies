@@ -71,7 +71,14 @@ app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No s
 const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\/]assets[\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
 app.use('/dashboard',express.static(dashboardDist,staticOptions));app.use(express.static(dist,staticOptions));
 app.get(['/dashboard','/dashboard/','/dashboard/orders','/dashboard/orders/:id','/dashboard/menu','/dashboard/users','/dashboard/promos','/dashboard/settings'],(_req,res)=>{res.set('Cache-Control','no-cache');res.sendFile(path.join(dashboardDist,'index.html'));});
-app.get(['/','/menu','/checkout','/account','/track'],(_req,res)=>{res.set('Cache-Control','no-cache');res.sendFile(path.join(dist,'index.html'));});
+// `/menu/:slug` is not decoration: the menu is a page per group, so `/menu/cookies`
+// is what every "Menu" link on the site produces, and `/menu/<category>` is the
+// older per-category address App.tsx still accepts and redirects. Listing only
+// `/menu` served those addresses to nobody — in-app they are pushState, which
+// never asks the server, so the 404 appeared only on a refresh, a bookmark, a
+// shared link or a crawler. Clicking through the site cannot reveal it, which is
+// why the dashboard's parameterised routes above were remembered and this was not.
+app.get(['/','/menu','/menu/:slug','/checkout','/account','/track'],(_req,res)=>{res.set('Cache-Control','no-cache');res.sendFile(path.join(dist,'index.html'));});
 app.use((_req,res)=>res.status(404).type('text').send('Not found.'));
 app.use((error,req,res,_next)=>{
   logEvent('request_error',req,{code:typeof error.code==='string'?error.code.slice(0,64):'INTERNAL'});
