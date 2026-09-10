@@ -16,7 +16,7 @@
  *    delivery channel, and anything with access to it would hold every code.
  */
 
-const BREVO_URL = process.env.BREVO_BASE_URL || 'https://api.brevo.com/v3/smtp/email';
+const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
 export function mailConfigured() {
   return Boolean(process.env.BREVO_API_KEY);
@@ -36,8 +36,7 @@ function isProduction() {
  * is not.
  */
 function consoleTransportAllowed() {
-  if (process.env.MAIL_TRANSPORT === 'console') return true;
-  return !isProduction();
+  return !isProduction() && process.env.MAIL_TRANSPORT === 'console';
 }
 
 function sender() {
@@ -72,6 +71,8 @@ export async function sendMail({ to, subject, text, html }) {
   }
 
   const response = await fetch(BREVO_URL, {
+    signal: AbortSignal.timeout(5000),
+    redirect: 'error',
     method: 'POST',
     headers: {
       'api-key': process.env.BREVO_API_KEY,
@@ -93,14 +94,15 @@ export async function sendMail({ to, subject, text, html }) {
   if (!response.ok) {
     // The provider's own message is logged but not returned: it can quote the
     // recipient address back, and this error reaches a browser.
-    const detail = await response.text().catch(() => '');
-    console.error('[holland:mail] provider rejected the message:', response.status, detail);
+    await response.body?.cancel();
+    console.error(JSON.stringify({event:'mail_failed',status:response.status}));
     const error = new Error('We could not send that email. Please try again.');
     error.code = 'MAIL_FAILED';
     error.status = 502;
     throw error;
   }
 
+  await response.body?.cancel();
   return { delivered: true, via: 'brevo' };
 }
 

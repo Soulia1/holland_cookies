@@ -1,0 +1,40 @@
+{
+  "label": "before",
+  "browser": "Chromium",
+  "scenario": "Desktop localhost, three cold contexts; external fonts blocked identically; homepage to menu. Lab observations, not field CWV/INP.",
+  "runs": [
+    {
+      "lcp": 196,
+      "cls": 0,
+      "interactions": [
+        32,
+        32,
+        32
+      ],
+      "ttfb": 18.399999999906868,
+      "jsBytes": 394371
+    },
+    {
+      "lcp": 168,
+      "cls": 0,
+      "interactions": [
+        32,
+        32,
+        32
+      ],
+      "ttfb": 4.7000000001862645,
+      "jsBytes": 394371
+    },
+    {
+      "lcp": 156,
+      "cls": 0,
+      "interactions": [
+        24,
+        24,
+        24
+      ],
+      "ttfb": 5.399999999906868,
+      "jsBytes": 394371
+    }
+  ]
+}

@@ -13,3 +13,10 @@ playwright-report/
 dist-dashboard/
 *.db
 shot-*.png
+
+# Full-size Google Flow output. These are the raw 16:9 renders that
+# tools/install-flow-thumbs.py crops into public/img/menu/ai — 35MB of
+# intermediates for 2MB of shipped thumbnails. _state.json lives here too, so
+# resuming a batch is a local-machine affair rather than something the repo
+# carries.
+/tools/flow-out/

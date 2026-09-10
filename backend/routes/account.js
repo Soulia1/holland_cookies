@@ -1,3 +1,4 @@
+import { validateParams, amount, imagePath, identifier, email as emailSchema } from '../validation.js';
 /**
  * Customer accounts: signing in, the profile, and order history.
  *
@@ -9,7 +10,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { rateLimit } from 'express-rate-limit';
+import { limit } from '../security.js';
 import * as db from '../db.js';
 import {
   claimProfile, clearCustomerSession, issueCustomerSession, readCustomer, requireCustomer,
@@ -18,6 +19,7 @@ import { isEmail, normalizeEmail, requestCode, verifyCode } from '../otp.js';
 import { mailConfigured, sendSignInCode } from '../mailer.js';
 
 const router = Router();
+validateParams(router);
 
 /**
  * Per-IP limits on top of the per-address quota in otp.js.
@@ -25,28 +27,16 @@ const router = Router();
  * The two catch different attacks: the per-address quota stops one mailbox
  * being flooded, and this stops one machine walking many addresses.
  */
-const requestCodeLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  limit: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'RATE_LIMITED', message: 'Too many requests. Try again later.' },
-});
+const requestCodeLimiter = limit('otp-request', 60 * 60 * 1000, 20);
 
-const verifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'RATE_LIMITED', message: 'Too many attempts. Try again later.' },
-});
+const verifyLimiter = limit('otp-verify', 15 * 60 * 1000, 30);
 
 // ------------------------------------------------------------------ auth ----
 
 /** POST /api/account/request-code */
 router.post('/request-code', requestCodeLimiter, async (req, res, next) => {
-  const parsed = z.object({
-    email: z.string().min(3).max(160),
+  const parsed = z.strictObject({
+    email: emailSchema,
     lang: z.enum(['en', 'ar']).optional(),
   }).safeParse(req.body);
   if (!parsed.success || !isEmail(parsed.data.email)) {
@@ -55,7 +45,8 @@ router.post('/request-code', requestCodeLimiter, async (req, res, next) => {
 
   const result = await requestCode(parsed.data.email);
   if (!result.ok) {
-    return res.status(result.code === 'COOLDOWN' ? 429 : 400).json({
+    if (['COOLDOWN','RATE_LIMITED','BUSY'].includes(result.code)) res.set('Retry-After', String(result.retryAfter || 60));
+    return res.status(['COOLDOWN','RATE_LIMITED','BUSY'].includes(result.code) ? 429 : 400).json({
       error: result.code, message: result.message, retryAfter: result.retryAfter,
     });
   }
@@ -80,9 +71,9 @@ router.post('/request-code', requestCodeLimiter, async (req, res, next) => {
 
 /** POST /api/account/verify-code */
 router.post('/verify-code', verifyLimiter, async (req, res) => {
-  const parsed = z.object({
-    email: z.string().min(3).max(160),
-    code: z.string().min(4).max(8),
+  const parsed = z.strictObject({
+    email: emailSchema,
+    code: z.string().regex(/^\d{6}$/),
   }).safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'INVALID_CODE', message: 'That code is not right.' });
@@ -111,8 +102,8 @@ router.post('/verify-code', verifyLimiter, async (req, res) => {
   });
 });
 
-router.post('/signout', (_req, res) => {
-  clearCustomerSession(res);
+router.post('/signout', (req, res) => {
+  clearCustomerSession(res, req);
   res.json({ ok: true });
 });
 
@@ -133,7 +124,7 @@ router.get('/me', (req, res) => {
 // --------------------------------------------------------------- profile ----
 
 router.patch('/profile', requireCustomer, (req, res) => {
-  const parsed = z.object({
+  const parsed = z.strictObject({
     fullName: z.string().max(120).optional(),
     phone: z.string().max(24).optional(),
     defaultArea: z.string().max(80).optional(),

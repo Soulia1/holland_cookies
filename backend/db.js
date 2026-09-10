@@ -78,7 +78,7 @@ function connect() {
   // Wait rather than throw if another connection holds the write lock.
   db.pragma('busy_timeout = 5000');
 
-  migrate(db);
+  try { migrate(db); } catch (error) { db.close(); db = null; activePath = null; throw error; }
   return db;
 }
 
@@ -325,6 +325,41 @@ function migrate(database) {
         UPDATE order_status_history SET status = 'in_transit' WHERE status = 'out_for_delivery';
       `);
     },
+    // 5 — additive launch-hardening migration. Historical steps remain intact.
+    () => {
+      database.exec(`
+        CREATE TABLE sessions (
+          token_hash TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('admin','customer')),
+          subject TEXT NOT NULL, expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX sessions_expiry ON sessions(expires_at);
+        CREATE TABLE rate_limits (key TEXT PRIMARY KEY, hits INTEGER NOT NULL CHECK(hits>=0), reset_at INTEGER NOT NULL);
+        CREATE INDEX rate_limits_expiry ON rate_limits(reset_at);
+        CREATE TABLE audit_events (
+          id INTEGER PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL,
+          resource TEXT NOT NULL, request_id TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit_events BEGIN SELECT RAISE(ABORT,'audit append only'); END;
+        CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit_events BEGIN SELECT RAISE(ABORT,'audit append only'); END;
+        CREATE INDEX orders_customer_id ON orders(customer_id, id DESC);
+        CREATE INDEX orders_normalized_email ON orders(LOWER(email)) WHERE profile_id IS NULL;
+        CREATE TRIGGER orders_insert_guard BEFORE INSERT ON orders
+        WHEN NEW.total < 0 OR NEW.subtotal < 0 OR NEW.discount < 0 OR NEW.discount > NEW.subtotal
+          OR NEW.delivery < 0 OR NEW.total > 1000000 OR ABS(NEW.total-(NEW.subtotal-NEW.discount+NEW.delivery)) > 0.011
+          OR NEW.status <> 'ordered' OR NEW.payment_status <> 'unpaid' OR NEW.payment_method <> 'cash'
+        BEGIN SELECT RAISE(ABORT,'invalid order invariant'); END;
+        CREATE TRIGGER orders_update_guard BEFORE UPDATE ON orders
+        WHEN NEW.total <> OLD.total OR NEW.subtotal <> OLD.subtotal OR NEW.discount <> OLD.discount
+          OR NEW.delivery <> OLD.delivery OR NEW.payment_status <> OLD.payment_status OR NEW.payment_method <> OLD.payment_method
+          OR NEW.status NOT IN ('ordered','confirmed','baking','in_transit','completed','cancelled')
+        BEGIN SELECT RAISE(ABORT,'immutable order financials'); END;
+        CREATE TRIGGER items_insert_guard BEFORE INSERT ON order_items
+        WHEN NEW.qty < 1 OR NEW.qty > 50 OR NEW.qty <> CAST(NEW.qty AS INTEGER) OR NEW.unit_price < 0
+          OR NEW.line_total < 0 OR ABS(NEW.line_total - NEW.qty * NEW.unit_price) > 0.011
+        BEGIN SELECT RAISE(ABORT,'invalid order item'); END;
+      `);
+    },
   ];
 
   for (let version = current; version < steps.length; version += 1) {
@@ -332,8 +367,7 @@ function migrate(database) {
     // Each migration is its own transaction: a step that fails half way leaves
     // the file at the previous version rather than in a shape no version
     // describes.
-    database.transaction(step)();
-    database.pragma(`user_version = ${version + 1}`);
+    database.transaction(() => { step(); database.pragma(`user_version = ${version + 1}`); }).immediate();
   }
 }
 

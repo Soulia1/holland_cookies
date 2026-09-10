@@ -1,258 +1,90 @@
-/**
- * The server.
- *
- * One Express app serving the API, the storefront and the dashboard from one
- * origin. Same-origin is a deliberate simplification rather than an accident:
- * it means the admin session can be a `SameSite=lax` httpOnly cookie with no
- * CORS preflight and no cross-site exposure to design around.
- */
-
 import path from 'node:path';
-import { EOL } from 'node:os';
+import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
-import { rateLimit } from 'express-rate-limit';
 import 'dotenv/config';
-
 import * as db from './db.js';
 import menuRoute from './routes/menu.js';
 import ordersRoute from './routes/orders.js';
 import adminRoute from './routes/admin.js';
 import accountRoute from './routes/account.js';
-import { isAdminAuthDisabled } from './adminSession.js';
+import { validateEnvironment } from './config.js';
+import { limit, originGuard, requestContext, logEvent } from './security.js';
+import { validateEnvelope, rejectDangerousKeys } from './validation.js';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const app = express();
-
-/**
- * Whether browsers reach this server over HTTPS.
- *
- * Deliberately its own variable rather than `NODE_ENV === 'production'`, which
- * is what it was and which is a different fact. Two settings depend on it — the
- * CSP's `upgrade-insecure-requests` and the session cookie's `Secure` flag —
- * and both are actively harmful when the origin is plain HTTP: the first
- * rewrites every asset URL to https:// so the page loads with no CSS and no
- * JavaScript, and the second means the browser never sends the session back, so
- * sign-in appears to succeed and every request after it is anonymous.
- *
- * The end-to-end suite runs a production-configured server over http on
- * localhost, which is exactly the combination that made this worth separating.
- */
-const httpsOrigin = process.env.HTTPS_ORIGIN !== undefined
-  ? process.env.HTTPS_ORIGIN === 'true'
-  : process.env.NODE_ENV === 'production';
-
-// Trust the first proxy hop, so req.ip is the client rather than the load
-// balancer — without it every request shares one IP and the rate limiters below
-// throttle the whole world together.
-app.set('trust proxy', 1);
-
+validateEnvironment();
+const here=path.dirname(fileURLToPath(import.meta.url));
+const dist=path.join(here,'..','dist');
+const dashboardDist=path.join(here,'..','dist-dashboard');
+const app=express();
+app.disable('x-powered-by');
+app.set('query parser','simple');
+// CIDRs, never a hop count: directly connected clients cannot spoof an IP.
+app.set('trust proxy',(process.env.TRUSTED_PROXY_CIDRS||'').split(',').map(v=>v.trim()).filter(Boolean));
+app.use(requestContext);
 app.use(compression());
-
-app.use(helmet({
-  // The storefront and dashboard are bundled with hashed filenames from this
-  // same origin, so a strict default is affordable. The exceptions are the two
-  // things the pages genuinely need from elsewhere.
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      // Google Fonts serves the stylesheet from one host and the font files
-      // from another; both are needed for the Arabic faces.
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
-      imgSrc: ["'self'", 'data:', 'blob:'],
-      // 'unsafe-inline' for the pre-paint language script in index.html. It is
-      // a fixed, authored script rather than anything user-supplied; replacing
-      // it with a nonce is the right follow-up once the build can inject one.
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'"],
-      frameAncestors: ["'none'"],
-      objectSrc: ["'none'"],
-      baseUri: ["'self'"],
-      // See `httpsOrigin` above. On a plain-HTTP origin this directive is
-      // fatal rather than protective.
-      ...(httpsOrigin ? {} : { upgradeInsecureRequests: null }),
-    },
-  },
-  crossOriginEmbedderPolicy: false,
-}));
-
-// Only relevant when the front end is run from the Vite dev server on another
-// port. In production everything is one origin and this matches nothing.
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
-  .split(',').map((value) => value.trim()).filter(Boolean);
-app.use(cors({
-  origin: allowedOrigins.length ? allowedOrigins : false,
-  credentials: true,
-}));
-
-// A cart of sixty lines is a few kilobytes. The cap is what stops an unbounded
-// body being parsed before any of our own validation sees it.
-app.use(express.json({ limit: '256kb', strict: true }));
-app.use(cookieParser());
-
-/**
- * Sign-in is the one endpoint where guessing is the attack: a single shared key
- * and no per-user lockout to hide behind. Tight, and counted per IP.
- */
-const signInLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'RATE_LIMITED', message: 'Too many attempts. Try again shortly.' },
-});
-
-/** Placing an order. Generous enough for a real customer, bounded for a script. */
-const orderLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  limit: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'RATE_LIMITED', message: 'Too many orders from this connection.' },
-});
-
-const apiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use('/api', apiLimiter);
-// Only failed/successful sign-in submissions count toward the guessing limit.
-// Applying this to every method also throttles the dashboard's harmless
-// session-status GET after a few reloads, leaving the key gate permanently
-// locked until the window expires.
-app.post('/api/admin/session', signInLimiter);
-app.post('/api/orders', orderLimiter);
-
-// The API responses are per-request state; caching one would serve one
-// customer's order to the next.
-app.use('/api', (_req, res, next) => {
-  res.set('Cache-Control', 'no-store');
+const hashes=[];
+for(const directory of [dist,dashboardDist]){
+  const file=path.join(directory,'index.html');
+  if(fs.existsSync(file))for(const match of fs.readFileSync(file,'utf8').matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)){
+    hashes.push("'sha256-"+createHash('sha256').update(match[1]).digest('base64')+"'");
+  }
+}
+app.use(helmet({contentSecurityPolicy:{directives:{
+  defaultSrc:["'self'"],scriptSrc:["'self'",...hashes],scriptSrcAttr:["'none'"],
+  styleSrc:["'self'","'unsafe-inline'",'https://fonts.googleapis.com'],
+  fontSrc:["'self'",'https://fonts.gstatic.com'],imgSrc:["'self'"],
+  connectSrc:["'self'"],frameSrc:["'none'"],frameAncestors:["'none'"],objectSrc:["'none'"],baseUri:["'none'"],formAction:["'self'"],
+  ...(process.env.NODE_ENV==='production'?{}:{upgradeInsecureRequests:null}),
+}},strictTransportSecurity:process.env.NODE_ENV==='production'?{maxAge:31536000}:false,referrerPolicy:{policy:'no-referrer'},crossOriginEmbedderPolicy:false}));
+const allowedOrigins=process.env.NODE_ENV==='production'?[]:(process.env.ALLOWED_ORIGINS||'').split(',').filter(Boolean);
+app.use(cors({origin:allowedOrigins.length?allowedOrigins:false,credentials:true,methods:['GET','POST','PATCH','DELETE'],allowedHeaders:['Content-Type','X-Requested-With']}));
+app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next();});
+app.use('/api',limit('public',60000,300));
+app.post('/api/admin/session',limit('login',15*60000,10));
+app.post('/api/orders',limit('checkout',10*60000,20));
+app.use('/api/orders/track',limit('tracking',15*60000,20));
+app.post('/api/admin/promos/validate',limit('coupon',15*60000,20));
+app.use(['/api/orders/stats','/api/admin/users'],limit('report',60000,60));
+const writeLimit=limit('admin-write',60000,60);
+app.use(['/api/admin','/api/menu/admin','/api/orders'],(req,res,next)=>['PATCH','DELETE'].includes(req.method) || (req.method==='POST' && req.originalUrl.startsWith('/api/menu/admin'))?writeLimit(req,res,next):next());
+app.use('/api',originGuard);
+app.use('/api',(req,res,next)=>{
+  if(!['GET','HEAD','POST','PATCH','DELETE','OPTIONS'].includes(req.method))return res.status(405).json({error:'METHOD_NOT_ALLOWED',message:'Method not allowed.'});
+  if(req.get('content-encoding') && req.get('content-encoding')!=='identity')return res.status(415).json({error:'UNSUPPORTED_ENCODING',message:'Compressed request bodies are not supported.'});
+  if((req.get('content-length') && req.get('content-length')!=='0' || req.get('transfer-encoding')) && !req.is('application/json'))return res.status(415).json({error:'UNSUPPORTED_MEDIA_TYPE',message:'Use application/json.'});
   next();
 });
-
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
+app.use('/api',validateEnvelope);
+app.use(express.json({limit:'32kb',strict:true,inflate:false}));
+app.use(rejectDangerousKeys);
+app.use(cookieParser());
+app.get('/api/health',(_req,res)=>res.json({ok:true}));
+app.get('/api/ready',(_req,res)=>{try{db.get().prepare('SELECT 1').get();res.json({ok:true});}catch{res.status(503).json({ok:false});}});
+app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);
+app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No such endpoint.'}));
+const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\/]assets[\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
+app.use('/dashboard',express.static(dashboardDist,staticOptions));app.use(express.static(dist,staticOptions));
+app.get(['/dashboard','/dashboard/','/dashboard/orders','/dashboard/orders/:id','/dashboard/menu','/dashboard/users','/dashboard/promos','/dashboard/settings'],(_req,res)=>{res.set('Cache-Control','no-cache');res.sendFile(path.join(dashboardDist,'index.html'));});
+app.get(['/','/menu','/checkout','/account','/track'],(_req,res)=>{res.set('Cache-Control','no-cache');res.sendFile(path.join(dist,'index.html'));});
+app.use((_req,res)=>res.status(404).type('text').send('Not found.'));
+app.use((error,req,res,_next)=>{
+  logEvent('request_error',req,{code:typeof error.code==='string'?error.code.slice(0,64):'INTERNAL'});
+  const status=error.type==='entity.too.large'?413:error.type==='entity.parse.failed' || error instanceof URIError?400:error.code?.startsWith('SQLITE')?503:500;
+  res.status(status).json({error:status===413?'PAYLOAD_TOO_LARGE':status===400?'INVALID':status===503?'UNAVAILABLE':'SERVER_ERROR',message:status===400?'Invalid request.':status===413?'Request is too large.':'Service temporarily unavailable.'});
 });
-
-app.use('/api/menu', menuRoute);
-app.use('/api/orders', ordersRoute);
-app.use('/api/admin', adminRoute);
-app.use('/api/account', accountRoute);
-
-app.use('/api', (_req, res) => {
-  res.status(404).json({ error: 'NOT_FOUND', message: 'No such endpoint.' });
-});
-
-// ------------------------------------------------------------- the pages ----
-
-const dist = path.join(here, '..', 'dist');
-const dashboardDist = path.join(here, '..', 'dist-dashboard');
-
-const staticOptions = {
-  // Hashed filenames are immutable; index.html is not and must be revalidated
-  // or a deploy never reaches anyone with a warm cache.
-  setHeaders(res, filePath) {
-    if (filePath.endsWith('.html')) res.set('Cache-Control', 'no-cache');
-    else res.set('Cache-Control', 'public, max-age=31536000, immutable');
-  },
-};
-
-app.use('/dashboard', express.static(dashboardDist, staticOptions));
-app.use(express.static(dist, staticOptions));
-
-// Client-side routing: any non-API path that is not a file is a route the
-// browser bundle knows about, so it gets the shell.
-app.get('/dashboard/*splat', (_req, res) => {
-  res.sendFile(path.join(dashboardDist, 'index.html'));
-});
-app.get('/*splat', (_req, res) => {
-  res.sendFile(path.join(dist, 'index.html'));
-});
-
-app.use((error, _req, res, _next) => {
-  // Logged in full, returned as a generic message: a stack trace in a response
-  // body tells an attacker about the shape of the thing they are attacking.
-  console.error('[holland]', error);
-  res.status(error.status || 500).json({
-    error: error.code || 'SERVER_ERROR',
-    message: error.status ? error.message : 'Something went wrong on our end.',
-  });
-});
-
-const port = Number(process.env.PORT) || 3000;
-
-/**
- * Boot checks.
- *
- * Each of these is about a failure that is silent and expensive rather than
- * loud and cheap, so it is shouted about at start-up instead of being
- * discovered later by a customer.
- */
-async function boot() {
-  if (isAdminAuthDisabled()) {
-    console.warn('[holland] Admin authentication is disabled for local development.');
-  } else if (!process.env.ADMIN_KEY) {
-    // Loud at boot rather than at the first sign-in attempt: a server running
-    // with no admin key is a dashboard nobody can ever get into.
-    console.error('[holland] ADMIN_KEY is not set — the dashboard will be unreachable.');
-  }
-
-  const database = db.get();
-
-  // ── Is the database on storage that survives a deploy? ──────────────────
-  //
-  // SQLite is a file, and a container's filesystem is thrown away every time it
-  // is rebuilt. Without a mounted volume the shop loses every order and every
-  // customer on the next deploy, and nothing anywhere says so — the site simply
-  // comes back looking brand new. That is the worst possible way to find out.
-  const dbPath = db.currentPath();
-  const volume = process.env.RAILWAY_VOLUME_MOUNT_PATH;
-  const onVolume = Boolean(volume) && dbPath.startsWith(volume);
-  if (process.env.NODE_ENV === 'production' && !onVolume && dbPath !== ':memory:') {
-    console.error([
-      '',
-      '[holland] ***************************************************************',
-      `[holland] The database is at ${dbPath}, which is NOT on a mounted volume.`,
-      '[holland] Every order and customer will be LOST on the next deploy.',
-      '[holland] Attach a volume and point DATABASE_PATH at a file inside it.',
-      '[holland] ***************************************************************',
-      '',
-    ].join(EOL));
-  }
-
-  // ── A fresh volume has no menu ──────────────────────────────────────────
-  //
-  // Seeded on first boot only. `seed()` is idempotent and never overwrites an
-  // edited price, so running it again would be harmless; the guard just avoids
-  // the work and the log line on an established database.
-  const products = database.prepare('SELECT COUNT(*) AS count FROM products').get().count;
-  if (products === 0) {
-    const { seed } = await import('./seed.js');
-    const result = await seed();
-    console.log(
-      `[holland] empty catalogue — seeded ${result.products} products `
-      + `across ${result.categories} categories`,
-    );
-  }
-
-  app.listen(port, () => {
-    console.log(`[holland] listening on port ${port}`);
-  });
+async function boot(){
+  db.get();
+  // Seeding is a separate explicit operation; boot never creates production content.
+  const server=app.listen(Number(process.env.PORT)||3000,process.env.HOST || '0.0.0.0',()=>console.info(JSON.stringify({event:'started',version:process.env.RELEASE_SHA || 'local'})));
+  server.requestTimeout=15000;server.headersTimeout=10000;server.keepAliveTimeout=5000;server.maxRequestsPerSocket=100;
+  const stop=()=>{server.close(()=>{db.close();process.exit(0);});setTimeout(()=>process.exit(1),10000).unref();};
+  process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
-
-if (process.env.NODE_ENV !== 'test') {
-  boot().catch((error) => {
-    console.error('[holland] failed to start:', error);
-    process.exit(1);
-  });
-}
-
+if(process.env.NODE_ENV!=='test')boot().catch(()=>{console.error('Startup failed; check configuration and storage.');process.exit(1);});
 export default app;

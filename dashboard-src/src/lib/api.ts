@@ -315,6 +315,7 @@ async function apiFetch(path: string, init: RequestInit = {}): Promise<Response>
     credentials: "include",
     ...init,
     headers: {
+      "X-Requested-With": "Holland",
       ...(init.body ? { "Content-Type": "application/json" } : {}),
       ...init.headers,
     },

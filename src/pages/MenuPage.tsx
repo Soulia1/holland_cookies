@@ -1,6 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import AddToCart from "@/components/AddToCart";
+import type { MenuSelection } from "@/components/MenuItemDetail";
 import { MENU_GROUPS, priceFrom, type MenuCategory, type MenuGroup } from "@/data/menu";
+import { itemImage } from "@/data/menuImages";
+import type { MenuItem } from "@/data/menu";
+import { useOnceOpened } from "@/lib/useOnceOpened";
 import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
 import { cx, useReveal } from "@/lib/reveal";
@@ -45,6 +57,11 @@ import { cx, useReveal } from "@/lib/reveal";
 /** The fixed site header's height. Matches HEADER_HEIGHT in TopBar.tsx. */
 const HEADER_H = 88;
 
+// The dialog brings Radix and Framer Motion with it and is closed on load, so
+// it is fetched the first time a row is opened and kept from then on. Same
+// treatment the home page gives PanDetail, for the same reason.
+const MenuItemDetail = lazy(() => import("@/components/MenuItemDetail"));
+
 /** Where each group sits in the bar, so prev/next is a lookup and not a scan. */
 const ORDER = new Map(MENU_GROUPS.map((group, index) => [group.id, index]));
 
@@ -85,6 +102,37 @@ export default function MenuPage({
    * first chip and correcting itself once the scroll lands.
    */
   const [reading, setReading] = useState<string>(section ?? group.categories[0].id);
+
+  /**
+   * The row whose dialog is open, and the control that opened it.
+   *
+   * The trigger is kept for the same reason MenuGrid keeps one: these rows open
+   * the dialog programmatically rather than through Radix's own DialogTrigger,
+   * so Radix has nothing to hand focus back to on close and a keyboard user
+   * would be dropped at the top of the document with no idea where they had
+   * been.
+   */
+  const [selection, setSelection] = useState<MenuSelection | null>(null);
+  const everOpened = useOnceOpened(selection !== null);
+  const trigger = useRef<HTMLElement | null>(null);
+
+  const openItem = useCallback((item: MenuItem, category: MenuCategory, element: HTMLElement) => {
+    trigger.current = element;
+    setSelection({ item, category });
+  }, []);
+
+  const closeItem = useCallback(() => setSelection(null), []);
+
+  // Restored after the close has committed, not during it: Radix moves focus as
+  // part of its own unmount, and setting it first is simply overwritten.
+  useEffect(() => {
+    if (selection !== null) return;
+    const element = trigger.current;
+    if (!element) return;
+    trigger.current = null;
+    const frame = requestAnimationFrame(() => element.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [selection]);
 
   /**
    * Everything the bar has to be told, in one pass: its own height, where the
@@ -434,7 +482,7 @@ export default function MenuPage({
 
         <div className="menu-sections">
           {group.categories.map((category) => (
-            <Section key={category.id} category={category} />
+            <Section key={category.id} category={category} onOpen={openItem} />
           ))}
 
           {/* The way on, for a reader who has finished this group and is at the
@@ -473,6 +521,14 @@ export default function MenuPage({
           </nav>
         </div>
       </div>
+
+      {/* No Suspense fallback element: the dialog animates in from nothing, and
+          a spinner in its place would flash for a frame on a warm chunk. */}
+      {everOpened && (
+        <Suspense fallback={null}>
+          <MenuItemDetail selection={selection} onClose={closeItem} />
+        </Suspense>
+      )}
     </main>
   );
 }
@@ -488,7 +544,14 @@ export default function MenuPage({
  * reveal, which is also the better effect: the sections arrive as the reader
  * reaches them instead of the whole page fading in at once.
  */
-function Section({ category }: { category: MenuCategory }) {
+function Section({
+  category,
+  onOpen,
+}: {
+  category: MenuCategory;
+  /** Handed the control as well as the item, so focus can be returned to it. */
+  onOpen: (item: MenuItem, category: MenuCategory, trigger: HTMLElement) => void;
+}) {
   const { t, lang } = useLang();
   const [listRef, listAnim] = useReveal<HTMLUListElement>(0);
   const name = localized(lang, category.name, category.nameAr);
@@ -514,21 +577,71 @@ function Section({ category }: { category: MenuCategory }) {
           const itemName = localized(lang, item.name, item.nameAr);
           const note = item.note ? localized(lang, item.note, item.noteAr) : undefined;
 
+          const photo = itemImage(item.id);
+
           return (
             <li key={item.id} className="menu-item">
-              <span className="menu-item-name">
-                {itemName}
-                {note ? <span className="menu-item-note">{note}</span> : null}
+              {/* The picture and the text are one button, and the add control
+                  is its sibling rather than its child. A `<button>` inside a
+                  `<button>` is invalid HTML and browsers recover by lifting the
+                  inner one out of the outer, which produces a tree that does
+                  not match what React rendered. Same arrangement the rail cards
+                  on the home page use, for the same reason. */}
+              <button
+                type="button"
+                className="menu-item-open"
+                onClick={(event) => onOpen(item, category, event.currentTarget)}
+                aria-haspopup="dialog"
+                aria-label={t.menuDetailOpen(itemName)}
+              >
+              {/* The media box is rendered for every row, photographed or not.
+                  A column where only some rows carry a picture reads as a page
+                  that failed to load the rest, and the ragged left edge is
+                  worse than the missing photographs — so an unshot item gets
+                  the branded tile below at exactly the same size.
+
+                  `alt=""` on purpose. The item's name sits immediately beside
+                  the picture, so alt text here would make a screen reader say
+                  every product twice; an empty alt is what marks it as carried
+                  by the adjacent text rather than as an unlabelled image. */}
+              <span className={cx("menu-item-media", !photo && "is-empty")}>
+                {photo ? (
+                  <img
+                    src={photo}
+                    alt=""
+                    width={320}
+                    height={320}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <circle cx="12" cy="12" r="9" />
+                    <circle cx="9" cy="9.5" r="1.4" className="chip" />
+                    <circle cx="15" cy="11" r="1.1" className="chip" />
+                    <circle cx="11" cy="15" r="1.2" className="chip" />
+                  </svg>
+                )}
               </span>
-              {/* The dotted leader is a border on a spacer, so it stretches to
-                  whatever gap is left between a name and its price and never
-                  needs a character count. */}
-              <span className="menu-item-leader" aria-hidden="true" />
-              {/* The add control lives in the leader space, which is the one
-                  part of this row that is empty by design. It is a price list
-                  and not a card grid, so there is no card to lift and no image
-                  to scale — the row simply warms and the control fades up where
-                  the dots were. On touch it is always there; see AddToCart. */}
+
+              {/* Name over price, with the picture beside them — the shape a
+                  delivery-app listing has, which is what this page was asked to
+                  read like. The dotted leader the row used to carry is gone
+                  with it: a leader exists to carry the eye across empty space
+                  to a price on the far edge, and there is no empty space left
+                  once the price sits under the name. */}
+              <span className="menu-item-text">
+                <span className="menu-item-name">
+                  {itemName}
+                  {note ? <span className="menu-item-note">{note}</span> : null}
+                </span>
+                <span className="menu-item-price">{t.price(item.price)}</span>
+              </span>
+              </button>
+
+              {/* Trailing, in the one part of the row that is still empty by
+                  design, so revealing it on hover displaces nothing. On touch
+                  it is always there; see AddToCart. */}
               <AddToCart
                 className="menu-item-add"
                 item={{
@@ -538,7 +651,6 @@ function Section({ category }: { category: MenuCategory }) {
                   ...(note ? { note } : {}),
                 }}
               />
-              <span className="menu-item-price">{t.price(item.price)}</span>
             </li>
           );
         })}

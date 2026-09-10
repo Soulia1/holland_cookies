@@ -1443,15 +1443,97 @@ html.is-menu-condensed .site-header {
 
 .menu-item {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding-block: 10px;
+  align-items: center;
+  gap: 12px;
+  padding-block: 8px;
   font-family: var(--font-body);
+}
+
+/* The picture and the text together are the control that opens the dialog. It
+   is a real button so it is keyboard-reachable and announced as one, but it
+   must not look like a button: `all: unset` would also drop the layout, so the
+   few properties a UA stylesheet imposes are cleared by hand and the flex row
+   is declared after. */
+.menu-item-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.menu-item-open:focus-visible {
+  outline: 2px solid var(--color-deep-burgundy);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+/* The picture, and the tile that stands in for one that has not been taken.
+   Fixed at both ends of the box — `flex: none` plus an explicit width and
+   height — because this is the element that decides the row's height, and a
+   media box that sized itself from its contents would give a photographed row
+   and an unphotographed one two different heights. */
+.menu-item-media {
+  flex: none;
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-surface-variant, rgb(93 16 29 / 0.05));
+}
+
+.menu-item-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The stand-in: the shop's own mark rather than a grey box, so a row waiting
+   for its photograph still looks like part of this menu and not like a broken
+   image. Deliberately low-contrast — it is a placeholder, and a placeholder
+   that competes with the real photographs beside it is worse than none. */
+.menu-item-media.is-empty {
+  display: grid;
+  place-items: center;
+  background: rgb(93 16 29 / 0.055);
+}
+
+.menu-item-media.is-empty svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--color-deep-burgundy);
+  stroke-width: 1.5;
+  opacity: 0.34;
+}
+
+.menu-item-media.is-empty svg .chip {
+  fill: var(--color-deep-burgundy);
+  stroke: none;
+}
+
+/* Name over price. `min-width: 0` is load-bearing: without it a long product
+   name refuses to wrap inside a flex item and pushes the add control off the
+   end of the row instead. */
+.menu-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .menu-item-name {
   font-size: 16px;
-  line-height: 24px;
+  line-height: 22px;
   color: var(--color-on-surface);
 }
 
@@ -1464,20 +1546,14 @@ html.is-menu-condensed .site-header {
   white-space: nowrap;
 }
 
-/* The dotted leader. A border on a flexible spacer, so it fills whatever gap is
-   left between a name and a price at any width, with no character counting and
-   nothing to re-tune when the type changes. */
-.menu-item-leader {
-  flex: 1 1 auto;
-  min-width: 16px;
-  align-self: flex-end;
-  margin-bottom: 5px;
-  border-bottom: 1px dotted var(--color-outline-variant);
-}
+/* The dotted leader is gone with the single-line row it belonged to — a leader
+   carries the eye across empty space to a price on the far edge, and there is
+   no empty space to cross once the price sits directly under the name. The
+   class is kept out of the stylesheet rather than left as a dead rule so that
+   any markup still emitting one fails visibly instead of silently. */
 
 .menu-item-price {
-  flex: none;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--color-deep-burgundy);
   font-variant-numeric: tabular-nums;

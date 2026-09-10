@@ -141,7 +141,7 @@ test('the same key with a different basket is a conflict, not an overwrite', asy
   await assert.rejects(
     () => createOrder(payload({
       idempotencyKey: 'reused',
-      items: [{ productId: 'lotus', qty: 99 }],
+      items: [{ productId: 'lotus', qty: 3 }],
     })),
     (error) => error.code === 'IDEMPOTENCY_CONFLICT',
   );

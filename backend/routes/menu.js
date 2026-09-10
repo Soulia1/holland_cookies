@@ -1,3 +1,4 @@
+import { validateParams, amount, imagePath, identifier, email as emailSchema } from '../validation.js';
 /**
  * The catalogue.
  *
@@ -14,6 +15,7 @@ import { requireAdmin } from '../adminSession.js';
 import { discountProblem, effectivePrice, money } from '../../shared/pricing.mjs';
 
 const router = Router();
+validateParams(router);
 
 /** A product as the storefront sees it. */
 function publicProduct(row) {
@@ -74,21 +76,21 @@ router.get('/', (_req, res) => {
 const discountFields = {
   discountEnabled: z.boolean().optional(),
   discountType: z.enum(['percent', 'fixed']).optional(),
-  discountValue: z.number().nonnegative().optional(),
+  discountValue: amount.optional(),
 };
 
-const productCreate = z.object({
+const productCreate = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/,
     'Use lowercase letters, numbers and hyphens.'),
-  categoryId: z.string().min(1),
+  categoryId: identifier,
   name: z.string().min(1).max(200),
   nameAr: z.string().max(200).optional(),
   description: z.string().max(2000).optional(),
   descriptionAr: z.string().max(2000).optional(),
   note: z.string().max(200).optional(),
   noteAr: z.string().max(200).optional(),
-  price: z.number().nonnegative(),
-  image: z.string().max(500).optional(),
+  price: amount,
+  image: imagePath.optional(),
   available: z.boolean().optional(),
   sort: z.number().int().optional(),
   ...discountFields,
@@ -223,7 +225,7 @@ router.delete('/admin/products/:id', requireAdmin, (req, res) => {
 
 // ------------------------------------------------------------ categories ----
 
-const categoryBody = z.object({
+const categoryBody = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(120),
   nameAr: z.string().max(120).optional(),

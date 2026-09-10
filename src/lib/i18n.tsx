@@ -141,6 +141,8 @@ const translations = {
     menuPagerLabel: "Nearby categories",
     menuPrevCategory: "Previous",
     menuNextCategory: "Next",
+    menuDetailClose: "Close",
+    menuDetailOpen: (name: string) => `${name} — see details`,
 
     // — Cart ———————————————————————————————————————————————————
     addToCart: "Add to cart",
@@ -389,6 +391,8 @@ const translations = {
     menuPagerLabel: "أقسام قريبة",
     menuPrevCategory: "السابق",
     menuNextCategory: "التالي",
+    menuDetailClose: "إقفل",
+    menuDetailOpen: (name: string) => `${name} — شوف التفاصيل`,
 
     // — Cart ———————————————————————————————————————————————————
     addToCart: "ضيف للسلة",

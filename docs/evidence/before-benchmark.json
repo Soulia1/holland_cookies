@@ -1,0 +1,122 @@
+{
+  "label": "before",
+  "node": "v24.14.1",
+  "fixtures": {
+    "orders": 1000,
+    "customers": 100
+  },
+  "bundles": {
+    "dist": [
+      {
+        "file": "AccountPage-Brid2Pw2.js",
+        "bytes": 8305,
+        "gzip": 2498
+      },
+      {
+        "file": "CartDrawer-CC0gMGXB.js",
+        "bytes": 2841,
+        "gzip": 903
+      },
+      {
+        "file": "CheckoutPage-FGx1yGSY.js",
+        "bytes": 14267,
+        "gzip": 4556
+      },
+      {
+        "file": "index-BpO7tBBO.js",
+        "bytes": 38113,
+        "gzip": 12949
+      },
+      {
+        "file": "index-IRKuvryW.css",
+        "bytes": 98373,
+        "gzip": 19084
+      },
+      {
+        "file": "index-L1W401Ho.js",
+        "bytes": 259017,
+        "gzip": 81810
+      },
+      {
+        "file": "motion-Do9eOzin.js",
+        "bytes": 135354,
+        "gzip": 44822
+      },
+      {
+        "file": "PanDetail-BYcPLkSs.js",
+        "bytes": 3480,
+        "gzip": 1462
+      },
+      {
+        "file": "TrackPage-BptknEyy.js",
+        "bytes": 4861,
+        "gzip": 1916
+      }
+    ],
+    "dist-dashboard": [
+      {
+        "file": "index-BPQQ-y09.js",
+        "bytes": 436020,
+        "gzip": 135775
+      },
+      {
+        "file": "index-D2WGSyM2.css",
+        "bytes": 51660,
+        "gzip": 10269
+      }
+    ]
+  },
+  "api": {
+    "/api/menu": {
+      "requests": 50,
+      "p50_ms": 0.79,
+      "p95_ms": 2.18,
+      "responseBytes": 187
+    },
+    "/api/orders?perPage=25": {
+      "requests": 50,
+      "p50_ms": 1.95,
+      "p95_ms": 5.76,
+      "responseBytes": 12258
+    },
+    "/api/admin/users": {
+      "requests": 50,
+      "p50_ms": 4.61,
+      "p95_ms": 6.69,
+      "responseBytes": 235341
+    }
+  },
+  "memory": {
+    "rss": 155619328,
+    "heapTotal": 68608000,
+    "heapUsed": 39386328,
+    "external": 18797061,
+    "arrayBuffers": 14778544
+  },
+  "queryPlans": {
+    "account": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 60,
+        "detail": "SEARCH orders USING INDEX orders_profile (profile_id=?)"
+      }
+    ],
+    "items": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 61,
+        "detail": "SEARCH order_items USING INDEX order_items_order (order_id=?)"
+      }
+    ],
+    "list": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 216,
+        "detail": "SCAN orders"
+      }
+    ]
+  }
+}

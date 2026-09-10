@@ -1,3 +1,4 @@
+import { validateParams, amount, imagePath, identifier, email as emailSchema } from '../validation.js';
 /**
  * Sign-in, customers, discounts and shop settings.
  *
@@ -9,11 +10,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import * as db from '../db.js';
 import { money } from '../../shared/pricing.mjs';
+import { logEvent } from '../security.js';
 import {
-  adminAuthDisabled, clearSession, issueSession, matchesMasterKey, readSession, requireAdmin,
+  clearSession, issueSession, matchesMasterKey, readSession, requireAdmin,
 } from '../adminSession.js';
 
 const router = Router();
+validateParams(router);
 
 // ------------------------------------------------------------------ auth ----
 
@@ -25,24 +28,26 @@ const router = Router();
  * per-user password with a lockout behind it.
  */
 router.post('/session', (req, res) => {
-  const key = z.object({ key: z.string().min(1).max(200) }).safeParse(req.body);
+  const key = z.strictObject({ key: z.string().min(1).max(200) }).safeParse(req.body);
   if (!key.success || !matchesMasterKey(key.data.key)) {
+    logEvent('admin_login_failed',req);
     // Deliberately vague and deliberately the same shape for a malformed body
     // and a wrong key.
     return res.status(401).json({ error: 'UNAUTHORIZED', message: 'That key was not accepted.' });
   }
   issueSession(res);
+  logEvent('admin_login',req);
   res.json({ ok: true });
 });
 
 router.delete('/session', (req, res) => {
-  clearSession(res);
+  clearSession(res, req);
   res.json({ ok: true });
 });
 
 /** GET /api/admin/session — "am I signed in?", for the dashboard's gate. */
 router.get('/session', (req, res) => {
-  res.json({ signedIn: adminAuthDisabled() || !!readSession(req, res) });
+  res.json({ signedIn: !!readSession(req, res) });
 });
 
 // ------------------------------------------------------------- customers ----
@@ -204,16 +209,17 @@ router.get('/users', requireAdmin, (req, res) => {
 
 // ---------------------------------------------------------------- promos ----
 
-const promoBody = z.object({
+const promoShape = z.strictObject({
   code: z.string().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/,
     'Letters, numbers, hyphens and underscores only.'),
   type: z.enum(['percent', 'fixed']),
-  value: z.number().positive(),
-  minSubtotal: z.number().nonnegative().optional(),
-  maxUses: z.number().int().nonnegative().optional(),
+  value: z.number().positive().max(1000000),
+  minSubtotal: amount.optional(),
+  maxUses: z.number().int().nonnegative().max(1000000).optional(),
   active: z.boolean().optional(),
   expiresAt: z.string().datetime().nullish(),
-}).superRefine((body, ctx) => {
+});
+const promoBody=promoShape.superRefine((body, ctx) => {
   if (body.type === 'percent' && body.value >= 100) {
     ctx.addIssue({ code: 'custom', path: ['value'], message: 'A percentage must be below 100.' });
   }
@@ -261,10 +267,16 @@ router.post('/promos', requireAdmin, (req, res) => {
 });
 
 router.patch('/promos/:code', requireAdmin, (req, res) => {
-  const parsed = promoBody.partial().omit({ code: true }).safeParse(req.body);
+  const parsed = promoShape.partial().omit({ code: true }).safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'INVALID', message: 'Check the fields.' });
   }
+  const existing=db.get().prepare('SELECT * FROM promos WHERE code=?').get(String(req.params.code).toUpperCase());
+  if(!existing)return res.status(404).json({error:'NOT_FOUND',message:'No such code.'});
+  const business=promoBody.safeParse({code:existing.code,type:parsed.data.type??existing.type,value:parsed.data.value??existing.value,
+    minSubtotal:parsed.data.minSubtotal??existing.min_subtotal,maxUses:parsed.data.maxUses??existing.max_uses,
+    active:parsed.data.active??!!existing.active,expiresAt:parsed.data.expiresAt===undefined?existing.expires_at:parsed.data.expiresAt});
+  if(!business.success || (business.data.maxUses>0 && business.data.maxUses<existing.used_count))return res.status(400).json({error:'INVALID',message:'Invalid discount configuration.'});
   const column = {
     type: 'type', value: 'value', minSubtotal: 'min_subtotal',
     maxUses: 'max_uses', active: 'active', expiresAt: 'expires_at',
@@ -300,9 +312,9 @@ router.delete('/promos/:code', requireAdmin, (req, res) => {
  * authoritative evaluation still happens inside the order transaction.
  */
 router.post('/promos/validate', async (req, res) => {
-  const parsed = z.object({
+  const parsed = z.strictObject({
     code: z.string().min(1).max(40),
-    subtotal: z.number().nonnegative(),
+    subtotal: amount,
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID', message: 'Enter a code.' });
 
@@ -330,11 +342,11 @@ router.get('/settings', (_req, res) => {
 });
 
 router.patch('/settings', requireAdmin, (req, res) => {
-  const parsed = z.object({
-    deliveryFee: z.number().nonnegative().optional(),
-    freeDeliveryOver: z.number().nonnegative().optional(),
+  const parsed = z.strictObject({
+    deliveryFee: amount.optional(),
+    freeDeliveryOver: amount.optional(),
     acceptingOrders: z.boolean().optional(),
-    areas: z.array(z.object({
+    areas: z.array(z.strictObject({
       id: z.string().min(1).max(60),
       name: z.string().min(1).max(120),
       nameAr: z.string().max(120).optional(),

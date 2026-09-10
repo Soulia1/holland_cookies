@@ -1,3 +1,4 @@
+import { validateParams, amount, imagePath, identifier, email as emailSchema } from '../validation.js';
 /**
  * Orders: placing one, tracking one, and running them from the dashboard.
  *
@@ -15,10 +16,11 @@ import { createOrder, normalizePhone } from '../orderTransaction.js';
 // The status model is shared with the dashboard, which imports the same file
 // through its `@shared` alias — so the two cannot disagree about what a status
 // is. Ported from Scooby verbatim along with the dashboard it drives.
-import { ORDER_STATUSES } from '../../shared/orderStatus.mjs';
+import { ORDER_STATUSES, validateStatusTransition } from '../../shared/orderStatus.mjs';
 import { money as money2 } from '../../shared/pricing.mjs';
 
 const router = Router();
+validateParams(router);
 
 /**
  * The checkout payload.
@@ -29,16 +31,16 @@ const router = Router();
  * accident. `expectedTotal` is the single exception and it can only cause a
  * refusal.
  */
-const checkoutBody = z.object({
+const checkoutBody = z.strictObject({
   idempotencyKey: z.string().min(8).max(120),
-  items: z.array(z.object({
-    productId: z.string().min(1),
+  items: z.array(z.strictObject({
+    productId: identifier,
     qty: z.number().int().min(1).max(50),
   })).min(1, 'Your cart is empty.').max(60),
-  firstName: z.string().min(1, 'We need a name for the order.').max(80),
+  firstName: z.string().trim().min(1, 'We need a name for the order.').max(80),
   lastName: z.string().max(80).optional(),
   phone: z.string().min(6).max(24),
-  email: z.string().email('That email does not look right.').max(160).or(z.literal('')).optional(),
+  email: emailSchema.or(z.literal('')).optional(),
   fulfilment: z.enum(['delivery', 'pickup']),
   area: z.string().max(120).optional(),
   address: z.string().max(300).optional(),
@@ -48,10 +50,12 @@ const checkoutBody = z.object({
   landmark: z.string().max(200).optional(),
   notes: z.string().max(1000).optional(),
   promoCode: z.string().max(40).optional(),
-  paymentMethod: z.enum(['cash', 'card']).optional(),
+  paymentMethod: z.literal('cash').optional(),
   lang: z.enum(['en', 'ar']).optional(),
-  expectedTotal: z.number().nonnegative().optional(),
+  expectedTotal: amount.optional(),
 }).superRefine((body, ctx) => {
+  if(new Set(body.items.map(item=>item.productId)).size!==body.items.length) ctx.addIssue({code:'custom',path:['items'],message:'Each product must appear once.'});
+  if(body.items.reduce((sum,item)=>sum+item.qty,0)>100) ctx.addIssue({code:'custom',path:['items'],message:'Maximum 100 items per order.'});
   // Delivery needs somewhere to deliver to. Enforced here rather than by making
   // the fields unconditionally required, because a pickup order legitimately
   // has none of them and would otherwise be impossible to place.
@@ -171,7 +175,12 @@ router.get('/track/:reference', (req, res) => {
   const history = database
     .prepare('SELECT status, note, created_at FROM order_status_history WHERE order_id = ? ORDER BY id')
     .all(order.id);
-  res.json({ order: orderPayload(database, order), history });
+  const output=orderPayload(database,order);
+  // Reference + phone is a convenience lookup, not proof of identity.
+  // Return tracking information without contact/address or private staff notes.
+  output.customer={firstName:'',lastName:'',phone:'',email:''};
+  output.delivery={area:order.area,address:'',building:'',floor:'',apartment:'',landmark:'',notes:''};
+  res.json({ order: output, history:history.map(({status,created_at})=>({status,created_at,note:''})) });
 });
 
 // ---------------------------------------------------------------- admin ----
@@ -349,7 +358,7 @@ router.get('/:reference', requireAdmin, (req, res) => {
 });
 
 router.patch('/:reference/status', requireAdmin, (req, res) => {
-  const parsed = z.object({
+  const parsed = z.strictObject({
     status: z.enum(STATUSES),
     note: z.string().max(300).optional(),
   }).safeParse(req.body);
@@ -365,17 +374,23 @@ router.patch('/:reference/status', requireAdmin, (req, res) => {
   const order = database.prepare('SELECT * FROM orders WHERE reference = ?').get(reference);
   if (!order) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such order.' });
 
+  const transition=validateStatusTransition(order.status,parsed.data.status,order.fulfilment);
+  if(!transition.valid)return res.status(409).json({error:'INVALID_TRANSITION',message:transition.reason});
+
   // The status change and its history entry go together or not at all —
   // an order whose status moved with no record of who moved it or when is
   // exactly the row somebody will be arguing about later.
   database.transaction(() => {
-    database.prepare(
-      "UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?",
-    ).run(parsed.data.status, order.id);
+    const updated=database.prepare(
+      "UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ? AND status = ?",
+    ).run(parsed.data.status, order.id, order.status);
+    if(!updated.changes)throw new Error('Concurrent order update');
     database.prepare(
       'INSERT INTO order_status_history (order_id, status, note) VALUES (?, ?, ?)',
     ).run(order.id, parsed.data.status, parsed.data.note ?? '');
-  })();
+    database.prepare('INSERT INTO audit_events(actor,action,resource,request_id) VALUES(?,?,?,?)')
+      .run('admin','order_status:'+order.status+'->'+parsed.data.status,reference,req.requestId || '');
+  }).immediate();
 
   const updated = database.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
   res.json({ order: orderPayload(database, updated) });

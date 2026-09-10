@@ -40,6 +40,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       credentials: "include",
       ...init,
       headers: {
+        "X-Requested-With": "Holland",
         ...(init.body ? { "Content-Type": "application/json" } : {}),
         ...init.headers,
       },
@@ -258,8 +259,8 @@ export const api = {
  * browser this project cares most about.
  */
 export function newIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+  if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  return `hc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return Array.from(crypto.getRandomValues(new Uint8Array(24)), value => value.toString(16).padStart(2, "0")).join("");
 }

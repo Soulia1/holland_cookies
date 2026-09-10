@@ -101,8 +101,11 @@ export async function createOrder(payload) {
   const phone = normalizePhone(payload.phone);
   if (!phone) throw fail(400, 'INVALID_PHONE', 'That phone number does not look right.');
 
+  if(payload.paymentMethod && payload.paymentMethod!=='cash')throw fail(400,'PAYMENT_UNAVAILABLE','Only cash orders are currently supported.');
+  if(!Array.isArray(payload.items) || !payload.items.length || payload.items.length>60 || payload.items.some(i=>!Number.isInteger(i.qty) || i.qty<1 || i.qty>50) || new Set(payload.items.map(i=>i.productId)).size!==payload.items.length || payload.items.reduce((sum,i)=>sum+i.qty,0)>100)throw fail(400,'INVALID_ITEMS','Invalid cart quantities.');
   const requestHash = hash(JSON.stringify({
-    items: payload.items, phone, fulfilment: payload.fulfilment,
+    ...Object.fromEntries(['firstName','lastName','email','fulfilment','area','address','building','floor','apartment','landmark','notes','promoCode','lang','expectedTotal'].map(k=>[k,payload[k]??''])),
+    items:payload.items.map(({productId,qty})=>({productId,qty})),phone,paymentMethod:payload.paymentMethod||'cash',
   }));
 
   const run = database.transaction(() => {
@@ -127,7 +130,7 @@ export async function createOrder(payload) {
     const ids = [...new Set(payload.items.map((item) => item.productId))];
     const placeholders = ids.map(() => '?').join(',');
     const rows = database
-      .prepare(`SELECT * FROM products WHERE id IN (${placeholders})`)
+      .prepare(`SELECT p.* FROM products p JOIN categories c ON c.id=p.category_id WHERE c.visible=1 AND p.id IN (${placeholders})`)
       .all(...ids);
     const catalogue = new Map(rows.map((row) => [row.id, {
       ...row,
@@ -152,6 +155,8 @@ export async function createOrder(payload) {
     if (!settingsRow.accepting_orders) {
       throw fail(409, 'CLOSED', 'We are not taking orders at the moment.');
     }
+    const areas=JSON.parse(settingsRow.areas || '[]');
+    if(payload.fulfilment==='delivery' && areas.length && !areas.some(area=>area.id===payload.area))throw fail(400,'INVALID_AREA','Choose a supported delivery area.');
     const settings = {
       deliveryFee: settingsRow.delivery_fee,
       freeDeliveryOver: settingsRow.free_delivery_over,
@@ -301,6 +306,6 @@ export async function createOrder(payload) {
     };
   });
 
-  return run();
+  return run.immediate();
 }
 
