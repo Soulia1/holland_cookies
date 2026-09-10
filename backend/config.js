@@ -14,7 +14,15 @@ export function validateEnvironment(env=process.env) {
     MAIL_TRANSPORT:z.literal('brevo').optional(),
     DISABLE_ADMIN_AUTH:z.enum(['false','']).optional(),
     ALLOWED_ORIGINS:z.literal('').optional(),
-    BREVO_BASE_URL:z.undefined(),
+    // `.optional()` is load-bearing, not decoration. The intent here is "this
+    // must not be set" — the mail client's base URL is pinned in code so a
+    // stray environment variable cannot redirect outbound mail. But a bare
+    // `z.undefined()` is *required* in a zod object, and a missing key fails it
+    // exactly as a set one does, so this rejected every possible environment
+    // and the server could never boot in production however it was configured.
+    // Optional passes when absent and still fails when present, which is the
+    // rule that was meant.
+    BREVO_BASE_URL:z.undefined().optional(),
   }).safeParse(env);
   if(!parsed.success) throw new Error(`Invalid production configuration: ${[...new Set(parsed.error.issues.map(i=>i.path[0]))].join(', ')}`);
   if(env.ADMIN_KEY===env.JWT_SECRET) throw new Error('Production secrets must be independent');
