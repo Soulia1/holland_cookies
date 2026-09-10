@@ -622,12 +622,36 @@ function initialLang(): Lang {
   return document.documentElement.lang === "ar" ? "ar" : "en";
 }
 
+/**
+ * Put the document in a language *now*, rather than after the next paint.
+ *
+ * `dir` is what decides where every box on the page sits, so anything that
+ * measures layout when the language changes reads the wrong direction if the
+ * attribute is still sitting in an effect. And the provider's effect is
+ * guaranteed to be late for exactly the components that care: a child's effects
+ * run before its parent's, so a page that re-measures itself on `lang` does so
+ * while the labels are already Arabic and the document is still `ltr`.
+ *
+ * The menu's travelling indicator is what caught it. Switching to Arabic left
+ * it measured at the pill's left-to-right position — 939px from the pill it was
+ * measured for — with the active label, coloured white to sit on it, stranded
+ * unreadable on the page background. Nothing re-measured afterwards, because
+ * nothing resized: only the direction had changed.
+ *
+ * Called from the setter for the same reason the font request below is, and
+ * left in the effect too, which is what puts the document in the right
+ * direction on first mount.
+ */
+function applyDocumentLanguage(lang: Lang) {
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+}
+
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(initialLang);
 
   useEffect(() => {
-    document.documentElement.lang = lang;
-    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+    applyDocumentLanguage(lang);
     if (lang === "ar") ensureArabicFonts();
     try {
       localStorage.setItem(STORAGE_KEY, lang);
@@ -642,16 +666,16 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   // it the switch paints one frame of Arabic in a system fallback face.
   const setLang = useCallback((next: Lang) => {
     if (next === "ar") ensureArabicFonts();
+    applyDocumentLanguage(next);
     setLangState(next);
   }, []);
 
+  // Routed through `setLang` rather than repeating its work in a state updater.
+  // An updater has to be pure — React is free to call it twice — and this one
+  // was already reaching outside itself to request fonts.
   const toggleLang = useCallback(() => {
-    setLangState((current) => {
-      const next = current === "ar" ? "en" : "ar";
-      if (next === "ar") ensureArabicFonts();
-      return next;
-    });
-  }, []);
+    setLang(lang === "ar" ? "en" : "ar");
+  }, [lang, setLang]);
 
   const value = useMemo<LangContextValue>(
     () => ({
