@@ -101,5 +101,32 @@ async function boot(){
   const stop=()=>{server.close(async()=>{await db.close().catch(()=>{});process.exit(0);});setTimeout(()=>process.exit(1),10000).unref();};
   process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
-if(process.env.NODE_ENV!=='test')boot().catch(()=>{console.error('Startup failed; check configuration and storage.');process.exit(1);});
+// A boot failure is read by whoever is starting the server, not by a visitor,
+// and the process is about to die — so it says what is actually wrong. The old
+// message was "Startup failed; check configuration and storage.", which is true
+// of every possible cause and useful for none of them: the commonest one by far
+// is simply that no datastore is configured, and the message did not say so.
+if (process.env.NODE_ENV !== 'test') {
+  boot().catch((error) => {
+    console.error(`
+Holland Cookies could not start.
+
+  ${error.message}
+`);
+    if (!process.env.FIRESTORE_EMULATOR_HOST && process.env.NODE_ENV !== 'production') {
+      console.error(`  This server now uses Cloud Firestore, not a local SQLite file.
+  For local development, start the emulator in another terminal:
+
+      npm run emulators
+
+  then point this process at it:
+
+      FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm start
+
+  and seed it once with:  npm run seed
+`);
+    }
+    process.exit(1);
+  });
+}
 export default app;
