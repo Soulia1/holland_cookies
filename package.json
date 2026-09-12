@@ -6,7 +6,7 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
     "build": "npm run build:storefront && npm run build:dashboard",
     "build:deploy": "npm run build && npm prune --omit=dev",
     "start": "node backend/server.js",
@@ -29,7 +29,9 @@
     "test:emulated": "firebase emulators:exec --only firestore --project holland-cookie-test \"npm run test:backend && npm run test:security\"",
     "seed:prod": "node backend/seed.js",
     "test:chromium": "playwright test --project=storefront-chromium-desktop --project=storefront-chromium-phone --project=commerce-chromium-desktop --project=commerce-chromium-phone",
-    "mail:check": "node scripts/mail-check.mjs"
+    "mail:check": "node scripts/mail-check.mjs",
+    "dev:vite": "vite",
+    "verify": "node scripts/verify-dev.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.18",

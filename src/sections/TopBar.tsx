@@ -225,13 +225,20 @@ export default function TopBar() {
           the height is whatever the content needs rather than a max-height
           guess that either stalls or clips. `inert` keeps its links out of the
           tab order while it is closed — a collapsed panel that is still
-          focusable is a keyboard trap that sighted users never encounter. */}
+          focusable is a keyboard trap that sighted users never encounter.
+
+          Written `inert={!menuOpen}`, not `inert=""`. React 19 treats an empty
+          string as *false* and says so in the console, which meant this panel
+          was never actually inert and the keyboard trap described above was
+          still there — behind a warning that read like a style nit. The old
+          `"" as unknown as boolean` cast was working around React types that
+          predate the property. */}
       <div
         id="mobile-menu"
         className={`mobile-menu md:hidden ${menuOpen ? "is-open" : ""} ${
           "bg-soft-oat"
         }`}
-        {...(!menuOpen ? { inert: "" as unknown as boolean } : {})}
+        inert={!menuOpen}
       >
         <div>
           <nav
