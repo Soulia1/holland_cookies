@@ -31,8 +31,13 @@
  * to a real project at all.
  */
 
+import path from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 let firestore = null;
 let describedTarget = null;
@@ -80,21 +85,72 @@ function resolveTarget() {
     );
   }
 
+  return { kind: 'production', ...serviceAccount() };
+}
+
+/**
+ * The service account, in the three shapes it actually arrives in.
+ *
+ * Ordered deliberately, and the first one is the one to use.
+ *
+ *  1. `FIREBASE_SERVICE_ACCOUNT_JSON` — the entire serviceAccount.json pasted
+ *     into one variable. This is how Scooby does it on Railway and it is the
+ *     better way, for one specific reason: the private key is a PEM block full
+ *     of newlines, and a newline does not survive an environment variable. Split
+ *     across three variables somebody has to escape it as the two characters \
+ *     and n and hope every layer between the dashboard and the process agrees
+ *     about that. Inside a JSON string the escaping is JSON's problem and
+ *     `JSON.parse` is the thing that unescapes it — one fewer place to be wrong.
+ *
+ *  2. `backend/serviceAccount.json` — the file, for local work against a real
+ *     project. Gitignored. Also how Scooby does it.
+ *
+ *  3. The three separate variables, kept because they already worked and
+ *     removing a credential path is not the sort of change to make quietly.
+ */
+function serviceAccount() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (raw) {
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw new Error(
+        'FIREBASE_SERVICE_ACCOUNT_JSON is set but is not valid JSON. Paste the '
+        + `exact contents of serviceAccount.json. Parse error: ${error.message}`,
+      );
+    }
+    if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
+      throw new Error(
+        'FIREBASE_SERVICE_ACCOUNT_JSON parsed, but is missing project_id, '
+        + 'client_email or private_key. It is probably not a service account key.',
+      );
+    }
+    return { projectId: parsed.project_id, credential: parsed };
+  }
+
+  const file = path.join(here, 'serviceAccount.json');
+  if (existsSync(file)) {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    return { projectId: parsed.project_id, credential: parsed };
+  }
+
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(
-      'Production Firestore requires FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL '
-      + 'and FIREBASE_PRIVATE_KEY.',
-    );
+  if (projectId && clientEmail && privateKey) {
+    return {
+      projectId,
+      // Newlines survive an environment variable as the two characters \ and n.
+      credential: { projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n') },
+    };
   }
-  return {
-    kind: 'production',
-    projectId,
-    // Newlines survive an environment variable as the two characters \ and n.
-    credential: { projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n') },
-  };
+
+  throw new Error(
+    'No Firebase credentials found. Set FIREBASE_SERVICE_ACCOUNT_JSON to the '
+    + 'contents of your service account key, or place the key at '
+    + 'backend/serviceAccount.json for local work.',
+  );
 }
 
 function connect() {

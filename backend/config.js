@@ -23,12 +23,12 @@ export function validateEnvironment(env = process.env) {
     APP_ORIGIN: z.url().refine((v) => new URL(v).protocol === 'https:' && new URL(v).origin === v),
 
     // --- Firestore -----------------------------------------------------------
-    FIREBASE_PROJECT_ID: z.string().min(4).max(120).regex(/^[a-z0-9-]+$/),
-    FIREBASE_CLIENT_EMAIL: z.email(),
-    // A service account key, not a passphrase. Checked for its actual shape so a
-    // truncated or single-line paste fails here rather than at the first query.
-    FIREBASE_PRIVATE_KEY: z.string().min(100)
-      .refine((v) => v.includes('BEGIN PRIVATE KEY'), 'must be a PEM private key'),
+    // Credentials are checked below rather than here, because there are three
+    // valid shapes and a zod object cannot express "exactly one of these".
+    FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+    FIREBASE_PROJECT_ID: z.string().min(4).max(120).regex(/^[a-z0-9-]+$/).optional(),
+    FIREBASE_CLIENT_EMAIL: z.email().optional(),
+    FIREBASE_PRIVATE_KEY: z.string().min(100).optional(),
 
     // Belt and braces against the worst possible misconfiguration: a production
     // process pointed at an emulator would accept orders into a database that
@@ -53,4 +53,50 @@ export function validateEnvironment(env = process.env) {
     throw new Error(`Invalid production configuration: ${[...new Set(parsed.error.issues.map((i) => i.path[0]))].join(', ')}`);
   }
   if (env.ADMIN_KEY === env.JWT_SECRET) throw new Error('Production secrets must be independent');
+
+  assertFirebaseCredentials(env);
+}
+
+/**
+ * Exactly one usable set of Firebase credentials must be present.
+ *
+ * Checked here as well as in `firestore.js` so a bad credential fails at boot
+ * rather than on the first request that happens to touch the database — which
+ * for a shop is the first customer, not the deploy.
+ *
+ * The service-account file is not consulted: production runs from an
+ * environment variable, and a key file sitting on a production container is a
+ * separate problem.
+ */
+function assertFirebaseCredentials(env) {
+  if (env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    let parsed;
+    try {
+      parsed = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    } catch {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON');
+    }
+    for (const field of ['project_id', 'client_email', 'private_key']) {
+      if (!parsed[field]) throw new Error(`FIREBASE_SERVICE_ACCOUNT_JSON is missing ${field}`);
+    }
+    if (!String(parsed.private_key).includes('BEGIN PRIVATE KEY')) {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON private_key is not a PEM key');
+    }
+    return;
+  }
+
+  const trio = [env.FIREBASE_PROJECT_ID, env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY];
+  if (trio.every(Boolean)) {
+    if (!env.FIREBASE_PRIVATE_KEY.includes('BEGIN PRIVATE KEY')) {
+      throw new Error('FIREBASE_PRIVATE_KEY is not a PEM private key');
+    }
+    return;
+  }
+
+  throw new Error(
+    'Invalid production configuration: no Firebase credentials. Set '
+    + 'FIREBASE_SERVICE_ACCOUNT_JSON to the contents of the service account key '
+    + '(preferred), or all three of FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL '
+    + 'and FIREBASE_PRIVATE_KEY.',
+  );
 }

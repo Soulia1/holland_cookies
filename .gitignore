@@ -26,3 +26,7 @@ firestore-debug.log
 firebase-debug.log
 ui-debug.log
 .firebase/
+
+# Firebase service account key — never commit this
+backend/serviceAccount.json
+serviceAccount.json
