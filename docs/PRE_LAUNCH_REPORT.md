@@ -489,7 +489,7 @@ Classified per §126.
 | ~~B1~~ | ~~No Firebase project exists~~ | **CLEARED.** `holland-cookie-staging` created, Firestore in `eur3`, service-account key in place and gitignored. | done |
 | ~~B2~~ | ~~Composite indexes unverified~~ | **CLEARED — and it was a real bug, twice over.** See §45b. | done |
 | ~~B3~~ | ~~Rules never deployed~~ | **CLEARED.** Deny-all rules released to `cloud.firestore` on staging and read back to confirm they contain `allow read, write: if false;` and no `if true`. | done |
-| B4 | **No staging *HTTP* run** | The data layer is now verified against real Firestore (§45b). The Express layer is still only proven on the emulator, because running it locally as `NODE_ENV=production` forces `Secure` cookies and HSTS, which cannot work over http on localhost. | Deploy the app to a staging host over HTTPS and run the browser suite against it |
+| ~~B4~~ | ~~No staging HTTP run~~ | **CLEARED for verification.** `ALLOW_REAL_FIRESTORE` decouples *which datastore* from *transport hardening*, so the real Express app now runs against real Firestore. 83/84 browser tests pass across three projects; see §45c. What remains is a *deployment*, not a verification gap — tracked as H4. | done |
 | B5 | **Backups not configured or rehearsed** | An untested backup is a belief. `DISASTER_RECOVERY.md` is a written plan only. | Configure the export schedule + PITR, then rehearse a restore and time it |
 | B6 | **CI has never executed** | A pipeline that has not run is not a pipeline. | Push the branch, open a PR, let it run green |
 
@@ -534,6 +534,54 @@ project and is the thing that closes this permanently. `npm run check:indexes`.
 | Status machine + history + audit | invalid transition refused, valid accepted, both steps recorded |
 | Cleanup | staging left at 13 categories, 76 products, 0 orders, counter 1000 |
 
+### 45c. Running the browser suite against real Firestore
+
+The last blocker was mine, not Firebase's: `NODE_ENV=production` decided both
+*which datastore to talk to* and *whether to serve with `Secure` cookies and
+HSTS*. Coupled, the only way to reach a real project was to also enable transport
+hardening that cannot work over http on localhost — so the HTTP layer could never
+be exercised against a real database.
+
+`ALLOW_REAL_FIRESTORE` separates them, without weakening the guard: it is off
+unless set, its value must be the exact project id **and** match the credential,
+and anything that looks like production is refused. Five refusal cases are
+asserted. A test would have to name a real project out loud to reach one.
+
+**Running it that way found two more bugs, both invisible on an emulator**
+because the emulator answers fast enough to hide the window.
+
+The checkout page derives its priced cart from the catalogue, and `lines` is
+empty until that request lands. Nothing stopped the customer acting inside that
+window:
+
+| Bug | What the customer saw |
+|---|---|
+| Applying a promo sent `subtotal: 0` | **"E2E10 applied"** above a total that had not moved. The server correctly computed 10% of nothing. |
+| Pressing Place order sent an empty items array | **"Your cart is empty"** — while looking at a cart with things in it. |
+
+Neither could ever have charged a wrong amount (the server re-prices
+authoritatively), but the second one loses the order outright. Both are now
+refused at the button and again in the handler, because a disabled attribute is
+a render behind the state.
+
+A third find: the e2e harness's reset guard read
+`!currentTarget() && !String(...).startsWith('emulator')` — a double negative
+around a short-circuit that evaluates `false` on the first call. **It had never
+refused anything**, including a production target. Rewritten as a positive list.
+
+### Verified against real Firestore — browser suite
+
+| Project | Result |
+|---|---|
+| commerce-chromium-desktop | **28/28** |
+| commerce-chromium-phone + commerce-webkit-phone | **55/56** |
+| **Total** | **83/84** |
+
+The single failure is `receipt.spec.ts:162`, a WebKit animation-timing assertion
+that fails on the emulator too — a pre-existing flake, not a Firestore issue.
+
+Emulator suite unchanged: **103/103**. Staging left clean.
+
 ### HIGH
 
 | # | Item |
@@ -541,6 +589,7 @@ project and is the thing that closes this permanently. `npm run check:indexes`.
 | H1 | Order-reference counter recovery after a restore is documented but unrehearsed — getting it wrong reissues live reference numbers |
 | H2 | No monitoring or alerting configured (§118): no 5xx alerting, no admin-login-failure alerting, no Firestore quota alerting |
 | H3 | `firebase-admin` pulls `@google-cloud/storage` transitively even though Storage is unused — dead weight in the deployed image |
+| H4 | **Nothing is deployed anywhere.** The app is verified against real Firestore but still runs locally; Railway has never been linked. This is a deployment step, not a verification gap. |
 
 ### MEDIUM
 
