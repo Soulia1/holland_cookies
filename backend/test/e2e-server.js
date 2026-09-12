@@ -14,8 +14,19 @@
 // The emulator, pinned before any import that could connect. `firestore.js`
 // additionally refuses to attach a non-production process to a real project, so
 // this is belt and braces rather than the only line of defence.
-process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
-process.env.GCLOUD_PROJECT = 'holland-cookie-e2e';
+//
+// ALLOW_REAL_FIRESTORE overrides that, deliberately, so the same suite can be
+// run against a real staging project — which is the only way to exercise the
+// HTTP layer against real Firestore. It is opt-in, it must name the project, and
+// `firestore.js` refuses anything that looks like production. Without it, the
+// emulator is used and nothing can reach real data.
+if (process.env.ALLOW_REAL_FIRESTORE) {
+  delete process.env.FIRESTORE_EMULATOR_HOST;
+  console.warn(`[holland] e2e running against REAL project ${process.env.ALLOW_REAL_FIRESTORE}`);
+} else {
+  process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+  process.env.GCLOUD_PROJECT = 'holland-cookie-e2e';
+}
 
 process.env.PORT = '3100';
 process.env.ADMIN_KEY = 'e2e-admin-key-0123456789abcdefghijkl';
@@ -48,9 +59,26 @@ const COLLECTIONS = [
   'profiles', 'otpCodes', 'sessions', 'rateLimits', 'auditEvents', 'counters', 'settings',
 ];
 
-if (!fsdb.currentTarget() && !String(fsdb.get() && fsdb.currentTarget()).startsWith('emulator')) {
-  throw new Error('Refusing to reset a non-emulator datastore');
+/**
+ * What this harness is allowed to wipe.
+ *
+ * An emulator, always — it is disposable by definition. A real project only when
+ * it was named explicitly through ALLOW_REAL_FIRESTORE, which `firestore.js`
+ * has already refused if it looked like production.
+ *
+ * Written as a positive list rather than a negative one. The previous version
+ * read `!currentTarget() && !String(...).startsWith('emulator')`, which is a
+ * double negative around a short-circuit and evaluated to `false` on the very
+ * first call — so it never actually guarded anything.
+ */
+fsdb.get();
+const target = fsdb.currentTarget();
+const disposable = target.startsWith('emulator')
+  || (process.env.ALLOW_REAL_FIRESTORE && target.includes(process.env.ALLOW_REAL_FIRESTORE));
+if (!disposable) {
+  throw new Error(`Refusing to reset ${target}: not an emulator and not an explicitly named staging project`);
 }
+console.warn(`[holland] e2e harness will reset: ${target}`);
 
 for (const name of COLLECTIONS) {
   const snapshot = await fsdb.get().collection(name).get();

@@ -137,6 +137,10 @@ export default function CheckoutPage() {
   async function applyPromo() {
     const code = promoInput.trim();
     if (!code) return;
+    // The cart has to be priced before a discount off it can mean anything.
+    // The button is disabled until then; this is the second line, because the
+    // gap is a race and a disabled attribute is a render behind the state.
+    if (!catalogue || totals.subtotal <= 0) return;
     setPromoBusy(true);
     setPromoMsg(null);
     try {
@@ -158,6 +162,13 @@ export default function CheckoutPage() {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (submitting || !items.length) return;
+    // Not until the catalogue has arrived. `lines` is derived from it and is
+    // empty until it lands, so submitting early sends an empty items array and
+    // the server answers, correctly and very confusingly, "Your cart is empty"
+    // to somebody looking at a cart with things in it. `items.length` above does
+    // not catch this: the cart is genuinely full, it is the *priced* cart that
+    // is not ready.
+    if (!catalogue) return;
     setSubmitting(true);
     setFormError(null);
     setFieldErrors({});
@@ -359,7 +370,8 @@ export default function CheckoutPage() {
                 {formError && <p className="ed-alert" role="alert">{formError}</p>}
 
                 <button type="submit" className="ed-btn"
-                  disabled={submitting || !!blocked.length || settings?.acceptingOrders === false}>
+                  disabled={submitting || !catalogue || !!blocked.length
+                    || settings?.acceptingOrders === false}>
                   {submitting ? t.ckPlacing : t.ckPlaceOrder}
                 </button>
                 <p className="ed-fine">{t.cartHandoffNote}</p>
@@ -393,8 +405,14 @@ export default function CheckoutPage() {
                     <input id="promo" className="ed-input" dir="ltr" value={promoInput}
                       onChange={(e) => setPromoInput(e.target.value)} />
                   </div>
+                  {/* Also disabled until the catalogue has arrived. `lines` is
+                      empty while it is loading, so the subtotal is 0 — and a
+                      promo validated against a subtotal of 0 comes back with a
+                      discount of 0, correctly and uselessly. The customer then
+                      sees "CODE applied" above a total that never moved. It
+                      needs a real subtotal to be a real answer. */}
                   <button type="button" className="ed-apply" onClick={applyPromo}
-                    disabled={promoBusy || !promoInput.trim()}>
+                    disabled={promoBusy || !promoInput.trim() || !catalogue}>
                     {t.ckPromoApply}
                   </button>
                 </div>

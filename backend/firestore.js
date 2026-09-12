@@ -78,11 +78,56 @@ function resolveTarget() {
   }
 
   if (!production) {
-    throw new Error(
-      'FIRESTORE_EMULATOR_HOST is not set and NODE_ENV is not production. '
-      + 'Refusing to connect a non-production process to a real Firestore '
-      + 'project. Start the emulator (npm run emulators) first.',
-    );
+    // The deliberate escape hatch: run the real server against a real project
+    // without pretending to be production.
+    //
+    // NODE_ENV=production decides two unrelated things — which datastore to talk
+    // to, and whether to serve with `Secure` cookies and HSTS. Coupling them
+    // meant the only way to point the app at real Firestore was to also turn on
+    // transport hardening that cannot work over http on localhost, so the HTTP
+    // layer could never be exercised against a real database at all. That is a
+    // gap in what can be tested, caused by a config decision rather than by
+    // anything about Firebase.
+    //
+    // This separates them, and does it in a way that cannot happen by accident:
+    //
+    //   - It is off unless ALLOW_REAL_FIRESTORE is set.
+    //   - Its value must be the exact project id, and must match the credential.
+    //     Setting it to the wrong thing fails rather than connecting somewhere
+    //     unexpected.
+    //   - A project id that looks like production is refused outright. If you
+    //     genuinely mean production, use NODE_ENV=production and accept the
+    //     hardening that comes with it.
+    //
+    // The property the original guard existed to protect — that a test run can
+    // never silently write into real data — is intact: a test would have to name
+    // a real project explicitly to reach one.
+    const allowed = process.env.ALLOW_REAL_FIRESTORE;
+    if (!allowed) {
+      throw new Error(
+        'FIRESTORE_EMULATOR_HOST is not set and NODE_ENV is not production. '
+        + 'Refusing to connect a non-production process to a real Firestore '
+        + 'project. Start the emulator (npm run emulators) first, or set '
+        + 'ALLOW_REAL_FIRESTORE=<project-id> to deliberately target a real one.',
+      );
+    }
+    if (/prod/i.test(allowed)) {
+      throw new Error(
+        `ALLOW_REAL_FIRESTORE names "${allowed}", which looks like production. `
+        + 'This switch is for staging. Use NODE_ENV=production to run against '
+        + 'production, with the transport hardening that implies.',
+      );
+    }
+    const account = serviceAccount();
+    if (account.projectId !== allowed) {
+      throw new Error(
+        `ALLOW_REAL_FIRESTORE names "${allowed}" but the credential is for `
+        + `"${account.projectId}". Refusing to connect to a project you did not name.`,
+      );
+    }
+    console.warn(`[holland] connected to REAL Firestore project ${account.projectId} `
+      + '(ALLOW_REAL_FIRESTORE). Not an emulator — writes are permanent.');
+    return { kind: 'real', ...account };
   }
 
   return { kind: 'production', ...serviceAccount() };
@@ -159,7 +204,7 @@ function connect() {
   const target = resolveTarget();
   describedTarget = target.kind === 'emulator'
     ? `emulator ${target.host} (${target.projectId})`
-    : `project ${target.projectId}`;
+    : `project ${target.projectId}${target.kind === 'real' ? ' (real, non-production process)' : ''}`;
 
   const app = getApps()[0] ?? initializeApp(
     target.kind === 'emulator'
