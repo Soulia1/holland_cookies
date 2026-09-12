@@ -1,4 +1,3 @@
-import { validateParams, amount, imagePath, identifier, email as emailSchema } from '../validation.js';
 /**
  * Customer accounts: signing in, the profile, and order history.
  *
@@ -11,12 +10,14 @@ import { validateParams, amount, imagePath, identifier, email as emailSchema } f
 import { Router } from 'express';
 import { z } from 'zod';
 import { limit } from '../security.js';
-import * as db from '../db.js';
+import { validateParams, email as emailSchema } from '../validation.js';
 import {
   claimProfile, clearCustomerSession, issueCustomerSession, readCustomer, requireCustomer,
 } from '../customerAuth.js';
 import { isEmail, normalizeEmail, requestCode, verifyCode } from '../otp.js';
 import { mailConfigured, sendSignInCode } from '../mailer.js';
+import * as people from '../repo/people.js';
+import * as orderRepo from '../repo/orders.js';
 
 const router = Router();
 validateParams(router);
@@ -28,7 +29,6 @@ validateParams(router);
  * being flooded, and this stops one machine walking many addresses.
  */
 const requestCodeLimiter = limit('otp-request', 60 * 60 * 1000, 20);
-
 const verifyLimiter = limit('otp-verify', 15 * 60 * 1000, 30);
 
 // ------------------------------------------------------------------ auth ----
@@ -43,15 +43,16 @@ router.post('/request-code', requestCodeLimiter, async (req, res, next) => {
     return res.status(400).json({ error: 'INVALID_EMAIL', message: 'That email does not look right.' });
   }
 
-  const result = await requestCode(parsed.data.email);
-  if (!result.ok) {
-    if (['COOLDOWN','RATE_LIMITED','BUSY'].includes(result.code)) res.set('Retry-After', String(result.retryAfter || 60));
-    return res.status(['COOLDOWN','RATE_LIMITED','BUSY'].includes(result.code) ? 429 : 400).json({
-      error: result.code, message: result.message, retryAfter: result.retryAfter,
-    });
-  }
-
   try {
+    const result = await requestCode(parsed.data.email);
+    if (!result.ok) {
+      const throttled = ['COOLDOWN', 'RATE_LIMITED', 'BUSY'].includes(result.code);
+      if (throttled) res.set('Retry-After', String(result.retryAfter || 60));
+      return res.status(throttled ? 429 : 400).json({
+        error: result.code, message: result.message, retryAfter: result.retryAfter,
+      });
+    }
+
     const delivery = await sendSignInCode(result.email, result.code, parsed.data.lang);
     return res.json({
       ok: true,
@@ -62,49 +63,42 @@ router.post('/request-code', requestCodeLimiter, async (req, res, next) => {
       via: delivery.via,
     });
   } catch (error) {
-    if (error.status) {
-      return res.status(error.status).json({ error: error.code, message: error.message });
-    }
+    if (error.status) return res.status(error.status).json({ error: error.code, message: error.message });
     return next(error);
   }
 });
 
 /** POST /api/account/verify-code */
-router.post('/verify-code', verifyLimiter, async (req, res) => {
-  const parsed = z.strictObject({
-    email: emailSchema,
-    code: z.string().regex(/^\d{6}$/),
-  }).safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'INVALID_CODE', message: 'That code is not right.' });
-  }
+router.post('/verify-code', verifyLimiter, async (req, res, next) => {
+  try {
+    const parsed = z.strictObject({
+      email: emailSchema,
+      code: z.string().regex(/^\d{6}$/),
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'INVALID_CODE', message: 'That code is not right.' });
+    }
 
-  const result = await verifyCode(parsed.data.email, parsed.data.code);
-  if (!result.ok) {
-    return res.status(400).json({ error: result.code, message: result.message });
-  }
+    const result = await verifyCode(parsed.data.email, parsed.data.code);
+    if (!result.ok) return res.status(400).json({ error: result.code, message: result.message });
 
-  const { profile, linkedOrders } = claimProfile(normalizeEmail(result.email));
-  issueCustomerSession(res, { profileId: profile.id, email: profile.email });
+    const { profile, linkedOrders } = await claimProfile(normalizeEmail(result.email));
+    await issueCustomerSession(res, { profileId: profile.email });
 
-  res.json({
-    customer: {
-      id: profile.id,
-      email: profile.email,
-      fullName: profile.full_name,
-      phone: profile.phone,
-      defaultArea: profile.default_area,
-      defaultAddress: profile.default_address,
-    },
-    // How many past guest orders were just attached, so the sheet can say
-    // "we found 3 previous orders" rather than dropping them in silently.
-    linkedOrders,
-  });
+    return res.json({
+      customer: people.profileOut(profile),
+      // How many past guest orders were just attached, so the sheet can say
+      // "we found 3 previous orders" rather than dropping them in silently.
+      linkedOrders,
+    });
+  } catch (error) { return next(error); }
 });
 
-router.post('/signout', (req, res) => {
-  clearCustomerSession(res, req);
-  res.json({ ok: true });
+router.post('/signout', async (req, res, next) => {
+  try {
+    await clearCustomerSession(res, req);
+    res.json({ ok: true });
+  } catch (error) { next(error); }
 });
 
 /**
@@ -114,45 +108,30 @@ router.post('/signout', (req, res) => {
  * page asks this on load and a 401 for the ordinary anonymous case would be
  * noise in the console rather than information.
  */
-router.get('/me', (req, res) => {
-  res.json({
-    customer: readCustomer(req, res),
-    mailConfigured: mailConfigured(),
-  });
+router.get('/me', async (req, res, next) => {
+  try {
+    res.json({ customer: await readCustomer(req), mailConfigured: mailConfigured() });
+  } catch (error) { next(error); }
 });
 
 // --------------------------------------------------------------- profile ----
 
-router.patch('/profile', requireCustomer, (req, res) => {
-  const parsed = z.strictObject({
-    fullName: z.string().max(120).optional(),
-    phone: z.string().max(24).optional(),
-    defaultArea: z.string().max(80).optional(),
-    defaultAddress: z.string().max(300).optional(),
-  }).safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'INVALID', message: 'Check the fields.' });
-  }
+router.patch('/profile', requireCustomer, async (req, res, next) => {
+  try {
+    const parsed = z.strictObject({
+      fullName: z.string().max(120).optional(),
+      phone: z.string().max(24).optional(),
+      defaultArea: z.string().max(80).optional(),
+      defaultAddress: z.string().max(300).optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID', message: 'Check the fields.' });
 
-  // The email is deliberately not editable. It is the identity the account was
-  // proved with; changing it would move the account to an address nobody has
-  // demonstrated they control.
-  const column = {
-    fullName: 'full_name', phone: 'phone',
-    defaultArea: 'default_area', defaultAddress: 'default_address',
-  };
-  const sets = [];
-  const values = { id: req.customer.id };
-  for (const [key, value] of Object.entries(parsed.data)) {
-    sets.push(`${column[key]} = @${key}`);
-    values[key] = value;
-  }
-  if (sets.length) {
-    db.get().prepare(
-      `UPDATE profiles SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = @id`,
-    ).run(values);
-  }
-  res.json({ customer: readCustomer(req, res) });
+    // The email is deliberately not writable — see repo/people.js. It is the
+    // identity the account was proved with; changing it would move the account
+    // to an address nobody has demonstrated they control.
+    await people.updateProfile(req.customer.email, parsed.data);
+    return res.json({ customer: await readCustomer(req) });
+  } catch (error) { return next(error); }
 });
 
 // ---------------------------------------------------------------- orders ----
@@ -160,41 +139,36 @@ router.patch('/profile', requireCustomer, (req, res) => {
 /**
  * GET /api/account/orders — everything this account has ordered.
  *
- * Keyed on `profile_id`, which is set only by `claimProfile` after the address
- * was proved. Deliberately NOT keyed on the email column directly: that would
+ * Keyed on `profileId`, which is set only by `claimProfile` after the address
+ * was proved. Deliberately NOT keyed on the email field directly: that would
  * make the history readable by anyone who could get a session for an address,
  * including one typed at checkout and never verified.
  */
-router.get('/orders', requireCustomer, (req, res) => {
-  const database = db.get();
-  const orders = database.prepare(`
-    SELECT * FROM orders WHERE profile_id = ? ORDER BY id DESC LIMIT 100
-  `).all(req.customer.id);
-
-  res.json({
-    orders: orders.map((order) => ({
-      reference: order.reference,
-      status: order.status,
-      fulfilment: order.fulfilment,
-      createdAt: order.created_at,
-      totals: {
-        subtotal: order.subtotal,
-        discount: order.discount,
-        delivery: order.delivery,
-        total: order.total,
-      },
-      items: database
-        .prepare('SELECT name, name_ar, qty, unit_price, line_total FROM order_items WHERE order_id = ?')
-        .all(order.id)
-        .map((item) => ({
+router.get('/orders', requireCustomer, async (req, res, next) => {
+  try {
+    const orders = await orderRepo.ordersForProfile(req.customer.email);
+    res.json({
+      orders: orders.map((order) => ({
+        reference: order.reference,
+        status: order.status,
+        fulfilment: order.fulfilment,
+        createdAt: orderRepo.iso(order.createdAt),
+        totals: {
+          subtotal: order.subtotal,
+          discount: order.discount,
+          delivery: order.delivery,
+          total: order.total,
+        },
+        items: (order.items ?? []).map((item) => ({
           name: item.name,
-          nameAr: item.name_ar || undefined,
+          nameAr: item.nameAr || undefined,
           qty: item.qty,
-          unitPrice: item.unit_price,
-          lineTotal: item.line_total,
+          unitPrice: item.unitPrice,
+          lineTotal: item.lineTotal,
         })),
-    })),
-  });
+      })),
+    });
+  } catch (error) { next(error); }
 });
 
 export default router;

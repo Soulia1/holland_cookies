@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "holland-cookie-staging",
+    "staging": "holland-cookie-staging",
+    "production": "holland-cookie-prod"
+  }
+}

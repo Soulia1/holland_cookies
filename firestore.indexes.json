@@ -1,0 +1,101 @@
+{
+  "//": [
+    "Composite indexes for every production query that needs one.",
+    "",
+    "Firestore creates single-field indexes automatically, so a query filtering or",
+    "ordering on ONE field needs nothing here. A composite index is required the",
+    "moment a query combines an equality filter with an orderBy on a different",
+    "field, or combines two equality filters.",
+    "",
+    "Every entry below was derived by reading the queries in backend/repo/ rather",
+    "than by waiting for production to raise FAILED_PRECONDITION. The source query",
+    "is named against each one so that deleting a query and leaving its index, or",
+    "adding a query and forgetting its index, is visible in review.",
+    "",
+    "IMPORTANT, AND NOT YET DISCHARGED: the Firestore emulator does NOT enforce",
+    "composite index requirements. It answers any query, indexed or not. That means",
+    "the local test suite cannot prove this file is complete or correct — a missing",
+    "entry here passes every test and then fails on the first real request against",
+    "a real project. These must be deployed to the staging project and the suite",
+    "re-run against it before launch. See docs/PRE_LAUNCH_REPORT.md, which records",
+    "this as an outstanding blocker rather than a passing check."
+  ],
+  "indexes": [
+    {
+      "//": "repo/orders.js listOrders() — status filter with the stable seq ordering.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "seq", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "repo/orders.js ordersForPhone() — the customer detail page.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "phone", "order": "ASCENDING" },
+        { "fieldPath": "seq", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "repo/orders.js ordersForProfile() — a signed-in customer's own history.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "seq", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "customerAuth.js claimProfile() — unclaimed guest orders for a proved address.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "email", "order": "ASCENDING" },
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "seq", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "repo/orders.js orderStats() — refundDueValue: cancelled AND already paid.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "paymentStatus", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "//": [
+        "The order document carries its lines and its status history as arrays of",
+        "objects. Firestore indexes every field of every array element by default,",
+        "which for a 60-line order is 60 index entries per indexed subfield, written",
+        "on every order and paid for on every order. Nothing queries by line",
+        "contents — the items are read as part of the order and never filtered on —",
+        "so those indexes are pure cost.",
+        "",
+        "Exempting them is the single largest write-cost saving available in this",
+        "schema. It is listed under fieldOverrides rather than left to the default",
+        "because the default is expensive and silent."
+      ],
+      "collectionGroup": "orders",
+      "fieldPath": "items",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "orders",
+      "fieldPath": "history",
+      "indexes": []
+    },
+    {
+      "//": "Delivery areas on the settings document. Never queried.",
+      "collectionGroup": "settings",
+      "fieldPath": "areas",
+      "indexes": []
+    }
+  ]
+}

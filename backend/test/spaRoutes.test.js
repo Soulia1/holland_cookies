@@ -13,7 +13,9 @@
  */
 
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_PATH = ':memory:';
+process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+process.env.GCLOUD_PROJECT = 'holland-cookie-sparoutes';
+process.env.JWT_SECRET = 'spa-routes-suite-0123456789abcdefghij';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -50,7 +52,7 @@ const CLIENT_ROUTES = [
   '/menu/desserts',
   '/menu/drinks',
   '/menu/cookie-pans',
-  '/menu/gateaux',
+  '/menu/molten-cakes',
   '/checkout',
   '/account',
   '/track',

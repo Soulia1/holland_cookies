@@ -27,7 +27,7 @@ async function settle(page: Page) {
 }
 
 /** Add a product to the cart from the menu page and land on checkout. */
-async function startCheckout(page: Page, product = "Vanilla") {
+async function startCheckout(page: Page, product = "Vanilla, Lotus filling") {
   await page.goto("/menu", { waitUntil: "load" });
   await ready(page);
   await page.getByRole("button", { name: `Add ${product} to cart` }).first().click();
@@ -61,20 +61,19 @@ test.describe("placing an order", () => {
   test("cart survives the trip to checkout and prices from the catalogue", async ({ page }) => {
     await startCheckout(page);
 
-    await expect(page.locator(".ed-sum-info span").first()).toHaveText("Vanilla");
-    await expect(page.locator(".ed-sum-price").first()).toHaveText("50.00 EGP");
-    // 50 subtotal + 40 delivery, below the 600 free-delivery threshold.
-    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("90.00 EGP");
+    await expect(page.locator(".ed-sum-info span").first()).toHaveText("Vanilla, Lotus filling");
+    await expect(page.locator(".ed-sum-price").first()).toHaveText("60.00 EGP");
+    // 60 subtotal + 40 delivery, below the 600 free-delivery threshold.
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("100.00 EGP");
   });
 
   test("delivery is waived over the threshold", async ({ page }) => {
-    // Straight to the gateaux, not `/menu`: the bare root lands on the cookies,
-    // which have nothing near 450 EGP. Addressed as a section of the desserts
-    // page, which is where a category lives now.
-    await page.goto("/menu/desserts#gateaux", { waitUntil: "load" });
+    // Straight to the cookie scoops, which is where the 450 EGP items are —
+    // the bare root lands on the cookies group anyway.
+    await page.goto("/menu/cookies#cookie-scoops", { waitUntil: "load" });
     await ready(page);
     // 450 EGP each; two clears the 600 threshold.
-    const add = page.getByRole("button", { name: "Add Lotus Gateau to cart" }).first();
+    const add = page.getByRole("button", { name: "Add Vanilla to cart" }).first();
     await add.click();
     await add.click();
     await settle(page);
@@ -90,7 +89,7 @@ test.describe("placing an order", () => {
 
     await page.getByRole("radio", { name: "Pickup" }).click();
     await expect(page.locator("#address")).toHaveCount(0);
-    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("50.00 EGP");
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("60.00 EGP");
   });
 
   test("places the order and shows a reference", async ({ page }) => {
@@ -101,7 +100,7 @@ test.describe("placing an order", () => {
     await expect(page.locator(".rcpt-barcode-text")).toBeVisible({ timeout: 15_000 });
     const reference = await page.locator(".rcpt-barcode-text").innerText();
     expect(reference).toMatch(/^HC-\d+$/);
-    await expect(page.locator(".rcpt-total-value")).toHaveText("90.00 EGP");
+    await expect(page.locator(".rcpt-total-value")).toHaveText("100.00 EGP");
 
     // The cart is emptied only once the order exists.
     await expect(page.locator(".cart-badge")).toHaveCount(0);
@@ -119,7 +118,7 @@ test.describe("placing an order", () => {
     // Wired for a screen reader, not only painted red.
     await expect(page.locator("#area")).toHaveAttribute("aria-invalid", "true");
     // And the customer still has their cart.
-    await expect(page.locator(".ed-sum-info span").first()).toHaveText("Vanilla");
+    await expect(page.locator(".ed-sum-info span").first()).toHaveText("Vanilla, Lotus filling");
   });
 
   test("a promo code discounts the total", async ({ page }) => {
@@ -128,8 +127,8 @@ test.describe("placing an order", () => {
     await page.getByRole("button", { name: "Apply", exact: true }).click();
 
     await expect(page.locator(".ed-promo-msg.ok")).toContainText("E2E10");
-    // 50 less 10% = 45, plus 40 delivery.
-    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("85.00 EGP");
+    // 60 less 10% = 54, plus 40 delivery.
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("94.00 EGP");
   });
 
   test("rejects a promo code that does not exist", async ({ page }) => {
@@ -175,9 +174,19 @@ test.describe("in Arabic", () => {
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
 
     // Product names fall back to English until the sheets are transcribed, so
-    // the accessible name is still the English one — which is exactly what
-    // `localized()` is specified to do.
-    await page.getByRole("button", { name: /Vanilla/ }).first().click();
+    // the accessible name is the Arabic frame around the English name — which
+    // is exactly what `localized()` is specified to do.
+    //
+    // Named exactly rather than by /Vanilla/, and awaited rather than clicked
+    // immediately. Both matter, and the loose version had been silently broken:
+    // twenty products in the menu contain "Vanilla", so the regex was only ever
+    // right by DOM accident, and clicking in the same tick as the language
+    // switch raced the re-render that relabels every button — the click landed
+    // on a node React was in the middle of replacing and the cart stayed empty.
+    // Asserting the Arabic label first is what proves the re-render finished.
+    const addVanilla = page.getByRole("button", { name: "ضيف Vanilla, Lotus filling للسلة" }).first();
+    await expect(addVanilla).toBeVisible();
+    await addVanilla.click();
     await expect(page.locator(".cart-badge")).toHaveText("1");
 
     await settle(page);

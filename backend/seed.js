@@ -2,8 +2,8 @@
  * Seed the catalogue from the printed menu already transcribed in
  * `src/data/menu.ts`.
  *
- * That file stays the record of what the sheets say; this copies it into the
- * database once so the shop starts with its real menu rather than an empty one.
+ * That file stays the record of what the sheets say; this copies it into
+ * Firestore once so the shop starts with its real menu rather than an empty one.
  * It is idempotent — existing products are left exactly as they are, so running
  * it again after an admin has edited a price does not undo their work.
  *
@@ -14,7 +14,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
-import * as db from './db.js';
+import { collections, settingsDoc, orderCounterDoc, FieldValue, get as firestore } from './firestore.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,42 +44,76 @@ async function readMenu() {
   return module.MENU;
 }
 
+/** The delivery model the footer describes. */
+const DEFAULT_AREAS = [
+  { id: 'nasr-city', name: 'Nasr City', nameAr: 'مدينة نصر' },
+  { id: 'heliopolis', name: 'Heliopolis', nameAr: 'مصر الجديدة' },
+  { id: 'maadi', name: 'Maadi', nameAr: 'المعادي' },
+  { id: 'new-cairo', name: 'New Cairo', nameAr: 'القاهرة الجديدة' },
+  { id: 'downtown', name: 'Downtown', nameAr: 'وسط البلد' },
+  { id: 'zamalek', name: 'Zamalek', nameAr: 'الزمالك' },
+  { id: 'mohandessin', name: 'Mohandessin', nameAr: 'المهندسين' },
+  { id: 'sheikh-zayed', name: 'Sheikh Zayed', nameAr: 'الشيخ زايد' },
+  { id: '6-october', name: '6th of October', nameAr: 'السادس من أكتوبر' },
+];
+
 async function seed({ force = false } = {}) {
-  const database = db.get();
   const categories = await readMenu();
   if (!categories.length) {
     throw new Error('Parsed no categories out of src/data/menu.ts — has its shape changed?');
   }
 
-  const insertCategory = database.prepare(`
-    INSERT INTO categories (id, name, name_ar, sort) VALUES (@id, @name, @nameAr, @sort)
-    ON CONFLICT(id) DO UPDATE SET
-      name = CASE WHEN @force THEN excluded.name ELSE categories.name END,
-      name_ar = CASE WHEN @force THEN excluded.name_ar ELSE categories.name_ar END,
-      sort = excluded.sort
-  `);
-  const insertProduct = database.prepare(`
-    INSERT INTO products (id, category_id, name, name_ar, note, price, sort)
-    VALUES (@id, @categoryId, @name, @nameAr, @note, @price, @sort)
-    ON CONFLICT(id) DO UPDATE SET
-      category_id = excluded.category_id,
-      name  = CASE WHEN @force THEN excluded.name  ELSE products.name  END,
-      price = CASE WHEN @force THEN excluded.price ELSE products.price END,
-      note  = CASE WHEN @force THEN excluded.note  ELSE products.note  END,
-      sort  = excluded.sort
-  `);
+  const db = firestore();
+  const now = () => FieldValue.serverTimestamp();
+
+  // Read what already exists in one pass, so "leave existing rows alone" is a
+  // decision made from data rather than from a per-document round trip inside
+  // the write loop.
+  const [existingCategories, existingProducts] = await Promise.all([
+    collections.categories().get(),
+    collections.products().get(),
+  ]);
+  const haveCategory = new Set(existingCategories.docs.map((doc) => doc.id));
+  const haveProduct = new Set(existingProducts.docs.map((doc) => doc.id));
+
+  // Firestore batches are capped at 500 writes; the menu is ~105 products plus
+  // 17 categories, but the cap is respected rather than assumed away because the
+  // menu file is expected to grow.
+  const BATCH_LIMIT = 450;
+  let batch = db.batch();
+  let pending = 0;
+  const flush = async () => {
+    if (!pending) return;
+    await batch.commit();
+    batch = db.batch();
+    pending = 0;
+  };
+  const queue = async (ref, data, merge) => {
+    batch.set(ref, data, merge ? { merge: true } : {});
+    pending += 1;
+    if (pending >= BATCH_LIMIT) await flush();
+  };
 
   let productCount = 0;
-  database.transaction(() => {
-    categories.forEach((category, index) => {
-      insertCategory.run({
-        id: category.id, name: category.name, nameAr: category.nameAr,
-        sort: index, force: force ? 1 : 0,
-      });
-      category.items.forEach((item, itemIndex) => {
-        insertProduct.run({
-          id: item.id,
-          categoryId: category.id,
+
+  for (const [index, category] of categories.entries()) {
+    const exists = haveCategory.has(category.id);
+    // `sort` is always refreshed: it is positional data owned by the menu file,
+    // not something an admin edits. Names and prices are only overwritten under
+    // --force.
+    await queue(collections.categories().doc(category.id), {
+      ...(exists && !force ? {} : { name: category.name, nameAr: category.nameAr ?? '' }),
+      sort: index,
+      visible: exists ? undefined : true,
+      updatedAt: now(),
+      ...(exists ? {} : { createdAt: now() }),
+    }, true);
+
+    for (const [itemIndex, item] of category.items.entries()) {
+      const productExists = haveProduct.has(item.id);
+      await queue(collections.products().doc(item.id), {
+        categoryId: category.id,
+        ...(productExists && !force ? {} : {
           name: item.name,
           // Left empty: the Arabic item names are on the printed sheets and
           // have not been transcribed. `localized()` falls back to English
@@ -87,30 +121,42 @@ async function seed({ force = false } = {}) {
           nameAr: '',
           note: item.note ?? '',
           price: item.price,
-          sort: itemIndex,
-          force: force ? 1 : 0,
-        });
-        productCount += 1;
-      });
-    });
+        }),
+        ...(productExists ? {} : {
+          description: '',
+          descriptionAr: '',
+          noteAr: '',
+          image: '',
+          discountEnabled: false,
+          discountType: 'percent',
+          discountValue: 0,
+          available: true,
+          createdAt: now(),
+        }),
+        sort: itemIndex,
+        updatedAt: now(),
+      }, true);
+      productCount += 1;
+    }
+  }
+  await flush();
 
-    // Sensible starting settings for the delivery model the footer describes.
-    database.prepare(`
-      UPDATE settings SET delivery_fee = 40, free_delivery_over = 600,
-                          accepting_orders = 1, areas = ?
-      WHERE id = 1 AND delivery_fee = 0
-    `).run(JSON.stringify([
-      { id: 'nasr-city', name: 'Nasr City', nameAr: 'مدينة نصر' },
-      { id: 'heliopolis', name: 'Heliopolis', nameAr: 'مصر الجديدة' },
-      { id: 'maadi', name: 'Maadi', nameAr: 'المعادي' },
-      { id: 'new-cairo', name: 'New Cairo', nameAr: 'القاهرة الجديدة' },
-      { id: 'downtown', name: 'Downtown', nameAr: 'وسط البلد' },
-      { id: 'zamalek', name: 'Zamalek', nameAr: 'الزمالك' },
-      { id: 'mohandessin', name: 'Mohandessin', nameAr: 'المهندسين' },
-      { id: 'sheikh-zayed', name: 'Sheikh Zayed', nameAr: 'الشيخ زايد' },
-      { id: '6-october', name: '6th of October', nameAr: 'السادس من أكتوبر' },
-    ]));
-  })();
+  // Starting settings, written only if the shop has never been configured.
+  const settings = await settingsDoc().get();
+  if (!settings.exists || (settings.data().deliveryFee ?? 0) === 0) {
+    await settingsDoc().set({
+      deliveryFee: 40,
+      freeDeliveryOver: 600,
+      acceptingOrders: true,
+      areas: DEFAULT_AREAS,
+      updatedAt: now(),
+    }, { merge: true });
+  }
+
+  // The reference counter. Created only if absent — resetting it on an existing
+  // shop would hand out reference numbers that already belong to real orders.
+  const counter = await orderCounterDoc().get();
+  if (!counter.exists) await orderCounterDoc().set({ value: 1000 });
 
   return { categories: categories.length, products: productCount };
 }
@@ -125,7 +171,8 @@ if (invokedDirectly) {
     `[holland] seeded ${result.products} products across ${result.categories} categories`
     + `${force ? ' (forced)' : ''}`,
   );
+  process.exit(0);
 }
 
 export default seed;
-export { seed, readMenu };
+export { seed, readMenu, DEFAULT_AREAS };

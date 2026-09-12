@@ -1,12 +1,18 @@
 import fs from 'node:fs';
 import { chromium } from '@playwright/test';
-process.env.NODE_ENV = 'test'; process.env.DATABASE_PATH = ':memory:';
+process.env.NODE_ENV = 'test';
+// The emulator, always. backend/firestore.js refuses a real project outside
+// production, so this cannot silently measure against live data.
+process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+process.env.GCLOUD_PROJECT = 'holland-cookie-perf';
 process.env.ADMIN_KEY = 'browser-fixture-only-0123456789abcdefgh';
 process.env.JWT_SECRET = 'browser-session-only-0123456789abcdefgh';
 process.env.BREVO_API_KEY = ''; process.env.DISABLE_ADMIN_AUTH = 'false';
 const { default: app } = await import('../backend/server.js');
 const { seed } = await import('../backend/seed.js');
-const db = await import('../backend/db.js'); await seed();
+const db = await import('../backend/firestore.js');
+if (!String((db.get(), db.currentTarget())).startsWith('emulator')) throw new Error('Unsafe datastore');
+await seed();
 const server = app.listen(0, '127.0.0.1');
 await new Promise(resolve => server.once('listening', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -34,4 +40,4 @@ try {
   fs.mkdirSync('docs/evidence',{recursive:true});
   fs.writeFileSync(`docs/evidence/${report.label}-browser.json`,JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report,null,2));
-} finally {await browser?.close(); await new Promise(resolve=>server.close(resolve));db.close();}
+} finally {await browser?.close(); await new Promise(resolve=>server.close(resolve));await db.close().catch(() => {});}

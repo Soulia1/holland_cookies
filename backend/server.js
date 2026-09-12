@@ -8,7 +8,8 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import 'dotenv/config';
-import * as db from './db.js';
+import * as db from './firestore.js';
+import { isDatastoreOutage } from './firestore.js';
 import menuRoute from './routes/menu.js';
 import ordersRoute from './routes/orders.js';
 import adminRoute from './routes/admin.js';
@@ -65,7 +66,13 @@ app.use(express.json({limit:'32kb',strict:true,inflate:false}));
 app.use(rejectDangerousKeys);
 app.use(cookieParser());
 app.get('/api/health',(_req,res)=>res.json({ok:true}));
-app.get('/api/ready',(_req,res)=>{try{db.get().prepare('SELECT 1').get();res.json({ok:true});}catch{res.status(503).json({ok:false});}});
+app.get('/api/ready',async(_req,res)=>{
+  // A real round trip to Firestore, not just "is the module loaded": the point
+  // of a readiness probe is to fail the instance out of the load balancer when
+  // the database is unreachable, and a check that cannot fail cannot do that.
+  try{await db.get().collection('_health').doc('probe').get();res.json({ok:true});}
+  catch{res.status(503).json({ok:false});}
+});
 app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);
 app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No such endpoint.'}));
 const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\/]assets[\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
@@ -82,15 +89,16 @@ app.get(['/','/menu','/menu/:slug','/checkout','/account','/track'],(_req,res)=>
 app.use((_req,res)=>res.status(404).type('text').send('Not found.'));
 app.use((error,req,res,_next)=>{
   logEvent('request_error',req,{code:typeof error.code==='string'?error.code.slice(0,64):'INTERNAL'});
-  const status=error.type==='entity.too.large'?413:error.type==='entity.parse.failed' || error instanceof URIError?400:error.code?.startsWith('SQLITE')?503:500;
+  const status=error.type==='entity.too.large'?413:error.type==='entity.parse.failed' || error instanceof URIError?400:isDatastoreOutage(error)?503:500;
   res.status(status).json({error:status===413?'PAYLOAD_TOO_LARGE':status===400?'INVALID':status===503?'UNAVAILABLE':'SERVER_ERROR',message:status===400?'Invalid request.':status===413?'Request is too large.':'Service temporarily unavailable.'});
 });
 async function boot(){
   db.get();
+  console.info(JSON.stringify({event:'datastore',target:db.currentTarget()}));
   // Seeding is a separate explicit operation; boot never creates production content.
   const server=app.listen(Number(process.env.PORT)||3000,process.env.HOST || '0.0.0.0',()=>console.info(JSON.stringify({event:'started',version:process.env.RELEASE_SHA || 'local'})));
   server.requestTimeout=15000;server.headersTimeout=10000;server.keepAliveTimeout=5000;server.maxRequestsPerSocket=100;
-  const stop=()=>{server.close(()=>{db.close();process.exit(0);});setTimeout(()=>process.exit(1),10000).unref();};
+  const stop=()=>{server.close(async()=>{await db.close().catch(()=>{});process.exit(0);});setTimeout(()=>process.exit(1),10000).unref();};
   process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 if(process.env.NODE_ENV!=='test')boot().catch(()=>{console.error('Startup failed; check configuration and storage.');process.exit(1);});

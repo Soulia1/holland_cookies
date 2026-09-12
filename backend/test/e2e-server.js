@@ -2,61 +2,122 @@
  * The server the end-to-end commerce suite runs against.
  *
  * A separate entry point rather than a flag on `server.js`, because the one
- * thing it must guarantee is that the suite cannot touch the real shop
- * database, and the safest way to guarantee that is for the path to be set here
- * — before anything imports the database module — rather than hoped for from
- * the environment.
+ * thing it must guarantee is that the suite cannot touch the real shop data,
+ * and the safest way to guarantee that is to pin the datastore here — before
+ * anything imports it — rather than hope for it from the environment.
  *
  * Everything else is the real server: the real routes, the real order
- * transaction, the real validation. A test double would prove the double works.
+ * transaction, the real validation, the real Firestore client. A test double
+ * would prove the double works.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// The emulator, pinned before any import that could connect. `firestore.js`
+// additionally refuses to attach a non-production process to a real project, so
+// this is belt and braces rather than the only line of defence.
+process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+process.env.GCLOUD_PROJECT = 'holland-cookie-e2e';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(here, '..', '..', 'data');
-const dbPath = path.join(dataDir, 'e2e.db');
-
-// Set before `server.js` (and therefore `db.js`) is imported. A dynamic import
-// below is what makes that ordering possible at all: a static `import` would be
-// hoisted above these lines and the database would already be open on the
-// default path. That exact mistake is what the tripwire in the unit suite
-// exists to catch.
-fs.mkdirSync(dataDir, { recursive: true });
-for (const suffix of ['', '-wal', '-shm']) {
-  // A fresh database per run, so order references start from a known number
-  // and one run cannot see another's orders.
-  fs.rmSync(`${dbPath}${suffix}`, { force: true });
-}
-
-process.env.DATABASE_PATH = dbPath;
 process.env.PORT = '3100';
 process.env.ADMIN_KEY = 'e2e-admin-key-0123456789abcdefghijkl';
 process.env.JWT_SECRET = 'e2e-jwt-secret-0123456789abcdefghijkl';
-process.env.NODE_ENV = 'production';
-// Production configuration, served over plain http on localhost. Saying so
-// explicitly is what keeps `upgrade-insecure-requests` and `Secure` cookies —
-// both of which would break this server completely — switched off.
-process.env.HTTPS_ORIGIN = 'false';
+// Deliberately NOT 'production'. The production config validator now requires a
+// real service account, and `firestore.js` refuses an emulator host while
+// NODE_ENV=production — correctly, since a production process pointed at an
+// emulator would take orders into a database that evaporates. The suite
+// therefore runs as 'test' and switches on the production *behaviours* it
+// actually wants to exercise, individually and explicitly, below.
+process.env.NODE_ENV = 'test';
 // Sign-in codes are printed to this process's stdout rather than emailed —
 // there is no mail provider in a test run, and the account suite reads them
 // back out of the log. Named explicitly so production can never fall into it.
 process.env.MAIL_TRANSPORT = 'console';
 
+const fsdb = await import('../firestore.js');
+
+/**
+ * A fresh dataset per run, so order references start from a known number and
+ * one run cannot see another's orders.
+ *
+ * This is the emulator equivalent of deleting the SQLite file. It deletes every
+ * document in the collections the suite touches; `firestore.js` has already
+ * guaranteed we are talking to an emulator, so there is no path by which this
+ * can run against real data.
+ */
+const COLLECTIONS = [
+  'orders', 'orderIdempotency', 'customers', 'products', 'categories', 'promos',
+  'profiles', 'otpCodes', 'sessions', 'rateLimits', 'auditEvents', 'counters', 'settings',
+];
+
+if (!fsdb.currentTarget() && !String(fsdb.get() && fsdb.currentTarget()).startsWith('emulator')) {
+  throw new Error('Refusing to reset a non-emulator datastore');
+}
+
+for (const name of COLLECTIONS) {
+  const snapshot = await fsdb.get().collection(name).get();
+  await Promise.all(snapshot.docs.map((doc) => doc.ref.delete()));
+}
+
 const { seed } = await import('../seed.js');
 await seed();
 
 // Predictable delivery pricing, and one promo code the suite can rely on.
-const db = await import('../db.js');
-db.get().prepare(`
-  UPDATE settings SET delivery_fee = 40, free_delivery_over = 600, accepting_orders = 1
-  WHERE id = 1
-`).run();
-db.get().prepare(`
-  INSERT OR REPLACE INTO promos (code, type, value, min_subtotal, max_uses, active)
-  VALUES ('E2E10', 'percent', 10, 0, 0, 1)
-`).run();
+await fsdb.settingsDoc().set({
+  deliveryFee: 40, freeDeliveryOver: 600, acceptingOrders: true,
+}, { merge: true });
+await fsdb.collections.promos().doc('E2E10').set({
+  type: 'percent', value: 10, minSubtotal: 0, maxUses: 0, usedCount: 0,
+  active: true, expiresAt: null,
+});
 
-await import('../server.js');
+/**
+ * Start the listener explicitly.
+ *
+ * `server.js` boots itself on import unless NODE_ENV is 'test' — and 'test' is
+ * exactly what this harness has to be, because the production config validator
+ * now demands a real service account and `firestore.js` refuses an emulator host
+ * under NODE_ENV=production. So the app is imported for its routes and the
+ * listener is opened here.
+ *
+ * The one production behaviour the suite genuinely needs is the SPA fallback
+ * serving the built `dist`, and that is not gated on NODE_ENV. What it must NOT
+ * inherit from production is `Secure` cookies and `upgrade-insecure-requests`,
+ * both of which would break a suite served over plain http on localhost — so
+ * running as 'test' is correct rather than merely convenient.
+ */
+const { default: app } = await import('../server.js');
+
+const port = Number(process.env.PORT) || 3100;
+const listener = app.listen(port, '127.0.0.1', () => {
+  console.info(JSON.stringify({ event: 'e2e-server-started', port, datastore: fsdb.currentTarget() }));
+});
+/**
+ * Keep the durable rate-limit counters clear for the duration of the run.
+ *
+ * The strict limiter classes are Firestore-backed on purpose — a login or
+ * checkout limit that forgets on restart is not a limit. That durability is
+ * correct in production and actively hostile to an end-to-end suite: the
+ * `checkout` class allows 20 orders per ten minutes per IP, and the browser
+ * matrix places well over that from 127.0.0.1 in a single run. Past the
+ * threshold the suite stops testing checkout and starts testing the rate
+ * limiter, which fails dozens of unrelated assertions with a 429.
+ *
+ * So the counters are swept here rather than the limits being loosened. The
+ * limits themselves stay exactly as production has them, and they are still
+ * properly exercised — `tests/security/security.test.js` drives each class to
+ * its threshold deliberately and asserts the 429 and its Retry-After.
+ *
+ * Test-harness only. This file is never imported by the server.
+ */
+const sweep = setInterval(() => {
+  fsdb.collections.rateLimits().limit(500).get()
+    .then((snapshot) => Promise.all(snapshot.docs.map((doc) => doc.ref.delete())))
+    .catch(() => {});
+}, 2000);
+sweep.unref();
+
+const stop = () => {
+  clearInterval(sweep);
+  listener.close(() => process.exit(0));
+};
+process.once('SIGTERM', stop);
+process.once('SIGINT', stop);

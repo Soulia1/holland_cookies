@@ -1,74 +1,32 @@
-import { validateParams, amount, imagePath, identifier, email as emailSchema } from '../validation.js';
 /**
  * The catalogue.
  *
- * Public reads, admin writes. The public shape is deliberately not the database
- * row: it carries both languages and the *derived* selling price, so the
+ * Public reads, admin writes. The public shape is deliberately not the stored
+ * document: it carries both languages and the *derived* selling price, so the
  * storefront never has to know how a discount is stored and cannot compute it
  * differently from the server. See shared/pricing.mjs.
+ *
+ * The route layer does shape validation and authorization. Every read and write
+ * goes through `repo/catalogue.js`, which owns the closed list of writable
+ * fields — the mass-assignment guard lives there rather than here, so it applies
+ * to every caller and not just to the ones that remembered.
  */
 
 import { Router } from 'express';
 import { z } from 'zod';
-import * as db from '../db.js';
 import { requireAdmin } from '../adminSession.js';
-import { discountProblem, effectivePrice, money } from '../../shared/pricing.mjs';
+import { validateParams, amount, imagePath, identifier } from '../validation.js';
+import { discountProblem } from '../../shared/pricing.mjs';
+import * as catalogue from '../repo/catalogue.js';
 
 const router = Router();
 validateParams(router);
 
-/** A product as the storefront sees it. */
-function publicProduct(row) {
-  const product = {
-    ...row,
-    discountEnabled: !!row.discount_enabled,
-    discountType: row.discount_type,
-    discountValue: row.discount_value,
-  };
-  const price = money(row.price);
-  const sellingPrice = effectivePrice(product);
-  return {
-    id: row.id,
-    categoryId: row.category_id,
-    name: row.name,
-    nameAr: row.name_ar || undefined,
-    description: row.description || undefined,
-    descriptionAr: row.description_ar || undefined,
-    note: row.note || undefined,
-    noteAr: row.note_ar || undefined,
-    image: row.image || undefined,
-    // Both figures, always. The card needs the struck-through original as well
-    // as what it costs today, and deriving one from the other in the browser is
-    // the duplicated-arithmetic trap this whole design avoids.
-    price: sellingPrice,
-    regularPrice: price,
-    discounted: sellingPrice < price,
-    available: !!row.available,
-  };
-}
-
 /** GET /api/menu — the whole catalogue, grouped, in one request. */
-router.get('/', (_req, res) => {
-  const database = db.get();
-  const categories = database
-    .prepare('SELECT * FROM categories WHERE visible = 1 ORDER BY sort, name')
-    .all();
-  const products = database
-    .prepare('SELECT * FROM products ORDER BY sort, name')
-    .all()
-    .map(publicProduct);
-
-  const byCategory = new Map(categories.map((c) => [c.id, []]));
-  for (const product of products) byCategory.get(product.categoryId)?.push(product);
-
-  res.json({
-    categories: categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      nameAr: category.name_ar || undefined,
-      items: byCategory.get(category.id) ?? [],
-    })),
-  });
+router.get('/', async (_req, res, next) => {
+  try {
+    res.json({ categories: await catalogue.menu() });
+  } catch (error) { next(error); }
 });
 
 // ---------------------------------------------------------------- admin ----
@@ -80,8 +38,7 @@ const discountFields = {
 };
 
 const productCreate = z.strictObject({
-  id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/,
-    'Use lowercase letters, numbers and hyphens.'),
+  id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, 'Use lowercase letters, numbers and hyphens.'),
   categoryId: identifier,
   name: z.string().min(1).max(200),
   nameAr: z.string().max(200).optional(),
@@ -92,135 +49,84 @@ const productCreate = z.strictObject({
   price: amount,
   image: imagePath.optional(),
   available: z.boolean().optional(),
-  sort: z.number().int().optional(),
+  sort: z.number().int().min(-100000).max(100000).optional(),
   ...discountFields,
 });
 
 const productPatch = productCreate.partial().omit({ id: true });
 
-function badRequest(res, message, details) {
-  return res.status(400).json({ error: 'INVALID', message, details });
-}
+const badRequest = (res, message, details) => res.status(400).json({ error: 'INVALID', message, details });
 
-router.get('/admin/products', requireAdmin, (_req, res) => {
-  const rows = db.get().prepare('SELECT * FROM products ORDER BY sort, name').all();
-  res.json({
-    products: rows.map((row) => ({
-      ...publicProduct(row),
-      // The admin list needs the raw discount configuration, not just its
-      // effect — this is the screen where it is edited.
-      discountEnabled: !!row.discount_enabled,
-      discountType: row.discount_type,
-      discountValue: row.discount_value,
-      sort: row.sort,
-    })),
-  });
+router.get('/admin/products', requireAdmin, async (_req, res, next) => {
+  try {
+    const products = await catalogue.listProducts();
+    res.json({ products: products.map(catalogue.adminProduct) });
+  } catch (error) { next(error); }
 });
 
-router.post('/admin/products', requireAdmin, (req, res) => {
-  const parsed = productCreate.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
-  const body = parsed.data;
+router.post('/admin/products', requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = productCreate.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
+    const body = parsed.data;
 
-  const problem = discountProblem({
-    discountEnabled: body.discountEnabled,
-    discountType: body.discountType,
-    discountValue: body.discountValue,
-    price: body.price,
-  });
-  if (problem) return badRequest(res, problem);
+    const problem = discountProblem({
+      discountEnabled: body.discountEnabled,
+      discountType: body.discountType,
+      discountValue: body.discountValue,
+      price: body.price,
+    });
+    if (problem) return badRequest(res, problem);
 
-  const database = db.get();
-  if (!database.prepare('SELECT 1 FROM categories WHERE id = ?').get(body.categoryId)) {
-    return badRequest(res, 'That category does not exist.');
-  }
-  if (database.prepare('SELECT 1 FROM products WHERE id = ?').get(body.id)) {
-    return res.status(409).json({ error: 'DUPLICATE', message: 'That product id is taken.' });
-  }
+    if (!(await catalogue.categoryExists(body.categoryId))) {
+      return badRequest(res, 'That category does not exist.');
+    }
 
-  database.prepare(`
-    INSERT INTO products (id, category_id, name, name_ar, description, description_ar,
-                          note, note_ar, price, image, discount_enabled, discount_type,
-                          discount_value, available, sort)
-    VALUES (@id, @categoryId, @name, @nameAr, @description, @descriptionAr,
-            @note, @noteAr, @price, @image, @discountEnabled, @discountType,
-            @discountValue, @available, @sort)
-  `).run({
-    id: body.id,
-    categoryId: body.categoryId,
-    name: body.name,
-    nameAr: body.nameAr ?? '',
-    description: body.description ?? '',
-    descriptionAr: body.descriptionAr ?? '',
-    note: body.note ?? '',
-    noteAr: body.noteAr ?? '',
-    price: body.price,
-    image: body.image ?? '',
-    discountEnabled: body.discountEnabled ? 1 : 0,
-    discountType: body.discountType ?? 'percent',
-    discountValue: body.discountValue ?? 0,
-    available: body.available === false ? 0 : 1,
-    sort: body.sort ?? 0,
-  });
-
-  const row = database.prepare('SELECT * FROM products WHERE id = ?').get(body.id);
-  res.status(201).json({ product: publicProduct(row) });
+    const created = await catalogue.createProduct(body);
+    if (created.duplicate) {
+      return res.status(409).json({ error: 'DUPLICATE', message: 'That product id is taken.' });
+    }
+    return res.status(201).json({ product: catalogue.publicProduct(created.product) });
+  } catch (error) { return next(error); }
 });
 
-router.patch('/admin/products/:id', requireAdmin, (req, res) => {
-  const parsed = productPatch.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
-  const patch = parsed.data;
+router.patch('/admin/products/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = productPatch.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
+    const patch = parsed.data;
 
-  const database = db.get();
-  const existing = database.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such product.' });
+    const existing = await catalogue.getProduct(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such product.' });
 
-  // Validated against the patch laid over what is stored, which is the only
-  // view where the real trap is visible: raising the discount today and cutting
-  // the price tomorrow each pass on their own, and together they sell at zero.
-  const merged = {
-    price: patch.price ?? existing.price,
-    discountEnabled: patch.discountEnabled ?? !!existing.discount_enabled,
-    discountType: patch.discountType ?? existing.discount_type,
-    discountValue: patch.discountValue ?? existing.discount_value,
-  };
-  const problem = discountProblem(merged);
-  if (problem) return badRequest(res, problem);
+    // Validated against the patch laid over what is stored, which is the only
+    // view where the real trap is visible: raising the discount today and
+    // cutting the price tomorrow each pass on their own, and together they sell
+    // at zero.
+    const problem = discountProblem({
+      price: patch.price ?? existing.price,
+      discountEnabled: patch.discountEnabled ?? !!existing.discountEnabled,
+      discountType: patch.discountType ?? existing.discountType,
+      discountValue: patch.discountValue ?? existing.discountValue,
+    });
+    if (problem) return badRequest(res, problem);
 
-  if (patch.categoryId
-    && !database.prepare('SELECT 1 FROM categories WHERE id = ?').get(patch.categoryId)) {
-    return badRequest(res, 'That category does not exist.');
-  }
+    if (patch.categoryId && !(await catalogue.categoryExists(patch.categoryId))) {
+      return badRequest(res, 'That category does not exist.');
+    }
 
-  const column = {
-    categoryId: 'category_id', name: 'name', nameAr: 'name_ar',
-    description: 'description', descriptionAr: 'description_ar',
-    note: 'note', noteAr: 'note_ar', price: 'price', image: 'image',
-    discountEnabled: 'discount_enabled', discountType: 'discount_type',
-    discountValue: 'discount_value', available: 'available', sort: 'sort',
-  };
-  const sets = [];
-  const values = {};
-  for (const [key, value] of Object.entries(patch)) {
-    if (!column[key]) continue;
-    sets.push(`${column[key]} = @${key}`);
-    values[key] = typeof value === 'boolean' ? (value ? 1 : 0) : value;
-  }
-  if (sets.length) {
-    database.prepare(
-      `UPDATE products SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = @id`,
-    ).run({ ...values, id: req.params.id });
-  }
-
-  const row = database.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
-  res.json({ product: publicProduct(row) });
+    const product = await catalogue.updateProduct(req.params.id, patch);
+    if (!product) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such product.' });
+    return res.json({ product: catalogue.publicProduct(product) });
+  } catch (error) { return next(error); }
 });
 
-router.delete('/admin/products/:id', requireAdmin, (req, res) => {
-  const info = db.get().prepare('DELETE FROM products WHERE id = ?').run(req.params.id);
-  if (!info.changes) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such product.' });
-  res.status(204).end();
+router.delete('/admin/products/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const removed = await catalogue.deleteProduct(req.params.id);
+    if (!removed) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such product.' });
+    return res.status(204).end();
+  } catch (error) { return next(error); }
 });
 
 // ------------------------------------------------------------ categories ----
@@ -229,67 +135,62 @@ const categoryBody = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(120),
   nameAr: z.string().max(120).optional(),
-  sort: z.number().int().optional(),
+  sort: z.number().int().min(-100000).max(100000).optional(),
   visible: z.boolean().optional(),
 });
 
-router.get('/admin/categories', requireAdmin, (_req, res) => {
-  const rows = db.get().prepare('SELECT * FROM categories ORDER BY sort, name').all();
-  res.json({
-    categories: rows.map((row) => ({
-      id: row.id, name: row.name, nameAr: row.name_ar, sort: row.sort, visible: !!row.visible,
-    })),
-  });
-});
-
-router.post('/admin/categories', requireAdmin, (req, res) => {
-  const parsed = categoryBody.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
-  const body = parsed.data;
+router.get('/admin/categories', requireAdmin, async (_req, res, next) => {
   try {
-    db.get().prepare(
-      'INSERT INTO categories (id, name, name_ar, sort, visible) VALUES (?, ?, ?, ?, ?)',
-    ).run(body.id, body.name, body.nameAr ?? '', body.sort ?? 0, body.visible === false ? 0 : 1);
-  } catch {
-    return res.status(409).json({ error: 'DUPLICATE', message: 'That category id is taken.' });
-  }
-  res.status(201).json({ category: body });
-});
-
-router.patch('/admin/categories/:id', requireAdmin, (req, res) => {
-  const parsed = categoryBody.partial().omit({ id: true }).safeParse(req.body);
-  if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
-  const patch = parsed.data;
-  const column = { name: 'name', nameAr: 'name_ar', sort: 'sort', visible: 'visible' };
-  const sets = [];
-  const values = {};
-  for (const [key, value] of Object.entries(patch)) {
-    if (!column[key]) continue;
-    sets.push(`${column[key]} = @${key}`);
-    values[key] = typeof value === 'boolean' ? (value ? 1 : 0) : value;
-  }
-  if (!sets.length) return res.json({ ok: true });
-  const info = db.get().prepare(
-    `UPDATE categories SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = @id`,
-  ).run({ ...values, id: req.params.id });
-  if (!info.changes) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such category.' });
-  res.json({ ok: true });
-});
-
-router.delete('/admin/categories/:id', requireAdmin, (req, res) => {
-  // The foreign key is ON DELETE RESTRICT, so this fails rather than orphaning
-  // products. Turned into a message that says what to do about it.
-  const count = db.get()
-    .prepare('SELECT COUNT(*) c FROM products WHERE category_id = ?').get(req.params.id).c;
-  if (count > 0) {
-    return res.status(409).json({
-      error: 'CATEGORY_NOT_EMPTY',
-      message: `Move or delete the ${count} product(s) in this category first.`,
+    const categories = await catalogue.listCategories();
+    res.json({
+      categories: categories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        nameAr: category.nameAr ?? '',
+        sort: category.sort ?? 0,
+        visible: !!category.visible,
+      })),
     });
-  }
-  const info = db.get().prepare('DELETE FROM categories WHERE id = ?').run(req.params.id);
-  if (!info.changes) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such category.' });
-  res.status(204).end();
+  } catch (error) { next(error); }
+});
+
+router.post('/admin/categories', requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = categoryBody.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
+    const created = await catalogue.createCategory(parsed.data);
+    if (created.duplicate) {
+      return res.status(409).json({ error: 'DUPLICATE', message: 'That category id is taken.' });
+    }
+    return res.status(201).json({ category: parsed.data });
+  } catch (error) { return next(error); }
+});
+
+router.patch('/admin/categories/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = categoryBody.partial().omit({ id: true }).safeParse(req.body);
+    if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
+    const result = await catalogue.updateCategory(req.params.id, parsed.data);
+    if (!result.found) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such category.' });
+    return res.json({ ok: true });
+  } catch (error) { return next(error); }
+});
+
+router.delete('/admin/categories/:id', requireAdmin, async (req, res, next) => {
+  try {
+    // SQLite had ON DELETE RESTRICT; Firestore has no foreign keys, so the
+    // emptiness check is explicit in the repository. Without it, deleting a
+    // category orphans its products into a catalogue that renders nothing.
+    const result = await catalogue.deleteCategory(req.params.id);
+    if (result.blocked) {
+      return res.status(409).json({
+        error: 'CATEGORY_NOT_EMPTY',
+        message: `Move or delete the ${result.productCount} product(s) in this category first.`,
+      });
+    }
+    if (!result.found) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such category.' });
+    return res.status(204).end();
+  } catch (error) { return next(error); }
 });
 
 export default router;

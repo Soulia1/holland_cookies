@@ -1,0 +1,39 @@
+rules_version = '2';
+
+// Holland Cookie — Firestore security rules.
+//
+// DENY BY DEFAULT, AND DENY ABSOLUTELY.
+//
+// This is not a placeholder and it is not a stricter-than-necessary default that
+// somebody is expected to relax later. It is the correct and final rule set for
+// this system, because *no client ever talks to Firestore*.
+//
+// The storefront and the dashboard are both plain browser apps that speak only
+// to the Express API over HTTPS. Neither one loads the Firebase Web SDK; neither
+// one holds a Firebase credential; neither one knows a project id. Every read
+// and every write to this database originates from `backend/` using the Firebase
+// Admin SDK with a service account.
+//
+// The Admin SDK bypasses these rules entirely. That is the point worth being
+// explicit about, because it is the thing that gets misunderstood: these rules
+// do NOT protect the API. They cannot. Every authorization decision that matters
+// — is this caller an admin, may this customer read this order, may this field
+// be written — is enforced in Express before the Admin SDK is ever called, in
+// `requireAdmin`, `requireCustomer`, and the per-route Zod schemas.
+//
+// What these rules DO protect is the case where a project id and a leaked or
+// guessed client API key are used to reach Firestore directly, from outside our
+// server, over the public REST/gRPC endpoints. Against that, the answer is no,
+// to everything, always.
+//
+// If a genuine direct-from-client feature is ever added, it gets its own narrow
+// allow block with its own rules tests. Until then, anything other than a total
+// denial here is a mistake.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

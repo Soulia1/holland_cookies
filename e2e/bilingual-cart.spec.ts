@@ -15,7 +15,33 @@ async function ready(page: Page) {
   await expect(page.locator("#boot-splash")).toHaveCount(0, { timeout: 20_000 });
 }
 
+/**
+ * Back to the top, with smooth scrolling switched off for the move.
+ *
+ * `scroll-behavior: smooth` turns every programmatic scroll into an animation,
+ * and WebKit misreports a fixed element's rect while one is running — so
+ * Playwright decides the header is "not stable", and then that it is "outside
+ * of the viewport", and retries until the test times out on a button that has
+ * not moved a pixel on screen. Anything that touches the header has to do this
+ * first.
+ */
+async function toTop(page: Page) {
+  await page.evaluate(() => {
+    const root = document.documentElement;
+    const previous = root.style.scrollBehavior;
+    root.style.scrollBehavior = "auto";
+    window.scrollTo(0, 0);
+    root.style.scrollBehavior = previous;
+  });
+  await settled(page);
+}
+
 async function switchTo(page: Page, lang: "en" | "ar") {
+  // The language switch lives in the header, so it needs the same treatment as
+  // the cart button. Without it, a test that scrolled down — including one that
+  // only scrolled because Playwright brought an add-to-cart button into view —
+  // finds the switch off screen and never lands the click.
+  await toTop(page);
   await page.getByRole("button", { name: lang === "ar" ? "AR" : "EN", exact: true })
     .first()
     .click();
@@ -58,20 +84,7 @@ async function settled(page: Page) {
 
 /** Open the cart from the header, once the page is done moving. */
 async function openCart(page: Page, name = "Open cart") {
-  // Back to the top first, with smooth scrolling switched off for the move.
-  // Two things force this. `scroll-behavior: smooth` turns every programmatic
-  // scroll into an animation, and WebKit misreports a fixed element's rect
-  // while one is running — so Playwright decides the header is "not stable",
-  // and then that it is "outside of the viewport", and retries until the test
-  // times out on a button that has not moved a pixel on screen.
-  await page.evaluate(() => {
-    const root = document.documentElement;
-    const previous = root.style.scrollBehavior;
-    root.style.scrollBehavior = "auto";
-    window.scrollTo(0, 0);
-    root.style.scrollBehavior = previous;
-  });
-  await settled(page);
+  await toTop(page);
   await page.getByRole("button", { name }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
 }

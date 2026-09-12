@@ -1,4 +1,3 @@
-import { validateParams, amount, imagePath, identifier, email as emailSchema } from '../validation.js';
 /**
  * Orders: placing one, tracking one, and running them from the dashboard.
  *
@@ -10,17 +9,20 @@ import { validateParams, amount, imagePath, identifier, email as emailSchema } f
 
 import { Router } from 'express';
 import { z } from 'zod';
-import * as db from '../db.js';
 import { requireAdmin } from '../adminSession.js';
 import { createOrder, normalizePhone } from '../orderTransaction.js';
+import { validateParams, amount, identifier, email as emailSchema } from '../validation.js';
+import { sendOrderConfirmation } from '../mailer.js';
+import { logEvent } from '../security.js';
 // The status model is shared with the dashboard, which imports the same file
 // through its `@shared` alias — so the two cannot disagree about what a status
-// is. Ported from Scooby verbatim along with the dashboard it drives.
-import { ORDER_STATUSES, validateStatusTransition } from '../../shared/orderStatus.mjs';
-import { money as money2 } from '../../shared/pricing.mjs';
+// is.
+import { ORDER_STATUSES } from '../../shared/orderStatus.mjs';
+import * as orders from '../repo/orders.js';
 
 const router = Router();
 validateParams(router);
+const STATUSES = ORDER_STATUSES;
 
 /**
  * The checkout payload.
@@ -54,64 +56,19 @@ const checkoutBody = z.strictObject({
   lang: z.enum(['en', 'ar']).optional(),
   expectedTotal: amount.optional(),
 }).superRefine((body, ctx) => {
-  if(new Set(body.items.map(item=>item.productId)).size!==body.items.length) ctx.addIssue({code:'custom',path:['items'],message:'Each product must appear once.'});
-  if(body.items.reduce((sum,item)=>sum+item.qty,0)>100) ctx.addIssue({code:'custom',path:['items'],message:'Maximum 100 items per order.'});
+  if (new Set(body.items.map((item) => item.productId)).size !== body.items.length) {
+    ctx.addIssue({ code: 'custom', path: ['items'], message: 'Each product must appear once.' });
+  }
+  if (body.items.reduce((sum, item) => sum + item.qty, 0) > 100) {
+    ctx.addIssue({ code: 'custom', path: ['items'], message: 'Maximum 100 items per order.' });
+  }
   // Delivery needs somewhere to deliver to. Enforced here rather than by making
   // the fields unconditionally required, because a pickup order legitimately
   // has none of them and would otherwise be impossible to place.
   if (body.fulfilment !== 'delivery') return;
-  if (!body.area?.trim()) {
-    ctx.addIssue({ code: 'custom', path: ['area'], message: 'Choose your area.' });
-  }
-  if (!body.address?.trim()) {
-    ctx.addIssue({ code: 'custom', path: ['address'], message: 'We need a street address.' });
-  }
+  if (!body.area?.trim()) ctx.addIssue({ code: 'custom', path: ['area'], message: 'Choose your area.' });
+  if (!body.address?.trim()) ctx.addIssue({ code: 'custom', path: ['address'], message: 'We need a street address.' });
 });
-
-function orderPayload(database, order) {
-  const items = database
-    .prepare('SELECT * FROM order_items WHERE order_id = ? ORDER BY id')
-    .all(order.id);
-  return {
-    reference: order.reference,
-    status: order.status,
-    paymentMethod: order.payment_method,
-    paymentStatus: order.payment_status,
-    fulfilment: order.fulfilment,
-    createdAt: order.created_at,
-    customer: {
-      firstName: order.first_name,
-      lastName: order.last_name,
-      phone: order.phone,
-      email: order.email,
-    },
-    delivery: {
-      area: order.area,
-      address: order.address,
-      building: order.building,
-      floor: order.floor,
-      apartment: order.apartment,
-      landmark: order.landmark,
-      notes: order.notes,
-    },
-    items: items.map((item) => ({
-      productId: item.product_id,
-      name: item.name,
-      nameAr: item.name_ar || undefined,
-      note: item.note || undefined,
-      unitPrice: item.unit_price,
-      qty: item.qty,
-      lineTotal: item.line_total,
-    })),
-    totals: {
-      subtotal: order.subtotal,
-      discount: order.discount,
-      delivery: order.delivery,
-      total: order.total,
-    },
-    promoCode: order.promo_code || undefined,
-  };
-}
 
 /** POST /api/orders — place an order. */
 router.post('/', async (req, res, next) => {
@@ -129,9 +86,38 @@ router.post('/', async (req, res, next) => {
 
   try {
     const { order, duplicate } = await createOrder(parsed.data);
-    return res
-      .status(duplicate ? 200 : 201)
-      .json({ order: orderPayload(db.get(), order), duplicate });
+
+    // The confirmation goes out AFTER the order has committed, and its failure
+    // is swallowed. Three things are load-bearing here:
+    //
+    //   It is not awaited. A slow or unreachable provider must not hold the
+    //   customer on a spinner after their order already exists — they would
+    //   retry, and the only thing standing between that and a second order is
+    //   an idempotency key they cannot see.
+    //
+    //   It is guarded by `!duplicate`. A retried submission returns the
+    //   original order, and emailing on that path is how one order becomes
+    //   three identical receipts in somebody's inbox.
+    //
+    //   It cannot reject into an unhandled rejection. `sendMail` throws when
+    //   the provider is missing or refuses; that is logged and dropped, because
+    //   an order that is already in the database is not undone by a mail
+    //   failure and must not be reported as failed. §74.
+    if (!duplicate) {
+      sendOrderConfirmation(order, parsed.data.lang)
+        .then((result) => {
+          if (result.delivered) logEvent('order_email_sent', req, { reference: order.reference });
+        })
+        .catch((error) => logEvent('order_email_failed', req, {
+          reference: order.reference,
+          // The code, never the provider's message: it can quote the recipient
+          // address back and this goes to a shared log.
+          code: typeof error.code === 'string' ? error.code : 'UNKNOWN',
+        }));
+    }
+
+    return res.status(duplicate ? 200 : 201)
+      .json({ order: orders.orderPayload(order), duplicate });
   } catch (error) {
     if (error.status) {
       return res.status(error.status).json({
@@ -150,250 +136,94 @@ router.post('/', async (req, res, next) => {
  * reference by itself would let anyone walk the whole order book and read every
  * customer's name, address and phone number. The phone is the second factor.
  */
-router.get('/track/:reference', (req, res) => {
-  const phone = normalizePhone(req.query.phone);
-  if (!phone) {
-    return res.status(400).json({
-      error: 'PHONE_REQUIRED',
-      message: 'Enter the phone number you ordered with.',
-    });
-  }
-  const database = db.get();
-  const order = database
-    .prepare('SELECT * FROM orders WHERE reference = ? AND phone = ?')
-    .get(String(req.params.reference).trim().toUpperCase(), phone);
+router.get('/track/:reference', async (req, res, next) => {
+  try {
+    const phone = normalizePhone(req.query.phone);
+    if (!phone) {
+      return res.status(400).json({
+        error: 'PHONE_REQUIRED', message: 'Enter the phone number you ordered with.',
+      });
+    }
+    const order = await orders.getOrderForTracking(req.params.reference, phone);
+    // One message for "no such reference" and for "wrong phone" alike: telling
+    // them apart would confirm which references exist.
+    if (!order) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'We could not find an order with that reference and phone number.',
+      });
+    }
 
-  // One message for "no such reference" and for "wrong phone" alike: telling
-  // them apart would confirm which references exist.
-  if (!order) {
-    return res.status(404).json({
-      error: 'NOT_FOUND',
-      message: 'We could not find an order with that reference and phone number.',
+    const output = orders.orderPayload(order);
+    // Reference + phone is a convenience lookup, not proof of identity. Return
+    // tracking information without contact/address or private staff notes.
+    output.customer = { firstName: '', lastName: '', phone: '', email: '' };
+    output.delivery = {
+      area: order.area ?? '', address: '', building: '', floor: '',
+      apartment: '', landmark: '', notes: '',
+    };
+    return res.json({
+      order: output,
+      history: orders.historyOut(order).map(({ status, created_at }) => ({ status, created_at, note: '' })),
     });
-  }
-
-  const history = database
-    .prepare('SELECT status, note, created_at FROM order_status_history WHERE order_id = ? ORDER BY id')
-    .all(order.id);
-  const output=orderPayload(database,order);
-  // Reference + phone is a convenience lookup, not proof of identity.
-  // Return tracking information without contact/address or private staff notes.
-  output.customer={firstName:'',lastName:'',phone:'',email:''};
-  output.delivery={area:order.area,address:'',building:'',floor:'',apartment:'',landmark:'',notes:''};
-  res.json({ order: output, history:history.map(({status,created_at})=>({status,created_at,note:''})) });
+  } catch (error) { return next(error); }
 });
 
 // ---------------------------------------------------------------- admin ----
 
-const STATUSES = ORDER_STATUSES;
-
-/**
- * GET /api/orders — the dashboard list.
- *
- * Search is a scan-and-filter rather than a SQL prefix match, because the
- * useful query is a *substring* ("noha", "1650", "HC-10") and none of those are
- * prefixes of the column they match. At this shop's volume the whole table is
- * small; when it is not, this is the query that gets an FTS index.
- */
-router.get('/', requireAdmin, (req, res) => {
-  const database = db.get();
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const perPage = Math.min(100, Math.max(1, Number(req.query.perPage) || 25));
-  const status = typeof req.query.status === 'string' && STATUSES.includes(req.query.status)
-    ? req.query.status
-    : null;
-  const q = String(req.query.q ?? '').trim().toLowerCase();
-
-  const where = [];
-  const params = {};
-  if (status) {
-    where.push('status = @status');
-    params.status = status;
-  }
-  if (q) {
-    // Matched against the fields somebody actually searches by. `LIKE` with a
-    // leading wildcard cannot use an index, which is exactly why this is capped
-    // and paginated rather than open-ended.
-    where.push(`(
-      LOWER(reference) LIKE @q OR LOWER(first_name) LIKE @q OR LOWER(last_name) LIKE @q
-      OR phone LIKE @q OR LOWER(email) LIKE @q
-    )`);
-    params.q = `%${q}%`;
-  }
-  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
-  const total = database.prepare(`SELECT COUNT(*) c FROM orders ${clause}`).get(params).c;
-  const rows = database.prepare(`
-    SELECT * FROM orders ${clause} ORDER BY id DESC LIMIT @limit OFFSET @offset
-  `).all({ ...params, limit: perPage, offset: (page - 1) * perPage });
-
-  res.json({
-    orders: rows.map((order) => orderPayload(database, order)),
-    page,
-    perPage,
-    total,
-    pages: Math.max(1, Math.ceil(total / perPage)),
-  });
+/** GET /api/orders — the dashboard list. */
+router.get('/', requireAdmin, async (req, res, next) => {
+  try {
+    const query = req.validatedQuery ?? {};
+    res.json(await orders.listOrders({
+      page: Math.max(1, Number(query.page) || 1),
+      perPage: Math.min(100, Math.max(1, Number(query.perPage) || 25)),
+      status: STATUSES.includes(query.status) ? query.status : null,
+      q: query.q ?? '',
+    }));
+  } catch (error) { next(error); }
 });
 
-/**
- * GET /api/orders/stats?days=N — the aggregates the overview is built on.
- *
- * Shaped to the contract the ported dashboard expects: window totals, counts by
- * status / payment / fulfilment / area, the top products, and a *dense* daily
- * series. Dense matters — a day with no orders has to appear as a zero rather
- * than be missing, or the area chart draws a straight line between the days
- * either side of it and quietly invents trade that never happened.
- *
- * Aggregated in SQL rather than by loading every order and reducing in JS: the
- * whole point of this endpoint is that it answers over the entire table, not
- * over the 25 rows the list happens to be showing.
- */
-router.get('/stats', requireAdmin, (req, res) => {
-  const database = db.get();
-  const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
-  // Inclusive of today, so `days = 7` is today plus the six before it.
-  const since = `-${days - 1} days`;
-
-  const totals = database.prepare(`
-    SELECT
-      COALESCE(SUM(total), 0)                                                   AS orderValue,
-      COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total END), 0)        AS paidRevenue,
-      COALESCE(SUM(CASE WHEN status = 'completed' THEN total END), 0)           AS fulfilledRevenue,
-      COALESCE(SUM(CASE WHEN status = 'cancelled' THEN total END), 0)           AS cancelledValue,
-      COUNT(*)                                                                  AS count
-    FROM orders
-  `).get();
-
-  const liveValue = money2(totals.orderValue - totals.cancelledValue);
-  // Owed to the bakery: live and not yet paid. Never negative.
-  const pendingValue = money2(Math.max(0, liveValue - totals.paidRevenue));
-  // Owed back: taken as payment and then cancelled.
-  const refundDueValue = money2(Math.max(0, database.prepare(`
-    SELECT COALESCE(SUM(total), 0) AS v FROM orders
-    WHERE status = 'cancelled' AND payment_status = 'paid'
-  `).get().v));
-
-  const group = (column) => Object.fromEntries(
-    database.prepare(`SELECT ${column} AS k, COUNT(*) AS c FROM orders GROUP BY ${column}`)
-      .all().map((row) => [row.k, row.c]),
-  );
-
-  const byFulfillmentRaw = group('fulfilment');
-  const byArea = database.prepare(`
-    SELECT area, COUNT(*) AS count FROM orders
-    WHERE fulfilment = 'delivery' AND area <> ''
-    GROUP BY area ORDER BY count DESC LIMIT 12
-  `).all();
-
-  const topProducts = database.prepare(`
-    SELECT name, SUM(qty) AS quantity, SUM(line_total) AS value
-    FROM order_items GROUP BY name ORDER BY quantity DESC LIMIT 10
-  `).all();
-
-  // One row per day that HAS orders, then filled out to every day in the
-  // window below.
-  const rows = database.prepare(`
-    SELECT date(created_at) AS date,
-           COUNT(*)                                                        AS orders,
-           COALESCE(SUM(total), 0)                                         AS orderValue,
-           COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total END), 0) AS paidRevenue
-    FROM orders
-    WHERE date(created_at) >= date('now', ?)
-    GROUP BY date(created_at)
-  `).all(since);
-
-  const byDate = new Map(rows.map((row) => [row.date, row]));
-  const daily = [];
-  for (let offset = days - 1; offset >= 0; offset -= 1) {
-    const date = database
-      .prepare("SELECT date('now', ?) AS d").get(`-${offset} days`).d;
-    const row = byDate.get(date);
-    daily.push({
-      date,
-      orders: row?.orders ?? 0,
-      orderValue: money2(row?.orderValue ?? 0),
-      paidRevenue: money2(row?.paidRevenue ?? 0),
-    });
-  }
-
-  res.json({
-    totals: {
-      orderValue: money2(totals.orderValue),
-      paidRevenue: money2(totals.paidRevenue),
-      fulfilledRevenue: money2(totals.fulfilledRevenue),
-      cancelledValue: money2(totals.cancelledValue),
-      liveValue,
-      pendingValue,
-      refundDueValue,
-      count: totals.count,
-      averageOrderValue: totals.count ? money2(totals.orderValue / totals.count) : 0,
-    },
-    byStatus: group('status'),
-    byPaymentStatus: group('payment_status'),
-    byFulfillment: {
-      delivery: byFulfillmentRaw.delivery ?? 0,
-      pickup: byFulfillmentRaw.pickup ?? 0,
-    },
-    byArea,
-    topProducts: topProducts.map((row) => ({
-      name: row.name, quantity: row.quantity, value: money2(row.value),
-    })),
-    daily,
-    days,
-    orderCount: totals.count,
-  });
+/** GET /api/orders/stats?days=N — the aggregates the overview is built on. */
+router.get('/stats', requireAdmin, async (req, res, next) => {
+  try {
+    const days = Math.min(365, Math.max(1, Number(req.validatedQuery?.days) || 30));
+    res.json(await orders.orderStats({ days }));
+  } catch (error) { next(error); }
 });
 
-router.get('/:reference', requireAdmin, (req, res) => {
-  const database = db.get();
-  const order = database
-    .prepare('SELECT * FROM orders WHERE reference = ?')
-    .get(String(req.params.reference).toUpperCase());
-  if (!order) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such order.' });
-  const history = database
-    .prepare('SELECT status, note, created_at FROM order_status_history WHERE order_id = ? ORDER BY id')
-    .all(order.id);
-  res.json({ order: orderPayload(database, order), history });
+router.get('/:reference', requireAdmin, async (req, res, next) => {
+  try {
+    const order = await orders.getOrder(req.params.reference);
+    if (!order) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such order.' });
+    return res.json({ order: orders.orderPayload(order), history: orders.historyOut(order) });
+  } catch (error) { return next(error); }
 });
 
-router.patch('/:reference/status', requireAdmin, (req, res) => {
-  const parsed = z.strictObject({
-    status: z.enum(STATUSES),
-    note: z.string().max(300).optional(),
-  }).safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({
-      error: 'INVALID',
-      message: `Status must be one of: ${STATUSES.join(', ')}.`,
-    });
-  }
+router.patch('/:reference/status', requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = z.strictObject({
+      status: z.enum(STATUSES),
+      note: z.string().max(300).optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'INVALID', message: `Status must be one of: ${STATUSES.join(', ')}.`,
+      });
+    }
 
-  const database = db.get();
-  const reference = String(req.params.reference).toUpperCase();
-  const order = database.prepare('SELECT * FROM orders WHERE reference = ?').get(reference);
-  if (!order) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such order.' });
+    const result = await orders.changeOrderStatus(
+      req.params.reference, parsed.data.status, parsed.data.note,
+      { actor: 'admin', requestId: req.requestId },
+    );
+    if (!result.found) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such order.' });
+    if (result.rejected) {
+      return res.status(409).json({ error: 'INVALID_TRANSITION', message: result.rejected });
+    }
 
-  const transition=validateStatusTransition(order.status,parsed.data.status,order.fulfilment);
-  if(!transition.valid)return res.status(409).json({error:'INVALID_TRANSITION',message:transition.reason});
-
-  // The status change and its history entry go together or not at all —
-  // an order whose status moved with no record of who moved it or when is
-  // exactly the row somebody will be arguing about later.
-  database.transaction(() => {
-    const updated=database.prepare(
-      "UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ? AND status = ?",
-    ).run(parsed.data.status, order.id, order.status);
-    if(!updated.changes)throw new Error('Concurrent order update');
-    database.prepare(
-      'INSERT INTO order_status_history (order_id, status, note) VALUES (?, ?, ?)',
-    ).run(order.id, parsed.data.status, parsed.data.note ?? '');
-    database.prepare('INSERT INTO audit_events(actor,action,resource,request_id) VALUES(?,?,?,?)')
-      .run('admin','order_status:'+order.status+'->'+parsed.data.status,reference,req.requestId || '');
-  }).immediate();
-
-  const updated = database.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
-  res.json({ order: orderPayload(database, updated) });
+    const updated = await orders.getOrder(req.params.reference);
+    return res.json({ order: orders.orderPayload(updated) });
+  } catch (error) { return next(error); }
 });
 
 export default router;

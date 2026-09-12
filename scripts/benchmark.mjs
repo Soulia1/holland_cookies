@@ -4,17 +4,22 @@ import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { performance } from 'node:perf_hooks';
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_PATH = ':memory:';
+// The emulator, always. `backend/firestore.js` refuses to connect a non-production
+// process to a real project, so this cannot silently benchmark against live data.
+process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+process.env.GCLOUD_PROJECT = 'holland-cookie-benchmark';
 process.env.ADMIN_KEY = 'benchmark-only-admin-0123456789abcdef';
 process.env.JWT_SECRET = 'benchmark-only-session-0123456789abcdef';
 process.env.BREVO_API_KEY = '';
 process.env.DISABLE_ADMIN_AUTH = 'false';
 const { default: app } = await import('../backend/server.js');
-const db = await import('../backend/db.js');
+const db = await import('../backend/firestore.js');
 const { createOrder } = await import('../backend/orderTransaction.js');
-const database = db.get();
-if (db.currentPath() !== ':memory:') throw new Error('Unsafe database');
-database.exec("INSERT INTO categories (id, name) VALUES ('bench', 'Benchmark'); INSERT INTO products (id, category_id, name, price) VALUES ('bench', 'bench', 'Benchmark cookie', 50)");
+const dbTarget = (db.get(), db.currentTarget());
+if (!dbTarget.startsWith('emulator')) throw new Error('Unsafe datastore: ' + dbTarget);
+await db.collections.categories().doc('bench').set({ name: 'Benchmark', visible: true, sort: 0 });
+await db.collections.products().doc('bench').set({ categoryId: 'bench', name: 'Benchmark cookie', price: 50, available: true, discountEnabled: false, sort: 0 });
+await db.orderCounterDoc().set({ value: 1000 });
 for (let i = 0; i < 1000; i++) await createOrder({
   idempotencyKey: `benchmark-fixture-${i}`, items: [{ productId: 'bench', qty: 1 }],
   firstName: 'Fixture', phone: `010${String(i % 100).padStart(8, '0')}`, fulfilment: 'pickup',
@@ -45,12 +50,13 @@ try {
     report.api[route] = { requests: times.length, p50_ms: +times[25].toFixed(2), p95_ms: +times[47].toFixed(2), responseBytes: bytes };
   }
   report.memory = process.memoryUsage();
-  report.queryPlans = {
-    account: database.prepare('EXPLAIN QUERY PLAN SELECT * FROM orders WHERE profile_id = ? ORDER BY id DESC LIMIT 100').all(1),
-    items: database.prepare('EXPLAIN QUERY PLAN SELECT * FROM order_items WHERE order_id = ?').all(1),
-    list: database.prepare('EXPLAIN QUERY PLAN SELECT * FROM orders ORDER BY id DESC LIMIT 25').all(),
-  };
+  // Firestore has no EXPLAIN. The SQLite version recorded query plans here to
+  // prove the indexes were being used; the equivalent evidence for Firestore is
+  // that every query in firestore.indexes.json has a matching index and that a
+  // missing one is a hard error at query time rather than a silent scan, which
+  // the emulator surfaces during the test run.
+  report.datastore = { engine: 'firestore', target: dbTarget };
   fs.mkdirSync('docs/evidence', {recursive: true});
   fs.writeFileSync(`docs/evidence/${report.label}-benchmark.json`, JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
-} finally { await new Promise(resolve => server.close(resolve)); db.close(); }
+} finally { await new Promise(resolve => server.close(resolve)); await db.close().catch(() => {}); }

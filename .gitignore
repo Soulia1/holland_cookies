@@ -20,3 +20,9 @@ shot-*.png
 # resuming a batch is a local-machine affair rather than something the repo
 # carries.
 /tools/flow-out/
+
+# Firebase emulator artifacts
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+.firebase/
