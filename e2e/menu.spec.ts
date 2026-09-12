@@ -136,21 +136,21 @@ test("an old per-category address lands on that section of its group", async ({ 
 
 test("an old /menu#category deep link lands on that section too", async ({ page }) => {
   // How the original one-page menu deep-linked. Older still, same promise.
-  await page.goto("/menu#biscuits-kahk", { waitUntil: "load" });
+  await page.goto("/menu#molten-cakes", { waitUntil: "load" });
   await ready(page);
 
-  await expect(page).toHaveURL(/\/menu\/desserts#biscuits-kahk$/);
+  await expect(page).toHaveURL(/\/menu\/desserts#molten-cakes$/);
   await expect(page.locator("h1")).toHaveText("Desserts");
-  await expect(page.locator("#biscuits-kahk")).toHaveCount(1);
+  await expect(page.locator("#molten-cakes")).toHaveCount(1);
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
 });
 
 test("a hash naming a section of another group is ignored, not followed", async ({ page }) => {
-  // The path is the more specific half of the address. A `#gateaux` on the
+  // The path is the more specific half of the address. A `#molten-cakes` on the
   // cookies page names nothing there, and quietly rewriting the URL to the
   // desserts page would be the address changing the page rather than the other
   // way round.
-  await page.goto("/menu/cookies#gateaux", { waitUntil: "load" });
+  await page.goto("/menu/cookies#molten-cakes", { waitUntil: "load" });
   await ready(page);
 
   await expect(page).toHaveURL(/\/menu\/cookies$/);

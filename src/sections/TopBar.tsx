@@ -20,7 +20,6 @@ const HEADER_HEIGHT = 88;
 // what lets the nav change language without the module being re-evaluated.
 const LINKS: { href: string; label: keyof Translations }[] = [
   { href: "/menu", label: "navMenu" },
-  { href: "/#boxes", label: "navBuildBox" },
   { href: "/#craft", label: "navCraft" },
 ];
 
@@ -252,7 +251,7 @@ export default function TopBar() {
 
             <LangSwitch className="mt-2 self-start" />
             <a
-              href="/#boxes"
+              href="/menu"
               onClick={() => setMenuOpen(false)}
               className="btn mt-3 inline-flex items-center justify-center bg-deep-burgundy text-white font-body text-[12px] font-semibold uppercase tracking-[0.15em] px-6 py-4 rounded-sm"
             >

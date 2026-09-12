@@ -29,7 +29,7 @@ async function ready(page: Page) {
 async function toCheckout(page: Page) {
   await page.goto("/menu", { waitUntil: "load" });
   await ready(page);
-  await page.getByRole("button", { name: "Add Vanilla to cart" }).first().click();
+  await page.getByRole("button", { name: "Add Vanilla, Lotus filling to cart" }).first().click();
   await expect(page.locator(".cart-badge")).toHaveText("1");
 
   await page.evaluate(() => {
@@ -68,13 +68,13 @@ test.describe("pickup", () => {
   test("drops the address fields and the delivery fee", async ({ page }) => {
     await toCheckout(page);
     await expect(page.locator("#address")).toBeVisible();
-    // 50 for the cookie plus 40 delivery.
-    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("90.00 EGP");
+    // 60 for the cookie plus 40 delivery.
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("100.00 EGP");
 
     await page.getByRole("radio", { name: "Pickup" }).click();
     await expect(page.locator("#address")).toHaveCount(0);
     await expect(page.locator("#area")).toHaveCount(0);
-    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("50.00 EGP");
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("60.00 EGP");
   });
 
   test("prints a receipt that says cash on pickup", async ({ page }) => {
@@ -88,7 +88,7 @@ test.describe("pickup", () => {
     await expect(meta).toContainText("Cash on pickup");
     await expect(meta).not.toContainText("Cash on delivery");
     // Priced without delivery, on the receipt as well as in the panel.
-    await expect(page.locator(".rcpt-total-value")).toHaveText("50.00 EGP");
+    await expect(page.locator(".rcpt-total-value")).toHaveText("60.00 EGP");
   });
 
   test("prints a receipt that says cash on delivery for a delivery", async ({ page }) => {
@@ -100,7 +100,7 @@ test.describe("pickup", () => {
 
     await expect(page.locator(".rcpt-barcode-text")).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(".rcpt-meta")).toContainText("Cash on delivery");
-    await expect(page.locator(".rcpt-total-value")).toHaveText("90.00 EGP");
+    await expect(page.locator(".rcpt-total-value")).toHaveText("100.00 EGP");
   });
 });
 

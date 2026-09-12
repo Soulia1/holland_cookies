@@ -136,7 +136,7 @@ test.describe("language", () => {
     // the h2s below it, so both levels have to be in Arabic.
     await expect(page.locator(".menu-eyebrow")).toContainText("المنيو");
     await expect(page.locator("h1")).toContainText("كوكيز");
-    await expect(page.locator(".menu-section-title").first()).toContainText("كوكيز سادة");
+    await expect(page.locator(".menu-section-title").first()).toContainText("كوكي بان");
   });
 
   test("switching back to English restores it", async ({ page }) => {
@@ -256,7 +256,7 @@ test.describe("cart", () => {
     await page.goto("/menu", { waitUntil: "load" });
     await ready(page);
     await addButton(page, "Vanilla").click();
-    await addButton(page, "Lotus").click();
+    await addButton(page, "Lotus S'mores").click();
     await openCart(page);
     await expect(page.locator(".cart-line")).toHaveCount(2);
 
@@ -275,21 +275,6 @@ test.describe("cart", () => {
     const drawer = page.getByRole("dialog");
     await page.keyboard.press("Escape");
     await expect(drawer).toHaveCount(0);
-  });
-
-  test("Build Your Box adds the selected box, not the first one", async ({ page }) => {
-    await page.goto("/", { waitUntil: "load" });
-    await ready(page);
-    await page.locator("#boxes").scrollIntoViewIfNeeded();
-
-    // The second option, so a component that ignored the selection and always
-    // added `BOXES[0]` would fail here rather than passing by coincidence.
-    await page.locator(".box-option").nth(1).click();
-    const name = await page.locator(".box-detail-name").innerText();
-
-    await page.locator(".box-order").click();
-    await openCart(page);
-    await expect(page.locator(".cart-line-name")).toHaveText(name);
   });
 });
 

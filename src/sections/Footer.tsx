@@ -19,7 +19,6 @@ import { Link } from "@/lib/router";
 const NAVIGATE: { href: string; label: keyof Translations }[] = [
   { href: "/", label: "footHome" },
   { href: "/menu", label: "footMenu" },
-  { href: "/#boxes", label: "footBuildBox" },
   { href: "/#craft", label: "footCraft" },
 ];
 

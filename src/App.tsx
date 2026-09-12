@@ -29,7 +29,6 @@ import TopBar from "@/sections/TopBar";
 import Hero from "@/sections/Hero";
 import MenuGrid from "@/sections/MenuGrid";
 import Craft from "@/sections/Craft";
-import BuildYourBox from "@/sections/BuildYourBox";
 import Footer from "@/sections/Footer";
 
 function Home() {
@@ -37,7 +36,6 @@ function Home() {
     <main>
       <Hero />
       <MenuGrid />
-      <BuildYourBox />
       <Craft />
     </main>
   );

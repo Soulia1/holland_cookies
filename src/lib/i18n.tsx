@@ -84,7 +84,6 @@ const translations = {
     navPrimary: "Primary",
     navMobile: "Mobile",
     navMenu: "Menu",
-    navBuildBox: "Build a Box",
     navCraft: "Our Craft",
     navOrderNow: "Order Now",
     navOpenMenu: "Open menu",
@@ -109,12 +108,6 @@ const translations = {
     bestCta: "See the full menu",
     railPrev: "Previous products",
     railNext: "More products",
-
-    // — Build your box —————————————————————————————————————————
-    boxTitle: "Build Your Box",
-    boxSub: "Choose your favourite cookies and create your perfect box.",
-    boxSizeLabel: "Box size",
-    boxNote: "Baked to order · same-day across Cairo",
 
     // — Our craft ——————————————————————————————————————————————
     craftTag: "Our craft",
@@ -312,7 +305,6 @@ const translations = {
     footContact: "Contact",
     footHome: "Home",
     footMenu: "Menu",
-    footBuildBox: "Build your box",
     footCraft: "Our craft",
     footAddress:
       "27/19 Mohamed El-Moqrif St., off Hassan El-Mamoun — next to BIM Market, Nasr City",
@@ -327,7 +319,6 @@ const translations = {
     navPrimary: "الرئيسية",
     navMobile: "الموبايل",
     navMenu: "المنيو",
-    navBuildBox: "اعمل بوكسك",
     navCraft: "صنعتنا",
     navOrderNow: "اطلب دلوقتي",
     navOpenMenu: "افتح القائمة",
@@ -351,12 +342,6 @@ const translations = {
     bestCta: "شوف المنيو كامل",
     railPrev: "المنتجات السابقة",
     railNext: "منتجات تانية",
-
-    // — Build your box —————————————————————————————————————————
-    boxTitle: "اعمل البوكس بتاعك",
-    boxSub: "اختار الكوكيز اللي بتحبها واعمل البوكس المظبوط ليك.",
-    boxSizeLabel: "حجم البوكس",
-    boxNote: "بنخبزه بعد ما تطلب · التوصيل في نفس اليوم لكل القاهرة",
 
     // — Our craft ——————————————————————————————————————————————
     craftTag: "صنعتنا",
@@ -561,7 +546,6 @@ const translations = {
     footContact: "اتصل بينا",
     footHome: "الرئيسية",
     footMenu: "المنيو",
-    footBuildBox: "اعمل بوكسك",
     footCraft: "صنعتنا",
     footAddress: "٢٧/١٩ ش محمد المقرِّف، من حسن المأمون — جنب بيم ماركت، مدينة نصر",
     footHours: "يوميًا · ١١:٠٠ ص – ١:٠٠ ص",

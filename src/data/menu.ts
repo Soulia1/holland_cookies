@@ -77,20 +77,6 @@ export const CURRENCY = "EGP";
 
 export const MENU: MenuCategory[] = [
   {
-    id: "plain-cookies",
-    name: "Plain Cookies",
-    nameAr: "كوكيز سادة",
-    original: "كوكيز سادة",
-    items: [
-      { id: "plain-vanilla", name: "Vanilla", price: 50 },
-      { id: "plain-chocolate", name: "Chocolate", price: 50 },
-      { id: "plain-pistachio", name: "Pistachio", price: 60 },
-      { id: "plain-red-velvet", name: "Red Velvet", price: 60 },
-      { id: "plain-lotus", name: "Lotus", price: 60 },
-      { id: "plain-coffee", name: "Coffee", price: 60 },
-    ],
-  },
-  {
     id: "cookie-pans",
     name: "Cookie Pans",
     nameAr: "كوكي بان",
@@ -258,24 +244,6 @@ export const MENU: MenuCategory[] = [
     ],
   },
   {
-    id: "tagines",
-    name: "Tagines",
-    nameAr: "طواجن",
-    original: "طواجن",
-    items: [
-      { id: "happiness-nutella", name: "Happiness — Nutella", price: 120 },
-      { id: "happiness-white-nutella", name: "Happiness — white Nutella", price: 120 },
-      { id: "happiness-lotus", name: "Happiness — Lotus", price: 130 },
-      { id: "happiness-pistachio", name: "Happiness — Pistachio", price: 170 },
-      { id: "happiness-kinder-bueno", name: "Happiness — Kinder Bueno", price: 130 },
-      { id: "despacito", name: "Despacito", price: 120 },
-      { id: "despacito-pistachio", name: "Despacito Pistachio", price: 150 },
-      { id: "despacito-bueno", name: "Despacito Kinder Bueno", price: 120 },
-      { id: "despacito-chocolate", name: "Despacito Chocolate", price: 120 },
-      { id: "despacito-white-nutella", name: "Despacito white Nutella", price: 120 },
-    ],
-  },
-  {
     id: "molten-cakes",
     name: "Molten Cakes",
     nameAr: "مولتن",
@@ -299,34 +267,6 @@ export const MENU: MenuCategory[] = [
       { id: "cheesecake-raspberry", name: "Raspberry Cheesecake", price: 120, note: "Chilled" },
       { id: "cheesecake-blueberry", name: "Blueberry Cheesecake", price: 120, note: "Chilled" },
       { id: "apple-tart-slice", name: "Apple Tart", price: 120, note: "Per slice" },
-    ],
-  },
-  {
-    id: "gateaux",
-    name: "Gateaux",
-    nameAr: "تورت",
-    original: "تورت",
-    items: [
-      { id: "gateau-lotus-14", name: "Lotus Gateau", price: 450, note: "14 inch" },
-      { id: "gateau-pistachio-14", name: "Pistachio Gateau", price: 450, note: "14 inch" },
-      { id: "gateau-chocolate-14", name: "Chocolate Gateau", price: 450, note: "14 inch" },
-      { id: "gateau-cream-14", name: "Cream Gateau", price: 450, note: "14 inch" },
-      { id: "gateau-red-velvet", name: "Red Velvet Gateau", price: 450 },
-    ],
-  },
-  {
-    id: "biscuits-kahk",
-    name: "Biscuits & Kahk",
-    nameAr: "بسكوت وكحك",
-    original: "بسكوت وكحك",
-    items: [
-      { id: "box-kahk", name: "Kahk", price: 150, note: "Box" },
-      { id: "box-biscuits-nashader", name: "Nashader Biscuits", price: 150, note: "Box" },
-      { id: "box-biscuits-orange", name: "Orange Biscuits", price: 150, note: "Box" },
-      { id: "box-biscuits-chocolate", name: "Chocolate Biscuits", price: 150, note: "Box" },
-      { id: "box-biscuits-vanilla", name: "Vanilla Biscuits", price: 150, note: "Box" },
-      { id: "box-ghorayeba", name: "Ghorayeba", price: 150, note: "Box" },
-      { id: "box-petit-fours", name: "Petit Fours", price: 150, note: "Box" },
     ],
   },
   {
@@ -454,7 +394,6 @@ const GROUP_PLAN = [
     name: "Cookies",
     nameAr: "كوكيز",
     categoryIds: [
-      "plain-cookies",
       "cookie-pans",
       "cookie-cups",
       "cookie-tagines",
@@ -467,14 +406,7 @@ const GROUP_PLAN = [
     id: "desserts",
     name: "Desserts",
     nameAr: "حلويات",
-    categoryIds: [
-      "brownies-brookies",
-      "tagines",
-      "molten-cakes",
-      "cheesecakes-tarts",
-      "gateaux",
-      "biscuits-kahk",
-    ],
+    categoryIds: ["brownies-brookies", "molten-cakes", "cheesecakes-tarts"],
   },
   {
     id: "drinks",
