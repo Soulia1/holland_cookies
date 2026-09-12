@@ -59,12 +59,53 @@
       ]
     },
     {
-      "//": "repo/orders.js orderStats() — refundDueValue: cancelled AND already paid.",
+      "//": [
+        "repo/orders.js orderStats() — fulfilledRevenue and cancelledValue:",
+        "sum('total') filtered by a single status.",
+        "",
+        "A sum() aggregation needs the summed field in the index alongside the",
+        "filter, so an equality filter plus a sum is a COMPOSITE index even though",
+        "it looks like a single-field query. That is the non-obvious part, and it is",
+        "why this entry and the paymentStatus one below were both missing from the",
+        "first version of this file."
+      ],
       "collectionGroup": "orders",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "paymentStatus", "order": "ASCENDING" }
+        { "fieldPath": "total", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "repo/orders.js orderStats() — paidRevenue: sum('total') where paymentStatus == paid.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "paymentStatus", "order": "ASCENDING" },
+        { "fieldPath": "total", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": [
+        "repo/orders.js orderStats() — refundDueValue: cancelled AND already paid,",
+        "summed over `total`.",
+        "",
+        "`total` is in this index and must stay in it. It is not a filter or a sort",
+        "field — it is the field the sum() aggregation reads, and Firestore requires",
+        "an aggregated field to be present in the index serving the query. An earlier",
+        "version of this entry listed only the two equality fields and would have",
+        "been accepted by the deploy and then rejected at query time.",
+        "",
+        "The emulator cannot catch that: it answers aggregation queries with no index",
+        "at all. It was found by running the query against a real project, which is",
+        "what scripts/check-indexes.mjs exists to do."
+      ],
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "paymentStatus", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "total", "order": "ASCENDING" }
       ]
     }
   ],

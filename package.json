@@ -31,7 +31,10 @@
     "test:chromium": "playwright test --project=storefront-chromium-desktop --project=storefront-chromium-phone --project=commerce-chromium-desktop --project=commerce-chromium-phone",
     "mail:check": "node scripts/mail-check.mjs",
     "dev:vite": "vite",
-    "verify": "node scripts/verify-dev.mjs"
+    "verify": "node scripts/verify-dev.mjs",
+    "firebase:deploy": "node scripts/deploy-firestore-config.mjs",
+    "check:indexes": "node scripts/check-indexes.mjs",
+    "smoke:staging": "node scripts/smoke-staging.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.18",

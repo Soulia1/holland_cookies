@@ -406,6 +406,44 @@ What *can* be said about cost, which is the metric that actually changed:
 - The high-volume public rate limiter deliberately does **not** touch Firestore;
   putting it there would have meant a transaction on every page load.
 
+## 40b. Running it, and what running it found
+
+`npm run dev` started Vite alone after the migration — proxying `/api` to a
+backend nobody had started — so the shop loaded with an empty menu and a console
+full of errors. Four processes have to come up in order for this app to work
+locally and nothing said so.
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Emulator → seed if empty → API → Vite, all shut down together |
+| `npm run verify` | Drives a browser through the whole journey against whatever `dev` started. 11 checks, ~20s |
+| `npm run mail:check -- addr` | Proves the Brevo key and sender before you rely on them |
+
+Running it found two real bugs that no test had caught:
+
+- **`process.execPath` through a Windows shell.** `spawn` used a shell for every
+  child, and `C:\Program Files
+odejs
+ode.exe` becomes `'C:\Program' is not
+  recognized as an internal or external command`.
+- **A live keyboard trap.** `TopBar` passed an empty string for `inert` to keep
+  the collapsed mobile menu out of the tab order. React 19 treats an empty
+  string as **false** — so the panel was never inert, and the trap its own
+  comment describes was still there, behind a console warning that read like a
+  style nit.
+
+### Verified by actually using it, not only by tests
+
+| | Result |
+|---|---|
+| Customer journey on the dev stack | **11/11** — menu from Firestore, cart, checkout priced at 190 EGP, order `HC-1001`, cart emptied only after the order existed, no console errors |
+| Order really in Firestore | subtotal 150 + delivery 40 = **total 190**, matching the receipt and the dashboard |
+| Anonymous denied the order list | 401 |
+| Dashboard UI, signed out | shows the key prompt, **not** the order |
+| Dashboard UI, signed in | **6/6** — the order appears; overview shows 1 order, 300 EGP, best-seller "Vanilla, Nutella filling x2", pickup 1 / delivery 0, 300 EGP awaiting payment and 0 collected (correct for cash), store accepting orders. No console errors. |
+
+Every figure on that overview traces to the one real order that was placed.
+
 ## 41. Production build
 
 `npm run build` — **PASS.** Storefront and dashboard both build clean.
@@ -448,12 +486,53 @@ Classified per §126.
 
 | # | Blocker | Why it blocks | What clears it |
 |---|---|---|---|
-| B1 | **No Firebase project exists** | The entire datastore is unverified against real Firestore. Everything here ran on the emulator. | Create `holland-cookie-staging` and `holland-cookie-prod`, issue a service account |
-| B2 | **Composite indexes unverified** | The emulator does not enforce them. A missing index passes every local test and throws `FAILED_PRECONDITION` on the first real request. | `firebase deploy --only firestore:indexes` to staging, then re-run the suite against it |
-| B3 | **Rules never deployed** | They pass against the emulator; they have never been applied to a real project. | `firebase deploy --only firestore:rules`, re-run the rules suite against staging |
-| B4 | **No staging run** | §115/§116 require staging before production. Nothing has been deployed anywhere. | Deploy, run the full suite against staging |
+| ~~B1~~ | ~~No Firebase project exists~~ | **CLEARED.** `holland-cookie-staging` created, Firestore in `eur3`, service-account key in place and gitignored. | done |
+| ~~B2~~ | ~~Composite indexes unverified~~ | **CLEARED — and it was a real bug, twice over.** See §45b. | done |
+| ~~B3~~ | ~~Rules never deployed~~ | **CLEARED.** Deny-all rules released to `cloud.firestore` on staging and read back to confirm they contain `allow read, write: if false;` and no `if true`. | done |
+| B4 | **No staging *HTTP* run** | The data layer is now verified against real Firestore (§45b). The Express layer is still only proven on the emulator, because running it locally as `NODE_ENV=production` forces `Secure` cookies and HSTS, which cannot work over http on localhost. | Deploy the app to a staging host over HTTPS and run the browser suite against it |
 | B5 | **Backups not configured or rehearsed** | An untested backup is a belief. `DISASTER_RECOVERY.md` is a written plan only. | Configure the export schedule + PITR, then rehearse a restore and time it |
 | B6 | **CI has never executed** | A pipeline that has not run is not a pipeline. | Push the branch, open a PR, let it run green |
+
+### 45b. What verifying against real Firestore actually found
+
+The single claim I was most insistent about in the first version of this report —
+that the emulator cannot prove the indexes and that this was the top blocker —
+turned out to be understated. Running the queries against a real project found
+**seven** required composite indexes where the versioned file listed five, and
+one of the five was wrong.
+
+| Query | Was it in `firestore.indexes.json`? |
+|---|---|
+| `orders where status == ? order by seq desc` | yes |
+| `orders where phone == ? order by seq desc` | yes |
+| `orders where profileId == ? order by seq desc` | yes |
+| `orders where email == ? and profileId == null order by seq desc` | yes |
+| `orders where paymentStatus == ? and status == ? SUM(total)` | **wrong** — `total` was missing, and a summed field must be in the index |
+| `orders where status == ? SUM(total)` | **missing entirely** |
+| `orders where paymentStatus == ? SUM(total)` | **missing entirely** |
+
+The two missing ones are the non-obvious case: an equality filter plus a `sum()`
+needs a *composite* index even though it looks like a single-field query, because
+the aggregated field has to be in the index. Those three defects would each have
+produced `FAILED_PRECONDITION` on the dashboard overview — the first admin page
+loaded after launch — and every one of them passed the full local suite, because
+**the emulator answers aggregation queries with no index at all.**
+
+`scripts/check-indexes.mjs` now probes all 18 production queries against a real
+project and is the thing that closes this permanently. `npm run check:indexes`.
+
+### Verified against real Firestore (`holland-cookie-staging`)
+
+| | Result |
+|---|---|
+| Rules deployed and read back | deny-all confirmed live |
+| Index coverage | **18/18 queries** run |
+| Order pipeline (`npm run smoke:staging`) | **18/18 checks** |
+| Server-authoritative pricing | 3 x 100 = 300, forged `expectedTotal` refused |
+| Concurrent idempotency | two simultaneous submissions → one order |
+| Aggregations | real sums over real documents |
+| Status machine + history + audit | invalid transition refused, valid accepted, both steps recorded |
+| Cleanup | staging left at 13 categories, 76 products, 0 orders, counter 1000 |
 
 ### HIGH
 

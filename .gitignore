@@ -30,3 +30,8 @@ ui-debug.log
 # Firebase service account key — never commit this
 backend/serviceAccount.json
 serviceAccount.json
+
+# Local agent/tooling state — not project source
+.claude-flow/
+.claude/proven-config.json
+.claude/.proven-config-version
