@@ -72,7 +72,9 @@ function assertFirebaseCredentials(env) {
   if (env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     let parsed;
     try {
-      parsed = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      const raw = env.FIREBASE_SERVICE_ACCOUNT_JSON;
+      // Railway's variable editor can drop the outer braces of a pasted object.
+      parsed = JSON.parse(raw.trim().startsWith('{') ? raw : `{${raw}}`);
     } catch {
       throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON');
     }

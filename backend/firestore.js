@@ -158,7 +158,8 @@ function serviceAccount() {
   if (raw) {
     let parsed;
     try {
-      parsed = JSON.parse(raw);
+      // Railway's variable editor can drop the outer braces of a pasted object.
+      parsed = JSON.parse(raw.trim().startsWith('{') ? raw : `{${raw}}`);
     } catch (error) {
       throw new Error(
         'FIREBASE_SERVICE_ACCOUNT_JSON is set but is not valid JSON. Paste the '
