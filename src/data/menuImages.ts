@@ -35,26 +35,27 @@ const BASE = "/img/menu";
  * another is the same class of mistake as inventing a description for it.
  */
 const PHOTOGRAPHED: Readonly<Record<string, string>> = {
-  // Cookie Pans
-  "pan-vanilla-nutella": `${BASE}/pan-vanilla-nutella.webp`,
-  "pan-red-velvet-white-nutella": `${BASE}/pan-red-velvet-white.webp`,
+  // Cookie Pans — the pan pictures are being redone as square pans via Flow
+  // (see menu-images-mapping memory), so none are real photographs right now.
 
   // Cookie Cups — two photographs, three cups in each, cut apart.
+  // "cup-chocolate-pistachio" is deliberately not here: the photo on file
+  // does not actually show pistachio filling and is being replaced by a
+  // generated image instead of shipping a wrong picture.
   "cup-vanilla-lotus": `${BASE}/cup-caramel.webp`,
   "cup-vanilla-nutella": `${BASE}/cup-vanilla-nutella.webp`,
   "cup-chocolate-nutella": `${BASE}/cup-chocolate-nutella.webp`,
-  "cup-chocolate-pistachio": `${BASE}/cup-chocolate-pistachio.webp`,
   "cup-red-velvet-nutella": `${BASE}/cup-red-velvet-nutella.webp`,
   "cup-red-velvet-white-nutella": `${BASE}/cup-red-velvet-white.webp`,
 
-  // Cookie Tagines — the two cross-sections and the one labelled photograph.
-  "tagine-vanilla-nutella": `${BASE}/cut-vanilla-nutella.webp`,
-  "tagine-chocolate-nutella": `${BASE}/cut-chocolate-nutella.webp`,
-  "tagine-matilda": `${BASE}/matilda.webp`,
-  "tagine-red-velvet-crunchy": `${BASE}/cut-red-velvet-cream.webp`,
+  // Cookie Tagines — none photographed: every tagine picture is being done as
+  // a generated "cut open, held in gloved hands" shot instead (see
+  // menu-images-mapping memory), so real photos would sit inconsistently
+  // beside them.
 
-  // Cookie Scoops
-  "scoop-nutella-foil": `${BASE}/scoop-vanilla-nutella.webp`,
+  // Cookie Scoops — this file actually shows half vanilla, half chocolate
+  // scoops, not the three-flavour Nutella tray it used to be mapped to.
+  "scoop-half-vanilla-chocolate-foil": `${BASE}/scoop-vanilla-nutella.webp`,
   "scoop-mixed-foil": `${BASE}/scoop-mixed.webp`,
   "scoop-vanilla-medium-foil": `${BASE}/scoop-vanilla.webp`,
 
@@ -94,11 +95,7 @@ const GENERATED: Readonly<Record<string, string>> = {
   "cheesecake-raspberry": "/img/menu/ai/cheesecake-raspberry.webp",
   "cortado": "/img/menu/ai/cortado.webp",
   "cup-chocolate-bueno": "/img/menu/ai/cup-chocolate-bueno.webp",
-  "despacito": "/img/menu/ai/despacito.webp",
-  "despacito-bueno": "/img/menu/ai/despacito-bueno.webp",
-  "despacito-chocolate": "/img/menu/ai/despacito-chocolate.webp",
-  "despacito-pistachio": "/img/menu/ai/despacito-pistachio.webp",
-  "despacito-white-nutella": "/img/menu/ai/despacito-white-nutella.webp",
+  "cup-chocolate-pistachio": "/img/menu/ai/cup-chocolate-pistachio.webp",
   "espresso": "/img/menu/ai/espresso.webp",
   "flat-white": "/img/menu/ai/flat-white.webp",
   "frappe-caramel": "/img/menu/ai/frappe-caramel.webp",
@@ -121,24 +118,29 @@ const GENERATED: Readonly<Record<string, string>> = {
   "molten-nutella": "/img/menu/ai/molten-nutella.webp",
   "molten-red-velvet": "/img/menu/ai/molten-red-velvet.webp",
   "pan-chocolate-bueno": "/img/menu/ai/pan-chocolate-bueno.webp",
-  "pan-chocolate-nutella": "/img/menu/ai/pan-chocolate-nutella.webp",
   "pan-lotus-smores": "/img/menu/ai/pan-lotus-smores.webp",
   "pan-vanilla-bueno": "/img/menu/ai/pan-vanilla-bueno.webp",
+  "pan-vanilla-nutella": "/img/menu/ai/pan-vanilla-nutella.webp",
   "scoop-half-vanilla-bueno-foil": "/img/menu/ai/scoop-half-vanilla-bueno-foil.webp",
   "scoop-half-vanilla-bueno-kraft": "/img/menu/ai/scoop-half-vanilla-bueno-kraft.webp",
-  "scoop-half-vanilla-chocolate-foil": "/img/menu/ai/scoop-half-vanilla-chocolate-foil.webp",
   "scoop-half-vanilla-chocolate-kraft": "/img/menu/ai/scoop-half-vanilla-chocolate-kraft.webp",
+  "scoop-nutella-foil": "/img/menu/ai/scoop-nutella-foil.webp",
   "scoop-vanilla-bueno-foil": "/img/menu/ai/scoop-vanilla-bueno-foil.webp",
   "shake-caramel": "/img/menu/ai/shake-caramel.webp",
   "shake-chocolate": "/img/menu/ai/shake-chocolate.webp",
   "shake-lotus": "/img/menu/ai/shake-lotus.webp",
   "shake-pistachio": "/img/menu/ai/shake-pistachio.webp",
   "shake-vanilla": "/img/menu/ai/shake-vanilla.webp",
+  "tagine-chocolate-nutella": "/img/menu/ai/tagine-chocolate-nutella.webp",
   "tagine-chocolate-white-nutella": "/img/menu/ai/tagine-chocolate-white-nutella.webp",
   "tagine-coffee-nutella": "/img/menu/ai/tagine-coffee-nutella.webp",
   "tagine-kunafa-chocolate-small": "/img/menu/ai/tagine-kunafa-chocolate-small.webp",
+  "tagine-kunafa-coffee-small": "/img/menu/ai/tagine-kunafa-coffee-small.webp",
   "tagine-kunafa-vanilla-small": "/img/menu/ai/tagine-kunafa-vanilla-small.webp",
+  "tagine-matilda": "/img/menu/ai/tagine-matilda.webp",
+  "tagine-red-velvet-crunchy": "/img/menu/ai/tagine-red-velvet-crunchy.webp",
   "tagine-red-velvet-white-nutella": "/img/menu/ai/tagine-red-velvet-white-nutella.webp",
+  "tagine-vanilla-nutella": "/img/menu/ai/tagine-vanilla-nutella.webp",
   "tagine-vanilla-nutella-coffee": "/img/menu/ai/tagine-vanilla-nutella-coffee.webp",
   "turkish-coffee": "/img/menu/ai/turkish-coffee.webp",
   /* GENERATED-END */

@@ -37,6 +37,32 @@ const discountFields = {
   discountValue: amount.optional(),
 };
 
+/**
+ * A bundle is a product made of other products.
+ *
+ *   fixed  - the admin lists the contents in `components`.
+ *   choice - the customer picks from named `groups`, each with its own count,
+ *            its own options, and an optional surcharge per option.
+ */
+const bundleFields = {
+  isBundle: z.boolean().optional(),
+  bundleType: z.enum(['fixed', 'choice']).optional(),
+  components: z.array(z.strictObject({
+    productId: identifier,
+    quantity: z.number().int().min(1).max(50),
+  })).max(20).optional(),
+  groups: z.array(z.strictObject({
+    label: z.string().trim().min(1).max(80),
+    labelAr: z.string().trim().max(80).optional(),
+    choose: z.number().int().min(1).max(12),
+    allowRepeats: z.boolean().optional(),
+    options: z.array(z.strictObject({
+      productId: identifier,
+      surcharge: amount.optional(),
+    })).min(1).max(60),
+  })).max(8).optional(),
+};
+
 const productCreate = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, 'Use lowercase letters, numbers and hyphens.'),
   categoryId: identifier,
@@ -51,16 +77,108 @@ const productCreate = z.strictObject({
   available: z.boolean().optional(),
   sort: z.number().int().min(-100000).max(100000).optional(),
   ...discountFields,
+  ...bundleFields,
 });
 
 const productPatch = productCreate.partial().omit({ id: true });
 
 const badRequest = (res, message, details) => res.status(400).json({ error: 'INVALID', message, details });
+const conflict = (res, error, message) => res.status(409).json({ error, message });
+
+function listed(names) {
+  const shown = names.slice(0, 4).join(', ');
+  return names.length > 4 ? `${shown}, and ${names.length - 4} more` : shown;
+}
+
+/** The bundle configuration as it will be after this write: the patch over what is stored. */
+function bundleShape(patch, existing) {
+  return {
+    isBundle: patch.isBundle ?? !!existing?.isBundle,
+    bundleType: patch.bundleType ?? existing?.bundleType ?? 'fixed',
+    components: patch.components ?? existing?.components ?? [],
+    groups: patch.groups ?? existing?.groups ?? [],
+  };
+}
+
+/** Normalised for storage: a fixed bundle keeps no groups, a choice bundle no contents. */
+function bundleFieldsFor(bundle) {
+  const choice = bundle.isBundle && bundle.bundleType === 'choice';
+  return {
+    isBundle: bundle.isBundle,
+    bundleType: bundle.bundleType,
+    components: bundle.isBundle && !choice
+      ? bundle.components.map(({ productId, quantity }) => ({ productId, quantity }))
+      : [],
+    groups: choice
+      ? bundle.groups.map((group) => ({
+          label: group.label.trim(),
+          labelAr: (group.labelAr ?? '').trim(),
+          choose: group.choose,
+          allowRepeats: !!group.allowRepeats,
+          options: group.options.map((option) => ({
+            productId: option.productId,
+            surcharge: option.surcharge ?? 0,
+          })),
+        }))
+      : [],
+  };
+}
+
+/**
+ * Why a bundle cannot be saved, or null.
+ *
+ * Checked against the merged document, because switching a fixed bundle to
+ * `choice` without also setting groups passes on each half alone. Firestore has
+ * no foreign keys, so existence and "no bundle inside a bundle" are checked here.
+ */
+async function bundleProblem(bundle, selfId) {
+  if (!bundle.isBundle) return null;
+
+  const holders = (await catalogue.bundlesReferencing(new Set([selfId])))
+    .filter((row) => row.id !== selfId);
+  if (holders.length) {
+    return `This product is inside ${listed(holders.map((row) => row.name))}, so it cannot be a bundle itself.`;
+  }
+
+  const choice = bundle.bundleType === 'choice';
+  if (choice && !bundle.groups.length) return 'Add at least one choice for the customer to make.';
+  if (!choice && !bundle.components.length) return 'A fixed bundle needs at least one product inside it.';
+
+  const lists = choice
+    ? bundle.groups.map((group) => ({ group, ids: group.options.map((option) => option.productId) }))
+    : [{ group: null, ids: bundle.components.map((component) => component.productId) }];
+
+  for (const { group, ids } of lists) {
+    const label = group ? `“${group.label}”` : null;
+    if (new Set(ids).size !== ids.length) {
+      return label ? `${label} lists the same product twice.` : 'Each product may appear once.';
+    }
+    if (ids.includes(selfId)) {
+      return label ? `${label} cannot offer the bundle itself.` : 'A bundle cannot contain itself.';
+    }
+    // Three picks from two options, with no repeats, is a picker the customer
+    // can never satisfy. Caught here rather than at checkout.
+    if (group && !group.allowRepeats && group.choose > ids.length) {
+      return `${label} asks for ${group.choose} but offers only ${ids.length}. Add more options or allow repeats.`;
+    }
+    const rows = await catalogue.getProducts(ids);
+    const missing = ids.filter((_, index) => !rows[index]);
+    if (missing.length) return `No such product: ${missing.join(', ')}.`;
+    const nested = rows.filter((row) => row.isBundle).map((row) => row.name);
+    if (nested.length) return `A bundle cannot contain another bundle: ${listed(nested)}.`;
+  }
+  return null;
+}
+
+async function adminView(product) {
+  return catalogue.adminProduct(product, catalogue.lookupOf(await catalogue.listProducts()));
+}
 
 router.get('/admin/products', requireAdmin, async (_req, res, next) => {
   try {
     const products = await catalogue.listProducts();
-    res.json({ products: products.map(catalogue.adminProduct) });
+    const names = catalogue.lookupOf(products);
+    res.json({ products: products.map((product) => catalogue.adminProduct(product, names)) });
   } catch (error) { next(error); }
 });
 
@@ -82,11 +200,15 @@ router.post('/admin/products', requireAdmin, async (req, res, next) => {
       return badRequest(res, 'That category does not exist.');
     }
 
-    const created = await catalogue.createProduct(body);
+    const bundle = bundleShape(body, null);
+    const bundleIssue = await bundleProblem(bundle, body.id);
+    if (bundleIssue) return badRequest(res, bundleIssue);
+
+    const created = await catalogue.createProduct({ ...body, ...bundleFieldsFor(bundle) });
     if (created.duplicate) {
-      return res.status(409).json({ error: 'DUPLICATE', message: 'That product id is taken.' });
+      return conflict(res, 'DUPLICATE', 'That product id is taken.');
     }
-    return res.status(201).json({ product: catalogue.publicProduct(created.product) });
+    return res.status(201).json({ product: await adminView(created.product) });
   } catch (error) { return next(error); }
 });
 
@@ -115,14 +237,26 @@ router.patch('/admin/products/:id', requireAdmin, async (req, res, next) => {
       return badRequest(res, 'That category does not exist.');
     }
 
-    const product = await catalogue.updateProduct(req.params.id, patch);
+    const bundle = bundleShape(patch, existing);
+    const bundleIssue = await bundleProblem(bundle, req.params.id);
+    if (bundleIssue) return badRequest(res, bundleIssue);
+
+    const product = await catalogue.updateProduct(req.params.id, { ...patch, ...bundleFieldsFor(bundle) });
     if (!product) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such product.' });
-    return res.json({ product: catalogue.publicProduct(product) });
+    return res.json({ product: await adminView(product) });
   } catch (error) { return next(error); }
 });
 
 router.delete('/admin/products/:id', requireAdmin, async (req, res, next) => {
   try {
+    // A product a bundle still contains or offers cannot go on its own; the
+    // bundle would be left pointing at nothing.
+    const holders = (await catalogue.bundlesReferencing(new Set([req.params.id])))
+      .filter((row) => row.id !== req.params.id);
+    if (holders.length) {
+      return conflict(res, 'PRODUCT_IN_BUNDLE',
+        `This product is inside a bundle: ${listed(holders.map((row) => row.name))}. Remove it from there first.`);
+    }
     const removed = await catalogue.deleteProduct(req.params.id);
     if (!removed) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such product.' });
     return res.status(204).end();
@@ -160,7 +294,7 @@ router.post('/admin/categories', requireAdmin, async (req, res, next) => {
     if (!parsed.success) return badRequest(res, 'Check the fields.', parsed.error.issues);
     const created = await catalogue.createCategory(parsed.data);
     if (created.duplicate) {
-      return res.status(409).json({ error: 'DUPLICATE', message: 'That category id is taken.' });
+      return conflict(res, 'DUPLICATE', 'That category id is taken.');
     }
     return res.status(201).json({ category: parsed.data });
   } catch (error) { return next(error); }
@@ -176,20 +310,25 @@ router.patch('/admin/categories/:id', requireAdmin, async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+/**
+ * DELETE /api/menu/admin/categories/:id — refuses while it holds products.
+ * `?withProducts=1` deletes them too; opt-in, because it cannot be undone.
+ */
 router.delete('/admin/categories/:id', requireAdmin, async (req, res, next) => {
   try {
-    // SQLite had ON DELETE RESTRICT; Firestore has no foreign keys, so the
-    // emptiness check is explicit in the repository. Without it, deleting a
-    // category orphans its products into a catalogue that renders nothing.
-    const result = await catalogue.deleteCategory(req.params.id);
-    if (result.blocked) {
-      return res.status(409).json({
-        error: 'CATEGORY_NOT_EMPTY',
-        message: `Move or delete the ${result.productCount} product(s) in this category first.`,
-      });
-    }
+    const withProducts = req.validatedQuery?.withProducts === '1';
+    const result = await catalogue.deleteCategory(req.params.id, { withProducts });
     if (!result.found) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such category.' });
-    return res.status(204).end();
+    if (result.blocked) {
+      return conflict(res, 'CATEGORY_NOT_EMPTY',
+        `Move or delete the ${result.productCount} product(s) in this category first.`);
+    }
+    if (result.blockers?.length) {
+      return conflict(res, 'PRODUCT_IN_BUNDLE',
+        `Some of these products are inside a bundle elsewhere: ${listed(result.blockers.map((row) => `${row.product} (in ${row.bundle})`))}. Remove them from it first.`);
+    }
+    if (!result.deletedProducts) return res.status(204).end();
+    return res.json({ deletedProducts: result.deletedProducts });
   } catch (error) { return next(error); }
 });
 

@@ -59,12 +59,28 @@ DRINK_STYLE = (
     "packaging, no hands, no people."
 )
 
+# The one deliberate exception to "no hands" in the whole house style. The
+# shop's own Instagram photography for tagines is a cookie split open and
+# held apart by gloved hands, and that is what was asked for here — a
+# different, explicit style for one category rather than a stylistic drift
+# the rest of the menu should follow.
+TAGINE_STYLE = (
+    "Photographed close-up at a slight downward angle, the cookie tagine "
+    "pulled apart and held open by two hands wearing black food-service "
+    "gloves to reveal a clean cross-section of the filling, a white ceramic "
+    "plate visible beneath. Warm indoor bakery lighting, true-to-life "
+    "colour, crisp focus on the filling with a softly blurred background, "
+    "realistic and appetising, fresh-from-the-oven texture on the crust. "
+    "No text, no writing, no lettering, no logos, no watermarks, no brand "
+    "packaging, no visible faces."
+)
+
 # How each category presents its food. The vessel is part of the product.
 VESSEL = {
     "plain-cookies": "a single thick round cookie resting on a small white ceramic plate",
-    "cookie-pans": "a deep-dish cookie pie baked and served in a round aluminium foil pan",
+    "cookie-pans": "a deep-dish cookie pie baked and served in a square aluminium foil pan",
     "cookie-cups": "a single cookie cup in a fluted paper liner, its hollow centre filled",
-    "cookie-tagines": "a cookie baked and served in a small round dish, cut open to show the centre",
+    "cookie-tagines": "a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside",
     "cookie-scoops": "several joined cookie dough scoops baked together in a round aluminium foil tray",
     "cookie-cake": "a thick wedge of layered cookie cake on a white plate, cut face toward the camera",
     "brownies-brookies": "a thick square slice on a white plate, cut face toward the camera",
@@ -230,9 +246,15 @@ def main() -> int:
         looks = describe(item["name"], drink)
         note = f" Presented in a {item['note'].lower()}." if item.get("note") else ""
         where = "cafe" if drink else "cookie bakery"
+        if item["category"] == "cookie-tagines":
+            style = TAGINE_STYLE
+        elif drink:
+            style = DRINK_STYLE
+        else:
+            style = STYLE
         prompt = (
             f"A single serving of {item['name']} from an Egyptian {where}: "
-            f"{vessel}, {looks}.{note} {DRINK_STYLE if drink else STYLE}"
+            f"{vessel}, {looks}.{note} {style}"
         )
         jobs.append(
             {

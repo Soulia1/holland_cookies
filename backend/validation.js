@@ -4,7 +4,7 @@ export const identifier = z.string().min(1).max(80).regex(/^[a-z0-9-]+$/);
 export const reference = z.string().max(40).regex(/^HC-\d{1,16}$/i);
 export const email = z.string().trim().toLowerCase().max(160).email();
 export const amount = z.number().finite().min(0).max(1_000_000);
-export const imagePath = z.string().max(200).regex(/^(?:|\/img\/[a-zA-Z0-9_-]+(?:@[12]x)?\.(?:jpg|jpeg|png|webp|avif))$/);
+export const imagePath = z.string().max(200).regex(/^(?:|\/img\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+(?:@[12]x)?\.(?:jpg|jpeg|png|webp|avif)|\/api\/images\/[a-f0-9]{32}\.(?:jpg|png|webp))$/);
 const integer = (max) => z.string().regex(/^[1-9]\d{0,5}$/).transform(Number).pipe(z.number().int().max(max));
 export const pagination = z.strictObject({
   page: integer(10000).optional(), perPage: integer(100).optional(),
@@ -22,6 +22,7 @@ export function validateEnvelope(req, res, next) {
   if (req.path === '/admin/users') schema = pagination.extend({refresh:z.literal('1').optional()});
   if (req.path === '/orders/stats') schema = z.strictObject({days:integer(365).optional()});
   if (/^\/orders\/track\//.test(req.path)) schema = z.strictObject({phone:z.string().min(6).max(24)});
+  if (/^\/menu\/admin\/categories\/[^/]+$/.test(req.path)) schema = z.strictObject({withProducts:z.literal('1').optional()});
   const query = schema.safeParse(req.query);
   if (!query.success) return invalid(res);
   req.validatedQuery = query.data;

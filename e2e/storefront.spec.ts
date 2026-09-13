@@ -24,7 +24,6 @@ test("the homepage loads with every section and no console errors", async ({ pag
 
   await expect(page.locator("h1")).toContainText("Your Cookie Party");
   await expect(page.locator("#menu")).toBeVisible();
-  await expect(page.locator("#boxes")).toBeVisible();
   await expect(page.locator("#craft")).toBeVisible();
   await expect(page.locator("footer")).toBeVisible();
 
@@ -241,8 +240,8 @@ test("content the viewport jumps clean past still reveals", async ({ page }) => 
   await ready(page);
 
   // One instantaneous move, from the top of the page to Our Craft — the last
-  // section. That carries Build Your Box from below the viewport to above it
-  // inside a single frame, so neither of its two revealed blocks ever
+  // section. That carries the bestsellers rail from below the viewport to
+  // above it inside a single frame, so neither of its revealed blocks ever
   // intersects.
   //
   // An IntersectionObserver reports where its targets are when it delivers, not
@@ -252,12 +251,13 @@ test("content the viewport jumps clean past still reveals", async ({ page }) => 
   // the life of the page — content permanently hidden behind an effect that
   // never ran. It is the same failure the header hit with a 1px sentinel.
   //
-  // The jump used to land on the Visit section, which sat below Our Craft. That
-  // section is gone and Our Craft is now last, so the move is one section
-  // earlier and the skipped content is Build Your Box. Landing on the footer
-  // instead would prove nothing: the footer holds no revealed elements, so the
-  // delivery that triggers the sweep would never happen and the assertion would
-  // fail whether the sweep worked or not.
+  // The jump used to land on the Visit section, which sat below Our Craft, then
+  // on Build Your Box once Visit was removed. Both sections are gone and Our
+  // Craft is now the one right after the bestsellers rail, so the skipped
+  // content is the rail itself. Landing on the footer instead would prove
+  // nothing: the footer holds no revealed elements, so the delivery that
+  // triggers the sweep would never happen and the assertion would fail whether
+  // the sweep worked or not.
   await page.locator("#craft").evaluate((el) => {
     const y = el.getBoundingClientRect().top + window.scrollY;
     window.scrollTo({ top: y, behavior: "instant" as ScrollBehavior });
@@ -266,7 +266,7 @@ test("content the viewport jumps clean past still reveals", async ({ page }) => 
   await expect
     .poll(
       async () =>
-        page.locator("#boxes .boxes-head, #boxes .boxes-grid").evaluateAll((nodes) =>
+        page.locator("#menu .bestsellers-head, #menu .rail-item").evaluateAll((nodes) =>
           nodes.length === 0
             ? -1
             : Math.min(...nodes.map((n) => Number(getComputedStyle(n).opacity))),
@@ -368,7 +368,7 @@ test("anchor navigation reaches each section", async ({ page }) => {
   await page.goto("/", { waitUntil: "load" });
   await ready(page);
 
-  for (const id of ["menu", "boxes", "craft"]) {
+  for (const id of ["menu", "craft"]) {
     await page.evaluate((target) => {
       document.getElementById(target)?.scrollIntoView();
     }, id);
@@ -430,7 +430,7 @@ test.describe("phone", () => {
   test("no horizontal overflow anywhere down the page", async ({ page }) => {
     await page.goto("/", { waitUntil: "load" });
     await ready(page);
-    for (const id of ["menu", "boxes", "craft"]) {
+    for (const id of ["menu", "craft"]) {
       await page.evaluate((t) => document.getElementById(t)?.scrollIntoView(), id);
       await page.waitForTimeout(200);
       const overflows = await page.evaluate(

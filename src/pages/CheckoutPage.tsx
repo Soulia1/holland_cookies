@@ -4,6 +4,8 @@ import {
   type ApiProduct, type Order, type Settings,
 } from "@/lib/api";
 import { useCart } from "@/lib/cart";
+import { lineKey } from "@/lib/cart-core";
+import { unitPrice } from "../../shared/productPricing.mjs";
 import { localized, useLang } from "@/lib/i18n";
 import { Link, navigate } from "@/lib/router";
 import ReceiptPrinter from "@/components/ReceiptPrinter";
@@ -88,15 +90,20 @@ export default function CheckoutPage() {
     if (!catalogue) return [];
     return items.map((item) => {
       const product = catalogue.get(item.productId);
+      const unit = product ? unitPrice(product, item.selections) : item.price;
+      const pickSoldOut = (item.selections ?? []).some((pick) =>
+        product?.groups?.[pick.group]?.options
+          .find((option) => option.productId === pick.productId)?.available === false);
       return {
         ...item,
+        key: lineKey(item),
         name: product ? localized(lang, product.name, product.nameAr) : item.name,
         note: product?.note ? localized(lang, product.note, product.noteAr) : item.note,
         image: product?.image,
-        unitPrice: product?.price ?? item.price,
-        lineTotal: (product?.price ?? item.price) * item.qty,
+        unitPrice: unit,
+        lineTotal: unit * item.qty,
         gone: !product,
-        soldOut: !!product && !product.available,
+        soldOut: !!product && (!product.available || pickSoldOut),
       };
     });
   }, [items, catalogue, lang]);
@@ -180,7 +187,17 @@ export default function CheckoutPage() {
         // except `expectedTotal`, which can only cause a refusal.
         items: lines
           .filter((line) => !line.gone && !line.soldOut)
-          .map((line) => ({ productId: line.productId, qty: line.qty })),
+          .map((line) => ({
+            productId: line.productId,
+            qty: line.qty,
+            ...(line.selections?.length
+              ? {
+                  selections: line.selections.map(({ group, productId, quantity }) => ({
+                    group, productId, quantity,
+                  })),
+                }
+              : {}),
+          })),
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim() || undefined,
         phone: form.phone.trim(),
@@ -381,7 +398,7 @@ export default function CheckoutPage() {
                 <h3>{t.ckSummary} ({count})</h3>
 
                 {lines.map((line) => (
-                  <div key={line.productId}
+                  <div key={line.key}
                     className={`ed-sum-item ${line.gone || line.soldOut ? "is-gone" : ""}`}>
                     <div className="ed-sum-thumb">
                       {line.image
@@ -390,6 +407,11 @@ export default function CheckoutPage() {
                     </div>
                     <div className="ed-sum-info">
                       <span>{line.name}</span>
+                      {line.selections?.length ? (
+                        <small>
+                          {line.selections.map((pick) => `${pick.quantity}× ${pick.name}`).join(", ")}
+                        </small>
+                      ) : null}
                       <small>
                         {line.qty} × {t.price(line.unitPrice)}
                         {line.note ? ` · ${line.note}` : ""}

@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useCart } from "@/lib/cart";
+import { lineKey } from "@/lib/cart-core";
 import { useLang } from "@/lib/i18n";
 import { Link, navigate } from "@/lib/router";
 
@@ -65,10 +66,15 @@ export default function CartDrawer() {
             <>
               <ul className="cart-lines">
                 {items.map((line) => (
-                  <li key={line.productId} className="cart-line">
+                  <li key={lineKey(line)} className="cart-line">
                     <div className="cart-line-text">
                       <p className="cart-line-name">{line.name}</p>
                       {line.note ? <p className="cart-line-note">{line.note}</p> : null}
+                      {line.selections?.length ? (
+                        <p className="cart-line-note">
+                          {line.selections.map((pick) => `${pick.quantity}× ${pick.name}`).join(", ")}
+                        </p>
+                      ) : null}
                       <p className="cart-line-unit">
                         {t.price(line.price)} {t.cartEach}
                       </p>
@@ -82,7 +88,7 @@ export default function CartDrawer() {
                         type="button"
                         className="cart-qty-btn btn"
                         aria-label={t.cartDecrease(line.name)}
-                        onClick={() => setQty(line.productId, -1)}
+                        onClick={() => setQty(lineKey(line), -1)}
                       >
                         <span aria-hidden="true">−</span>
                       </button>
@@ -95,7 +101,7 @@ export default function CartDrawer() {
                         type="button"
                         className="cart-qty-btn btn"
                         aria-label={t.cartIncrease(line.name)}
-                        onClick={() => setQty(line.productId, 1)}
+                        onClick={() => setQty(lineKey(line), 1)}
                       >
                         <span aria-hidden="true">+</span>
                       </button>
@@ -107,7 +113,7 @@ export default function CartDrawer() {
                       type="button"
                       className="cart-line-remove btn"
                       aria-label={t.cartRemove(line.name)}
-                      onClick={() => remove(line.productId)}
+                      onClick={() => remove(lineKey(line))}
                     >
                       <span aria-hidden="true">×</span>
                     </button>

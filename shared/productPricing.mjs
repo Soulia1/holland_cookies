@@ -16,6 +16,9 @@ export {
   effectivePrice,
   discountProblem,
   lineTotal,
+  unitPrice,
+  selectionProblem,
+  lineSignature,
 } from './pricing.mjs';
 
 import { effectivePrice, money, discountPercent, isDiscounted } from './pricing.mjs';

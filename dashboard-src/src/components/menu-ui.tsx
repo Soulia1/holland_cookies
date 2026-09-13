@@ -31,7 +31,7 @@ export function CardHead({ title, sub, action }: { title: string; sub?: string; 
 export function Btn({
   variant = "primary", className, ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "danger";
 }) {
   return (
     <button
@@ -41,6 +41,7 @@ export function Btn({
         variant === "primary" && "text-white hover:opacity-90",
         variant === "secondary" && "border border-border bg-background hover:bg-accent",
         variant === "ghost" && "text-muted-foreground hover:bg-accent hover:text-foreground",
+        variant === "danger" && "bg-destructive text-white hover:opacity-90",
         className,
       )}
       style={variant === "primary" ? { background: "var(--burgundy)", ...props.style } : props.style}

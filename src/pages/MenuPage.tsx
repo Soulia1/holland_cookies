@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -13,6 +14,7 @@ import { MENU_GROUPS, priceFrom, type MenuCategory, type MenuGroup } from "@/dat
 import { itemImage } from "@/data/menuImages";
 import type { MenuItem } from "@/data/menu";
 import { useOnceOpened } from "@/lib/useOnceOpened";
+import { useLiveMenu, withLiveCatalogue } from "@/lib/liveMenu";
 import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
 import { cx, useReveal } from "@/lib/reveal";
@@ -81,6 +83,8 @@ export default function MenuPage({
   section: string | null;
 }) {
   const { t, lang } = useLang();
+  const live = useLiveMenu();
+  const shown = useMemo(() => withLiveCatalogue(group, live), [group, live]);
   const barRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
   const subNavRef = useRef<HTMLDivElement>(null);
@@ -101,7 +105,7 @@ export default function MenuPage({
    * arrival has the right chip lit on the first frame instead of lighting the
    * first chip and correcting itself once the scroll lands.
    */
-  const [reading, setReading] = useState<string>(section ?? group.categories[0].id);
+  const [reading, setReading] = useState<string>(section ?? shown.categories[0]?.id ?? "");
 
   /**
    * The row whose dialog is open, and the control that opened it.
@@ -251,7 +255,7 @@ export default function MenuPage({
    * so its top may never reach the line at all and it could otherwise never
    * become active however far down the reader goes.
    */
-  const ids = group.categories.map((category) => category.id).join(" ");
+  const ids = shown.categories.map((category) => category.id).join(" ");
   useEffect(() => {
     const list = ids.split(" ");
     let frame = 0;
@@ -458,7 +462,7 @@ export default function MenuPage({
               been split in half. */}
           <nav className="subcat-nav" aria-label={t.menuSectionsLabel(name)}>
             <div className="subcat-scroll" ref={subNavRef}>
-              {group.categories.map((category) => (
+              {shown.categories.map((category) => (
                 <Link
                   key={category.id}
                   // A full address, not a bare `#id`. It is the same page, so
@@ -481,7 +485,7 @@ export default function MenuPage({
         </div>
 
         <div className="menu-sections">
-          {group.categories.map((category) => (
+          {shown.categories.map((category) => (
             <Section key={category.id} category={category} onOpen={openItem} />
           ))}
 
@@ -577,7 +581,7 @@ function Section({
           const itemName = localized(lang, item.name, item.nameAr);
           const note = item.note ? localized(lang, item.note, item.noteAr) : undefined;
 
-          const photo = itemImage(item.id);
+          const photo = item.image ?? itemImage(item.id);
 
           return (
             <li key={item.id} className="menu-item">
@@ -635,22 +639,33 @@ function Section({
                   {itemName}
                   {note ? <span className="menu-item-note">{note}</span> : null}
                 </span>
-                <span className="menu-item-price">{t.price(item.price)}</span>
+                <span className="menu-item-price">
+                  {t.price(item.price)}
+                  {item.soldOut ? <> · {t.soldOut}</> : null}
+                </span>
               </span>
               </button>
 
               {/* Trailing, in the one part of the row that is still empty by
                   design, so revealing it on hover displaces nothing. On touch
-                  it is always there; see AddToCart. */}
-              <AddToCart
-                className="menu-item-add"
-                item={{
-                  productId: item.id,
-                  name: itemName,
-                  price: item.price,
-                  ...(note ? { note } : {}),
-                }}
-              />
+                  it is always there; see AddToCart.
+
+                  Skipped for an item with flavor choices: a quick add here
+                  would put the printed shorthand — "Vanilla, Red Velvet or
+                  Chocolate" — straight into the cart with no flavor picked.
+                  Opening the row is still the way in; the dialog is where the
+                  choice and the real add-to-cart control live. */}
+              {!item.flavorChoices && !item.soldOut && item.bundle?.type !== "choice" && (
+                <AddToCart
+                  className="menu-item-add"
+                  item={{
+                    productId: item.id,
+                    name: itemName,
+                    price: item.price,
+                    ...(note ? { note } : {}),
+                  }}
+                />
+              )}
             </li>
           );
         })}

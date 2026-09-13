@@ -1,63 +1,9 @@
 [
   {
-    "id": "plain-vanilla",
-    "category": "plain-cookies",
-    "name": "Vanilla",
-    "prompt": "A single serving of Vanilla from an Egyptian cookie bakery: a single thick round cookie resting on a small white ceramic plate, pale golden vanilla dough studded with chocolate chips. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "plain-chocolate",
-    "category": "plain-cookies",
-    "name": "Chocolate",
-    "prompt": "A single serving of Chocolate from an Egyptian cookie bakery: a single thick round cookie resting on a small white ceramic plate, dark chocolate dough, deep brown, studded with chocolate chips. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "plain-pistachio",
-    "category": "plain-cookies",
-    "name": "Pistachio",
-    "prompt": "A single serving of Pistachio from an Egyptian cookie bakery: a single thick round cookie resting on a small white ceramic plate, pistachio green, with chopped pistachios. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "plain-red-velvet",
-    "category": "plain-cookies",
-    "name": "Red Velvet",
-    "prompt": "A single serving of Red Velvet from an Egyptian cookie bakery: a single thick round cookie resting on a small white ceramic plate, deep crimson red velvet dough flecked with white chocolate. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "plain-lotus",
-    "category": "plain-cookies",
-    "name": "Lotus",
-    "prompt": "A single serving of Lotus from an Egyptian cookie bakery: a single thick round cookie resting on a small white ceramic plate, caramel-brown Lotus biscuit spread, glossy. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "plain-coffee",
-    "category": "plain-cookies",
-    "name": "Coffee",
-    "prompt": "A single serving of Coffee from an Egyptian cookie bakery: a single thick round cookie resting on a small white ceramic plate, coffee-brown dough. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
     "id": "pan-vanilla-nutella",
     "category": "cookie-pans",
     "name": "Vanilla, Nutella filling",
-    "prompt": "A single serving of Vanilla, Nutella filling from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a round aluminium foil pan, pale golden vanilla dough studded with chocolate chips, glossy hazelnut chocolate spread. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Vanilla, Nutella filling from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a square aluminium foil pan, pale golden vanilla dough studded with chocolate chips, glossy hazelnut chocolate spread. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -66,16 +12,7 @@
     "id": "pan-vanilla-bueno",
     "category": "cookie-pans",
     "name": "Vanilla, Kinder Bueno filling",
-    "prompt": "A single serving of Vanilla, Kinder Bueno filling from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a round aluminium foil pan, milk chocolate and hazelnut cream, pale golden vanilla dough studded with chocolate chips. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "pan-chocolate-nutella",
-    "category": "cookie-pans",
-    "name": "Chocolate, Nutella filling",
-    "prompt": "A single serving of Chocolate, Nutella filling from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a round aluminium foil pan, dark chocolate dough, deep brown, studded with chocolate chips, glossy hazelnut chocolate spread. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Vanilla, Kinder Bueno filling from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a square aluminium foil pan, milk chocolate and hazelnut cream, pale golden vanilla dough studded with chocolate chips. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -84,16 +21,7 @@
     "id": "pan-chocolate-bueno",
     "category": "cookie-pans",
     "name": "Chocolate, Kinder Bueno filling",
-    "prompt": "A single serving of Chocolate, Kinder Bueno filling from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a round aluminium foil pan, milk chocolate and hazelnut cream, dark chocolate dough, deep brown, studded with chocolate chips. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "pan-red-velvet-white-nutella",
-    "category": "cookie-pans",
-    "name": "Red Velvet, white Nutella filling",
-    "prompt": "A single serving of Red Velvet, white Nutella filling from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a round aluminium foil pan, glossy white chocolate hazelnut spread, ivory coloured, deep crimson red velvet dough flecked with white chocolate. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Chocolate, Kinder Bueno filling from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a square aluminium foil pan, milk chocolate and hazelnut cream, dark chocolate dough, deep brown, studded with chocolate chips. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -102,7 +30,7 @@
     "id": "pan-lotus-smores",
     "category": "cookie-pans",
     "name": "Lotus S'mores",
-    "prompt": "A single serving of Lotus S'mores from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a round aluminium foil pan, caramel-brown Lotus biscuit spread, glossy. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Lotus S'mores from an Egyptian cookie bakery: a deep-dish cookie pie baked and served in a square aluminium foil pan, caramel-brown Lotus biscuit spread, glossy. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -174,7 +102,7 @@
     "id": "tagine-vanilla-nutella",
     "category": "cookie-tagines",
     "name": "Vanilla, Nutella filling",
-    "prompt": "A single serving of Vanilla, Nutella filling from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, pale golden vanilla dough studded with chocolate chips, glossy hazelnut chocolate spread. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Vanilla, Nutella filling from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, pale golden vanilla dough studded with chocolate chips, glossy hazelnut chocolate spread. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -183,7 +111,7 @@
     "id": "tagine-chocolate-nutella",
     "category": "cookie-tagines",
     "name": "Chocolate, Nutella filling",
-    "prompt": "A single serving of Chocolate, Nutella filling from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, dark chocolate dough, deep brown, studded with chocolate chips, glossy hazelnut chocolate spread. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Chocolate, Nutella filling from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, dark chocolate dough, deep brown, studded with chocolate chips, glossy hazelnut chocolate spread. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -192,7 +120,7 @@
     "id": "tagine-chocolate-white-nutella",
     "category": "cookie-tagines",
     "name": "Chocolate, white Nutella filling",
-    "prompt": "A single serving of Chocolate, white Nutella filling from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, glossy white chocolate hazelnut spread, ivory coloured, dark chocolate dough, deep brown, studded with chocolate chips. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Chocolate, white Nutella filling from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, glossy white chocolate hazelnut spread, ivory coloured, dark chocolate dough, deep brown, studded with chocolate chips. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -201,7 +129,7 @@
     "id": "tagine-red-velvet-white-nutella",
     "category": "cookie-tagines",
     "name": "Red Velvet, white Nutella filling",
-    "prompt": "A single serving of Red Velvet, white Nutella filling from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, glossy white chocolate hazelnut spread, ivory coloured, deep crimson red velvet dough flecked with white chocolate. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Red Velvet, white Nutella filling from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, glossy white chocolate hazelnut spread, ivory coloured, deep crimson red velvet dough flecked with white chocolate. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -210,7 +138,7 @@
     "id": "tagine-kunafa-vanilla-small",
     "category": "cookie-tagines",
     "name": "Vanilla Kunafa Cookie",
-    "prompt": "A single serving of Vanilla Kunafa Cookie from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, pale golden vanilla dough studded with chocolate chips, shredded golden kunafa pastry on top. Presented in a small. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Vanilla Kunafa Cookie from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, pale golden vanilla dough studded with chocolate chips, shredded golden kunafa pastry on top. Presented in a small. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -219,7 +147,16 @@
     "id": "tagine-kunafa-chocolate-small",
     "category": "cookie-tagines",
     "name": "Chocolate Kunafa Cookie",
-    "prompt": "A single serving of Chocolate Kunafa Cookie from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, dark chocolate dough, deep brown, studded with chocolate chips, shredded golden kunafa pastry on top. Presented in a small. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Chocolate Kunafa Cookie from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, dark chocolate dough, deep brown, studded with chocolate chips, shredded golden kunafa pastry on top. Presented in a small. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
+    "ratio": "1:1",
+    "model": "Nano Banana Pro",
+    "project_name": "Holland Cookies Menu"
+  },
+  {
+    "id": "tagine-kunafa-coffee-small",
+    "category": "cookie-tagines",
+    "name": "Coffee Kunafa Cookie",
+    "prompt": "A single serving of Coffee Kunafa Cookie from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, coffee-brown dough, shredded golden kunafa pastry on top. Presented in a small. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -228,7 +165,7 @@
     "id": "tagine-vanilla-nutella-coffee",
     "category": "cookie-tagines",
     "name": "Vanilla with coffee, Nutella filling",
-    "prompt": "A single serving of Vanilla with coffee, Nutella filling from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, pale golden vanilla dough studded with chocolate chips, glossy hazelnut chocolate spread, coffee-brown dough. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Vanilla with coffee, Nutella filling from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, pale golden vanilla dough studded with chocolate chips, glossy hazelnut chocolate spread, coffee-brown dough. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -237,7 +174,7 @@
     "id": "tagine-coffee-nutella",
     "category": "cookie-tagines",
     "name": "Coffee, Nutella filling",
-    "prompt": "A single serving of Coffee, Nutella filling from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, glossy hazelnut chocolate spread, coffee-brown dough. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Coffee, Nutella filling from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, glossy hazelnut chocolate spread, coffee-brown dough. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -246,7 +183,7 @@
     "id": "tagine-matilda",
     "category": "cookie-tagines",
     "name": "Matilda Cookie",
-    "prompt": "A single serving of Matilda Cookie from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, a cookie shell filled with dark chocolate ganache and chocolate cake. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Matilda Cookie from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, a cookie shell filled with dark chocolate ganache and chocolate cake. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -255,7 +192,7 @@
     "id": "tagine-red-velvet-crunchy",
     "category": "cookie-tagines",
     "name": "Red Velvet Crunchy",
-    "prompt": "A single serving of Red Velvet Crunchy from an Egyptian cookie bakery: a cookie baked and served in a small round dish, cut open to show the centre, deep crimson red velvet dough flecked with white chocolate. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
+    "prompt": "A single serving of Red Velvet Crunchy from an Egyptian cookie bakery: a cookie tagine, split open down the middle and pulled apart by hand to reveal the filling inside, deep crimson red velvet dough flecked with white chocolate. Photographed close-up at a slight downward angle, the cookie tagine pulled apart and held open by two hands wearing black food-service gloves to reveal a clean cross-section of the filling, a white ceramic plate visible beneath. Warm indoor bakery lighting, true-to-life colour, crisp focus on the filling with a softly blurred background, realistic and appetising, fresh-from-the-oven texture on the crust. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no visible faces.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"
@@ -432,96 +369,6 @@
     "project_name": "Holland Cookies Menu"
   },
   {
-    "id": "happiness-nutella",
-    "category": "tagines",
-    "name": "Happiness — Nutella",
-    "prompt": "A single serving of Happiness — Nutella from an Egyptian cookie bakery: a dessert served in a small round dish, a layered dessert in a round dish, glossy hazelnut chocolate spread. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "happiness-white-nutella",
-    "category": "tagines",
-    "name": "Happiness — white Nutella",
-    "prompt": "A single serving of Happiness — white Nutella from an Egyptian cookie bakery: a dessert served in a small round dish, glossy white chocolate hazelnut spread, ivory coloured, a layered dessert in a round dish. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "happiness-lotus",
-    "category": "tagines",
-    "name": "Happiness — Lotus",
-    "prompt": "A single serving of Happiness — Lotus from an Egyptian cookie bakery: a dessert served in a small round dish, a layered dessert in a round dish, caramel-brown Lotus biscuit spread, glossy. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "happiness-pistachio",
-    "category": "tagines",
-    "name": "Happiness — Pistachio",
-    "prompt": "A single serving of Happiness — Pistachio from an Egyptian cookie bakery: a dessert served in a small round dish, pistachio green, with chopped pistachios, a layered dessert in a round dish. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "happiness-kinder-bueno",
-    "category": "tagines",
-    "name": "Happiness — Kinder Bueno",
-    "prompt": "A single serving of Happiness — Kinder Bueno from an Egyptian cookie bakery: a dessert served in a small round dish, milk chocolate and hazelnut cream, a layered dessert in a round dish. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "despacito",
-    "category": "tagines",
-    "name": "Despacito",
-    "prompt": "A single serving of Despacito from an Egyptian cookie bakery: a dessert served in a small round dish, layered chocolate dessert with a cream seam. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "despacito-pistachio",
-    "category": "tagines",
-    "name": "Despacito Pistachio",
-    "prompt": "A single serving of Despacito Pistachio from an Egyptian cookie bakery: a dessert served in a small round dish, pistachio green, with chopped pistachios, layered chocolate dessert with a cream seam. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "despacito-bueno",
-    "category": "tagines",
-    "name": "Despacito Kinder Bueno",
-    "prompt": "A single serving of Despacito Kinder Bueno from an Egyptian cookie bakery: a dessert served in a small round dish, milk chocolate and hazelnut cream, layered chocolate dessert with a cream seam. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "despacito-chocolate",
-    "category": "tagines",
-    "name": "Despacito Chocolate",
-    "prompt": "A single serving of Despacito Chocolate from an Egyptian cookie bakery: a dessert served in a small round dish, dark chocolate dough, deep brown, studded with chocolate chips, layered chocolate dessert with a cream seam. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "despacito-white-nutella",
-    "category": "tagines",
-    "name": "Despacito white Nutella",
-    "prompt": "A single serving of Despacito white Nutella from an Egyptian cookie bakery: a dessert served in a small round dish, glossy white chocolate hazelnut spread, ivory coloured, layered chocolate dessert with a cream seam. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
     "id": "molten-chocolate",
     "category": "molten-cakes",
     "name": "Chocolate",
@@ -607,114 +454,6 @@
     "category": "cheesecakes-tarts",
     "name": "Apple Tart",
     "prompt": "A single serving of Apple Tart from an Egyptian cookie bakery: a triangular slice on a white plate, cut face toward the camera, spiced apple filling under a golden lattice pastry crust. Presented in a per slice. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "gateau-lotus-14",
-    "category": "gateaux",
-    "name": "Lotus Gateau",
-    "prompt": "A single serving of Lotus Gateau from an Egyptian cookie bakery: a whole round layered gateau on a white cake stand, caramel-brown Lotus biscuit spread, glossy. Presented in a 14 inch. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "gateau-pistachio-14",
-    "category": "gateaux",
-    "name": "Pistachio Gateau",
-    "prompt": "A single serving of Pistachio Gateau from an Egyptian cookie bakery: a whole round layered gateau on a white cake stand, pistachio green, with chopped pistachios. Presented in a 14 inch. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "gateau-chocolate-14",
-    "category": "gateaux",
-    "name": "Chocolate Gateau",
-    "prompt": "A single serving of Chocolate Gateau from an Egyptian cookie bakery: a whole round layered gateau on a white cake stand, dark chocolate dough, deep brown, studded with chocolate chips. Presented in a 14 inch. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "gateau-cream-14",
-    "category": "gateaux",
-    "name": "Cream Gateau",
-    "prompt": "A single serving of Cream Gateau from an Egyptian cookie bakery: a whole round layered gateau on a white cake stand, a thick layer of white cream. Presented in a 14 inch. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "gateau-red-velvet",
-    "category": "gateaux",
-    "name": "Red Velvet Gateau",
-    "prompt": "A single serving of Red Velvet Gateau from an Egyptian cookie bakery: a whole round layered gateau on a white cake stand, deep crimson red velvet dough flecked with white chocolate. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "box-kahk",
-    "category": "biscuits-kahk",
-    "name": "Kahk",
-    "prompt": "A single serving of Kahk from an Egyptian cookie bakery: a pile of small biscuits in an open box, seen from above, round powdered-sugar dusted kahk biscuits. Presented in a box. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "box-biscuits-nashader",
-    "category": "biscuits-kahk",
-    "name": "Nashader Biscuits",
-    "prompt": "A single serving of Nashader Biscuits from an Egyptian cookie bakery: a pile of small biscuits in an open box, seen from above, plain golden biscuits. Presented in a box. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "box-biscuits-orange",
-    "category": "biscuits-kahk",
-    "name": "Orange Biscuits",
-    "prompt": "A single serving of Orange Biscuits from an Egyptian cookie bakery: a pile of small biscuits in an open box, seen from above, plain golden biscuits. Presented in a box. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "box-biscuits-chocolate",
-    "category": "biscuits-kahk",
-    "name": "Chocolate Biscuits",
-    "prompt": "A single serving of Chocolate Biscuits from an Egyptian cookie bakery: a pile of small biscuits in an open box, seen from above, dark chocolate dough, deep brown, studded with chocolate chips, plain golden biscuits. Presented in a box. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "box-biscuits-vanilla",
-    "category": "biscuits-kahk",
-    "name": "Vanilla Biscuits",
-    "prompt": "A single serving of Vanilla Biscuits from an Egyptian cookie bakery: a pile of small biscuits in an open box, seen from above, plain golden biscuits, pale golden vanilla dough studded with chocolate chips. Presented in a box. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "box-ghorayeba",
-    "category": "biscuits-kahk",
-    "name": "Ghorayeba",
-    "prompt": "A single serving of Ghorayeba from an Egyptian cookie bakery: a pile of small biscuits in an open box, seen from above, pale crumbly shortbread rounds. Presented in a box. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
-    "ratio": "1:1",
-    "model": "Nano Banana Pro",
-    "project_name": "Holland Cookies Menu"
-  },
-  {
-    "id": "box-petit-fours",
-    "category": "biscuits-kahk",
-    "name": "Petit Fours",
-    "prompt": "A single serving of Petit Fours from an Egyptian cookie bakery: a pile of small biscuits in an open box, seen from above, small assorted iced petit four biscuits. Presented in a box. Photographed directly from above as a flat lay, centred in frame, on a pale white marble surface with soft natural window light from the left and gentle realistic shadows. Warm, appetising editorial food photography, true-to-life colour, crisp focus, fine crumb and texture detail, shallow depth of field. Minimal styling. No text, no writing, no lettering, no logos, no watermarks, no brand packaging, no hands, no people, no cutlery unless described.",
     "ratio": "1:1",
     "model": "Nano Banana Pro",
     "project_name": "Holland Cookies Menu"

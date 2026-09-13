@@ -50,6 +50,34 @@ export interface MenuItem {
   /** Printed packaging or size, where the sheet gives one. */
   note?: string;
   noteAr?: string;
+  /**
+   * A flavor the customer must pick before adding this item to the cart, e.g.
+   * `["Vanilla", "Red Velvet", "Chocolate"]`. Only set on the handful of
+   * printed items that name several flavors as one line rather than as
+   * separate items — the choice happens at order time, on this site, instead
+   * of arriving as free text WhatsApp had to parse by hand.
+   */
+  flavorChoices?: string[];
+  /** From the live catalogue: an admin marked it unavailable. */
+  soldOut?: boolean;
+  /** From the live catalogue: a photo an admin set, which wins over the bundled one. */
+  image?: string;
+  /** From the live catalogue: what a bundle contains, or the choices it asks for. */
+  bundle?: MenuBundle;
+}
+
+export interface MenuBundle {
+  type: "fixed" | "choice";
+  components: { productId: string; name: string; nameAr?: string; quantity: number }[];
+  groups: {
+    label: string;
+    labelAr?: string;
+    choose: number;
+    allowRepeats: boolean;
+    options: {
+      productId: string; name: string; nameAr?: string; surcharge: number; available: boolean;
+    }[];
+  }[];
 }
 
 export interface MenuCategory {
@@ -84,13 +112,7 @@ export const MENU: MenuCategory[] = [
     items: [
       { id: "pan-vanilla-nutella", name: "Vanilla, Nutella filling", price: 150 },
       { id: "pan-vanilla-bueno", name: "Vanilla, Kinder Bueno filling", price: 150 },
-      { id: "pan-chocolate-nutella", name: "Chocolate, Nutella filling", price: 150 },
       { id: "pan-chocolate-bueno", name: "Chocolate, Kinder Bueno filling", price: 150 },
-      {
-        id: "pan-red-velvet-white-nutella",
-        name: "Red Velvet, white Nutella filling",
-        price: 150,
-      },
       { id: "pan-lotus-smores", name: "Lotus S'mores", price: 180 },
     ],
   },
@@ -144,6 +166,12 @@ export const MENU: MenuCategory[] = [
         note: "Small",
       },
       {
+        id: "tagine-kunafa-coffee-small",
+        name: "Coffee Kunafa Cookie",
+        price: 120,
+        note: "Small",
+      },
+      {
         id: "tagine-vanilla-nutella-coffee",
         name: "Vanilla with coffee, Nutella filling",
         price: 150,
@@ -164,6 +192,7 @@ export const MENU: MenuCategory[] = [
         name: "Vanilla, Red Velvet or Chocolate — Nutella filling",
         price: 300,
         note: "Foil tray",
+        flavorChoices: ["Vanilla", "Red Velvet", "Chocolate"],
       },
       {
         id: "scoop-vanilla-bueno-foil",
@@ -348,6 +377,21 @@ export const CATEGORY_BY_ID: ReadonlyMap<string, MenuCategory> = new Map(
 /** The cheapest item in a category, for the "from …" line under its heading. */
 export function priceFrom(category: MenuCategory): number {
   return category.items.reduce((low, item) => Math.min(low, item.price), Infinity);
+}
+
+/**
+ * The orderable products behind an item with flavor choices.
+ *
+ * The cart and the database both key on these ids, and the seed writes one
+ * product per flavor from this same function, so the two cannot drift apart.
+ */
+export function flavorVariants(item: MenuItem): { id: string; flavor: string; name: string }[] {
+  const filling = item.name.split("—")[1]?.trim();
+  return (item.flavorChoices ?? []).map((flavor) => ({
+    id: `${item.id}--${flavor.toLowerCase().replace(/\s+/g, "-")}`,
+    flavor,
+    name: filling ? `${flavor}, ${filling}` : `${flavor} ${item.name}`,
+  }));
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

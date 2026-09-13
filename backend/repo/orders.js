@@ -88,6 +88,26 @@ export function orderPayload(order) {
       unitPrice: item.unitPrice,
       qty: item.qty,
       lineTotal: item.lineTotal,
+      ...(item.selections?.length ? {
+        selections: item.selections.map((pick) => ({
+          group: pick.group,
+          label: pick.label,
+          labelAr: pick.labelAr || undefined,
+          productId: pick.productId,
+          name: pick.name,
+          nameAr: pick.nameAr || undefined,
+          quantity: pick.quantity,
+          surcharge: pick.surcharge,
+        })),
+      } : {}),
+      ...(item.components?.length ? {
+        components: item.components.map((component) => ({
+          productId: component.productId,
+          name: component.name,
+          nameAr: component.nameAr || undefined,
+          quantity: component.quantity,
+        })),
+      } : {}),
     })),
     totals: {
       subtotal: order.subtotal,

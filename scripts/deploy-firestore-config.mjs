@@ -21,7 +21,8 @@
 import { readFileSync } from 'node:fs';
 import { GoogleAuth } from 'google-auth-library';
 
-const KEY = 'backend/serviceAccount.json';
+const argKey = process.argv.indexOf('--key');
+const KEY = argKey > -1 ? process.argv[argKey + 1] : 'backend/serviceAccount.json';
 const key = JSON.parse(readFileSync(KEY, 'utf8'));
 const argProject = process.argv.indexOf('--project');
 const project = argProject > -1 ? process.argv[argProject + 1] : key.project_id;

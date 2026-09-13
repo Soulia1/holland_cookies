@@ -140,16 +140,21 @@ export interface MenuItem {
   slug?: string;
   isAvailable?: boolean;
   createdAt?: string;
-  /**
-   * Holland sells no bundles. The fields are kept so the copied product editor
-   * compiles and so the shape stays identical to the one it was written
-   * against; nothing sets them, and `isBundle` is never true.
-   */
+  /** A product made of other products: fixed contents, or the customer's choice. */
   isBundle?: boolean;
   bundleType?: "choice" | "fixed";
   bundleSize?: number;
   bundleCategory?: string;
-  components?: { productId: string; quantity: number }[];
+  components?: { productId: string; name?: string; quantity: number }[];
+  groups?: BundleGroup[];
+}
+
+export interface BundleGroup {
+  label: string;
+  labelAr?: string;
+  choose: number;
+  allowRepeats?: boolean;
+  options: { productId: string; name?: string; surcharge?: number }[];
 }
 
 /** The product as Holland's API actually returns it. */
@@ -171,6 +176,10 @@ interface HollandProduct {
   discountType: "percent" | "fixed";
   discountValue: number;
   sort: number;
+  isBundle: boolean;
+  bundleType: "fixed" | "choice";
+  components: { productId: string; name: string; quantity: number }[];
+  groups: BundleGroup[];
 }
 
 function toMenuItem(product: HollandProduct): MenuItem {
@@ -192,6 +201,10 @@ function toMenuItem(product: HollandProduct): MenuItem {
     noteAr: product.noteAr,
     order: product.sort,
     isAvailable: product.available,
+    isBundle: product.isBundle,
+    bundleType: product.bundleType,
+    components: product.components ?? [],
+    groups: product.groups ?? [],
   };
 }
 
@@ -209,6 +222,19 @@ function fromMenuItem(item: Partial<MenuItem>): Record<string, unknown> {
   copy("category", "categoryId");
   copy("order", "sort");
   if (item.isAvailable !== undefined) body.available = item.isAvailable;
+  copy("isBundle"); copy("bundleType");
+  if (item.components !== undefined) {
+    body.components = item.components.map(({ productId, quantity }) => ({ productId, quantity }));
+  }
+  if (item.groups !== undefined) {
+    body.groups = item.groups.map((group) => ({
+      label: group.label,
+      labelAr: group.labelAr ?? "",
+      choose: group.choose,
+      allowRepeats: !!group.allowRepeats,
+      options: group.options.map(({ productId, surcharge }) => ({ productId, surcharge: surcharge ?? 0 })),
+    }));
+  }
   return body;
 }
 
@@ -375,6 +401,8 @@ interface HollandOrder {
   items: {
     productId: string; name: string; nameAr?: string; note?: string;
     unitPrice: number; qty: number; lineTotal: number;
+    selections?: { group: number; label: string; productId: string; name: string; quantity: number }[];
+    components?: { productId: string; name: string; quantity: number }[];
   }[];
   totals: { subtotal: number; discount: number; delivery: number; total: number };
   promoCode?: string;
@@ -420,6 +448,19 @@ function toOrder(order: HollandOrder): OrderDetail {
       name: item.name,
       price: item.unitPrice,
       qty: item.qty,
+      ...(item.selections?.length ? {
+        selections: item.selections.map((pick) => ({
+          productId: pick.productId, name: pick.name, quantity: pick.quantity,
+        })),
+      } : {}),
+      ...(item.components?.length ? {
+        components: item.components.map((component) => ({
+          productId: component.productId,
+          name: component.name,
+          quantityPerBundle: component.quantity,
+          totalQuantity: component.quantity * item.qty,
+        })),
+      } : {}),
     })),
     total: order.totals.total,
     subtotal: order.totals.subtotal,
@@ -563,6 +604,55 @@ export const menuApi = {
       method: "DELETE",
     });
     if (!response.ok && response.status !== 204) throw new Error("Failed to delete the product.");
+  },
+
+  /** The id is permanent — products key on it — so it is derived from the name once. */
+  async createCategory(name: string, nameAr = ""): Promise<{ id: string; name: string }> {
+    const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!id) throw new Error("Give the category an English name using letters or numbers.");
+    const body = await json<{ category: { id: string; name: string } }>(
+      await apiFetch("/api/menu/admin/categories", {
+        method: "POST",
+        body: JSON.stringify({ id, name: name.trim(), nameAr: nameAr.trim() }),
+      }),
+      "create the category",
+    );
+    return body.category;
+  },
+
+  /**
+   * Delete a category. `withProducts` is opt-in: without it a category holding
+   * products is refused. Returns how many products went with it.
+   */
+  async removeCategory(id: string, withProducts = false): Promise<number> {
+    const query = withProducts ? "?withProducts=1" : "";
+    const response = await apiFetch(
+      `/api/menu/admin/categories/${encodeURIComponent(id)}${query}`,
+      { method: "DELETE" },
+    );
+    if (response.status === 204) return 0;
+    const body = await json<{ deletedProducts?: number }>(response, "delete the category");
+    return body.deletedProducts ?? 0;
+  },
+};
+
+export const imagesApi = {
+  /** Upload an already-shrunk photo; returns the path to store on the product. */
+  async upload(photo: Blob): Promise<string> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Could not read the photo."));
+      reader.readAsDataURL(photo);
+    });
+    const body = await json<{ path: string }>(
+      await apiFetch("/api/admin/images", {
+        method: "POST",
+        body: JSON.stringify({ data: dataUrl.slice(dataUrl.indexOf(",") + 1) }),
+      }),
+      "upload the photo",
+    );
+    return body.path;
   },
 };
 

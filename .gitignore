@@ -30,6 +30,8 @@ ui-debug.log
 # Firebase service account key — never commit this
 backend/serviceAccount.json
 serviceAccount.json
+serviceAccount*.json
+*-firebase-adminsdk-*.json
 
 # Local agent/tooling state — not project source
 .claude-flow/

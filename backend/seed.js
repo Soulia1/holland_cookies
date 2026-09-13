@@ -33,15 +33,18 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  * so a bare transform is enough and no bundling step is needed. esbuild is
  * already here as part of Vite.
  */
-async function readMenu() {
+async function loadMenuModule() {
   const { transform } = await import('esbuild');
   const source = readFileSync(path.join(here, '..', 'src', 'data', 'menu.ts'), 'utf8');
   const { code } = await transform(source, { loader: 'ts', format: 'esm' });
   // A data URL rather than a temporary file: nothing to write, nothing to clean
   // up, and no chance of two runs colliding on the same path.
   const url = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-  const module = await import(url);
-  return module.MENU;
+  return import(url);
+}
+
+async function readMenu() {
+  return (await loadMenuModule()).MENU;
 }
 
 /** The delivery model the footer describes. */
@@ -58,7 +61,8 @@ const DEFAULT_AREAS = [
 ];
 
 async function seed({ force = false } = {}) {
-  const categories = await readMenu();
+  const menuModule = await loadMenuModule();
+  const categories = menuModule.MENU;
   if (!categories.length) {
     throw new Error('Parsed no categories out of src/data/menu.ts — has its shape changed?');
   }
@@ -137,6 +141,35 @@ async function seed({ force = false } = {}) {
         updatedAt: now(),
       }, true);
       productCount += 1;
+
+      // A line printed with several flavors is ordered as one product per
+      // flavor; the cart sends these ids, so without them it cannot be bought.
+      for (const variant of menuModule.flavorVariants(item)) {
+        const variantExists = haveProduct.has(variant.id);
+        await queue(collections.products().doc(variant.id), {
+          categoryId: category.id,
+          ...(variantExists && !force ? {} : {
+            name: variant.name,
+            nameAr: '',
+            note: item.note ?? '',
+            price: item.price,
+          }),
+          ...(variantExists ? {} : {
+            description: '',
+            descriptionAr: '',
+            noteAr: '',
+            image: '',
+            discountEnabled: false,
+            discountType: 'percent',
+            discountValue: 0,
+            available: true,
+            createdAt: now(),
+          }),
+          sort: itemIndex,
+          updatedAt: now(),
+        }, true);
+        productCount += 1;
+      }
     }
   }
   await flush();

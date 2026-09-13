@@ -207,9 +207,16 @@ export default function TrackPage() {
 
             {/* — Lines ———————————————————————————————————— */}
             <ul className="trk-items">
-              {order.items.map((item) => (
-                <li key={item.productId}>
-                  <span>{localized(lang, item.name, item.nameAr)} × {item.qty}</span>
+              {order.items.map((item, index) => (
+                <li key={`${item.productId}-${index}`}>
+                  <span>
+                    {localized(lang, item.name, item.nameAr)} × {item.qty}
+                    {item.selections?.length
+                      ? ` (${item.selections
+                          .map((pick) => `${pick.quantity}× ${localized(lang, pick.name, pick.nameAr)}`)
+                          .join(", ")})`
+                      : ""}
+                  </span>
                   <span>{t.price(item.lineTotal)}</span>
                 </li>
               ))}

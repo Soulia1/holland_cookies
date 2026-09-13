@@ -261,6 +261,7 @@ export const collections = {
   auditEvents: () => get().collection('auditEvents'),
   counters: () => get().collection('counters'),
   orderIdempotency: () => get().collection('orderIdempotency'),
+  productImages: () => get().collection('productImages'),
 };
 
 /** The single settings document. One row in SQLite, one document here. */

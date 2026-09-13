@@ -169,11 +169,16 @@ export async function sendOrderConfirmation(order, lang = 'en') {
     ? `تأكيد طلبك ${order.reference}`
     : `Your Holland Cookies order ${order.reference}`;
 
-  const lines = (order.items ?? []).map((item) => ({
-    name: arabic && item.nameAr ? item.nameAr : item.name,
-    qty: item.qty,
-    total: item.lineTotal,
-  }));
+  const lines = (order.items ?? []).map((item) => {
+    const name = arabic && item.nameAr ? item.nameAr : item.name;
+    const inside = [...(item.selections ?? []), ...(item.components ?? [])]
+      .map((part) => `${part.quantity}× ${arabic && part.nameAr ? part.nameAr : part.name}`);
+    return {
+      name: inside.length ? `${name} (${inside.join(', ')})` : name,
+      qty: item.qty,
+      total: item.lineTotal,
+    };
+  });
 
   const totals = [
     [arabic ? 'الإجمالي الفرعي' : 'Subtotal', order.subtotal],

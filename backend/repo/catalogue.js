@@ -14,9 +14,14 @@
  * `^[a-z0-9-]+$` by the route schema. Using them as document ids means an id
  * collision is a failed `.create()` rather than a duplicate row, and a lookup by
  * id is a direct get rather than a query.
+ *
+ * A bundle's contents (`components`) and its customer choices (`groups`) are
+ * arrays on the product document. Firestore has no foreign keys, so the rules a
+ * join table would have enforced — no bundle inside a bundle, no deleting a
+ * product a bundle still offers — are checked explicitly in routes/menu.js.
  */
 
-import { collections, FieldValue } from '../firestore.js';
+import { collections, FieldValue, get as firestore } from '../firestore.js';
 import { effectivePrice, money } from '../../shared/pricing.mjs';
 
 const now = () => FieldValue.serverTimestamp();
@@ -26,14 +31,62 @@ const iso = (value) => (value?.toDate ? value.toDate().toISOString() : (value ??
 
 const productFromDoc = (doc) => ({ id: doc.id, ...doc.data() });
 
+/** Name and availability by product id, for describing what a bundle holds. */
+export function lookupOf(products) {
+  return new Map(products.map((product) => [product.id, {
+    name: product.name ?? '',
+    nameAr: product.nameAr ?? '',
+    available: product.available !== false,
+  }]));
+}
+
+/** The ids a bundle points at: its fixed contents, or every option it offers. */
+export function referencedIds(product) {
+  if (!product?.isBundle) return [];
+  return product.bundleType === 'choice'
+    ? (product.groups ?? []).flatMap((group) => (group.options ?? []).map((option) => option.productId))
+    : (product.components ?? []).map((component) => component.productId);
+}
+
+function bundleView(product, names) {
+  const lookup = names instanceof Map ? names : new Map();
+  const describe = (id) => ({
+    name: lookup.get(id)?.name ?? '',
+    nameAr: lookup.get(id)?.nameAr || undefined,
+  });
+  const choice = product.bundleType === 'choice';
+  return {
+    isBundle: true,
+    bundleType: choice ? 'choice' : 'fixed',
+    components: choice ? [] : (product.components ?? []).map((component) => ({
+      productId: component.productId,
+      quantity: component.quantity,
+      ...describe(component.productId),
+    })),
+    groups: choice ? (product.groups ?? []).map((group) => ({
+      label: group.label,
+      labelAr: group.labelAr || undefined,
+      choose: group.choose,
+      allowRepeats: !!group.allowRepeats,
+      options: (group.options ?? []).map((option) => ({
+        productId: option.productId,
+        surcharge: option.surcharge ?? 0,
+        ...describe(option.productId),
+        available: lookup.get(option.productId)?.available !== false,
+      })),
+    })) : [],
+  };
+}
+
 /**
  * A product as the storefront sees it.
  *
  * Unchanged from the SQLite implementation, deliberately: it carries both
  * languages and the *derived* selling price, so the storefront never has to know
  * how a discount is stored and cannot compute it differently from the server.
+ * A bundle additionally carries what it contains or offers, named from `names`.
  */
-export function publicProduct(product) {
+export function publicProduct(product, names) {
   const regular = money(product.price);
   const selling = effectivePrice(product);
   return {
@@ -50,17 +103,25 @@ export function publicProduct(product) {
     regularPrice: regular,
     discounted: selling < regular,
     available: !!product.available,
+    ...(product.isBundle ? bundleView(product, names) : {}),
   };
 }
 
-/** The admin list additionally needs the raw discount configuration it edits. */
-export const adminProduct = (product) => ({
-  ...publicProduct(product),
-  discountEnabled: !!product.discountEnabled,
-  discountType: product.discountType,
-  discountValue: product.discountValue,
-  sort: product.sort ?? 0,
-});
+/** The admin list additionally needs the raw configuration it edits. */
+export function adminProduct(product, names) {
+  const bundle = product.isBundle ? bundleView(product, names) : null;
+  return {
+    ...publicProduct(product, names),
+    discountEnabled: !!product.discountEnabled,
+    discountType: product.discountType,
+    discountValue: product.discountValue,
+    sort: product.sort ?? 0,
+    isBundle: !!product.isBundle,
+    bundleType: bundle?.bundleType ?? (product.bundleType === 'choice' ? 'choice' : 'fixed'),
+    components: bundle?.components ?? [],
+    groups: bundle?.groups ?? [],
+  };
+}
 
 // ------------------------------------------------------------ categories ----
 
@@ -123,20 +184,42 @@ export async function updateCategory(id, patch) {
   return { changed: true, found: true };
 }
 
-export async function deleteCategory(id) {
-  // SQLite had ON DELETE RESTRICT and this was a caught foreign-key error.
-  // Firestore has no foreign keys at all, so the check is explicit — and it has
-  // to be, because without it deleting a category orphans its products into a
-  // catalogue that renders nothing.
-  const used = await collections.products().where('categoryId', '==', id).limit(1).get();
-  if (!used.empty) {
-    const all = await collections.products().where('categoryId', '==', id).count().get();
-    return { blocked: true, productCount: all.data().count };
-  }
+/**
+ * Delete a category.
+ *
+ * Refuses while it holds products unless `withProducts` is set, so a stray call
+ * cannot empty a menu. Also refuses when a bundle filed elsewhere still offers
+ * one of those products: the bundle would survive with a hole in it. Past orders
+ * are unaffected — their lines copy the name and price.
+ */
+export async function deleteCategory(id, { withProducts = false } = {}) {
   const ref = collections.categories().doc(id);
-  if (!(await ref.get()).exists) return { blocked: false, found: false };
-  await ref.delete();
-  return { blocked: false, found: true };
+  if (!(await ref.get()).exists) return { found: false };
+
+  const snapshot = await collections.products().where('categoryId', '==', id).get();
+  const products = snapshot.docs.map(productFromDoc);
+  if (products.length && !withProducts) {
+    return { found: true, blocked: true, productCount: products.length };
+  }
+
+  const inCategory = new Set(products.map((product) => product.id));
+  const blockers = [];
+  if (inCategory.size) {
+    for (const bundle of await bundlesReferencing(inCategory)) {
+      if (bundle.categoryId === id) continue;
+      for (const referenced of referencedIds(bundle)) {
+        const product = products.find((row) => row.id === referenced);
+        if (product) blockers.push({ product: product.name, bundle: bundle.name });
+      }
+    }
+  }
+  if (blockers.length) return { found: true, blockers };
+
+  const batch = firestore().batch();
+  for (const product of products) batch.delete(collections.products().doc(product.id));
+  batch.delete(ref);
+  await batch.commit();
+  return { found: true, deletedProducts: products.length };
 }
 
 // -------------------------------------------------------------- products ----
@@ -153,14 +236,32 @@ export async function getProduct(id) {
   return doc.exists ? productFromDoc(doc) : null;
 }
 
+/** Several products by id, in the same order; null where one does not exist. */
+export async function getProducts(ids) {
+  if (!ids.length) return [];
+  const snapshots = await firestore().getAll(...ids.map((id) => collections.products().doc(id)));
+  return snapshots.map((snapshot) => (snapshot.exists ? productFromDoc(snapshot) : null));
+}
+
+/** The bundles that contain or offer any of these product ids. */
+export async function bundlesReferencing(ids) {
+  const snapshot = await collections.products().where('isBundle', '==', true).get();
+  return snapshot.docs
+    .map(productFromDoc)
+    .filter((bundle) => referencedIds(bundle).some((id) => ids.has(id)));
+}
+
 /** The whole catalogue, grouped, for GET /api/menu. */
 export async function menu() {
   const [categories, products] = await Promise.all([
     listCategories({ visibleOnly: true }),
     listProducts(),
   ]);
+  const names = lookupOf(products);
   const byCategory = new Map(categories.map((category) => [category.id, []]));
-  for (const product of products) byCategory.get(product.categoryId)?.push(publicProduct(product));
+  for (const product of products) {
+    byCategory.get(product.categoryId)?.push(publicProduct(product, names));
+  }
   return categories.map((category) => ({
     id: category.id,
     name: category.name,
@@ -185,6 +286,10 @@ export async function createProduct(body) {
     discountValue: body.discountValue ?? 0,
     available: body.available !== false,
     sort: body.sort ?? 0,
+    isBundle: body.isBundle === true,
+    bundleType: body.bundleType ?? 'fixed',
+    components: body.components ?? [],
+    groups: body.groups ?? [],
     createdAt: now(),
     updatedAt: now(),
   };
@@ -209,6 +314,7 @@ export async function createProduct(body) {
 const PRODUCT_WRITABLE = [
   'categoryId', 'name', 'nameAr', 'description', 'descriptionAr', 'note', 'noteAr',
   'price', 'image', 'discountEnabled', 'discountType', 'discountValue', 'available', 'sort',
+  'isBundle', 'bundleType', 'components', 'groups',
 ];
 
 export async function updateProduct(id, patch) {

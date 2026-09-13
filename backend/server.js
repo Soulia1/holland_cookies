@@ -13,6 +13,7 @@ import { isDatastoreOutage } from './firestore.js';
 import menuRoute from './routes/menu.js';
 import ordersRoute from './routes/orders.js';
 import adminRoute from './routes/admin.js';
+import imagesRoute from './routes/images.js';
 import accountRoute from './routes/account.js';
 import { validateEnvironment } from './config.js';
 import { limit, originGuard, requestContext, logEvent } from './security.js';
@@ -53,7 +54,7 @@ app.use('/api/orders/track',limit('tracking',15*60000,20));
 app.post('/api/admin/promos/validate',limit('coupon',15*60000,20));
 app.use(['/api/orders/stats','/api/admin/users'],limit('report',60000,60));
 const writeLimit=limit('admin-write',60000,60);
-app.use(['/api/admin','/api/menu/admin','/api/orders'],(req,res,next)=>['PATCH','DELETE'].includes(req.method) || (req.method==='POST' && req.originalUrl.startsWith('/api/menu/admin'))?writeLimit(req,res,next):next());
+app.use(['/api/admin','/api/menu/admin','/api/orders'],(req,res,next)=>['PATCH','DELETE'].includes(req.method) || (req.method==='POST' && (req.originalUrl.startsWith('/api/menu/admin') || req.originalUrl.startsWith('/api/admin/images')))?writeLimit(req,res,next):next());
 app.use('/api',originGuard);
 app.use('/api',(req,res,next)=>{
   if(!['GET','HEAD','POST','PATCH','DELETE','OPTIONS'].includes(req.method))return res.status(405).json({error:'METHOD_NOT_ALLOWED',message:'Method not allowed.'});
@@ -62,6 +63,8 @@ app.use('/api',(req,res,next)=>{
   next();
 });
 app.use('/api',validateEnvelope);
+// A shrunk product photo is a few hundred KiB of base64; every other body stays at 32 KiB.
+app.use('/api/admin/images',express.json({limit:'1100kb',strict:true,inflate:false}));
 app.use(express.json({limit:'32kb',strict:true,inflate:false}));
 app.use(rejectDangerousKeys);
 app.use(cookieParser());
@@ -73,7 +76,7 @@ app.get('/api/ready',async(_req,res)=>{
   try{await db.get().collection('_health').doc('probe').get();res.json({ok:true});}
   catch{res.status(503).json({ok:false});}
 });
-app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);
+app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);
 app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No such endpoint.'}));
 const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\/]assets[\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
 app.use('/dashboard',express.static(dashboardDist,staticOptions));app.use(express.static(dist,staticOptions));

@@ -17,6 +17,8 @@
  * means that server can be added without touching this file.
  */
 
+import { lineSignature } from "../../shared/productPricing.mjs";
+
 /** Storage key. Versioned: a shape change bumps it rather than trying to migrate. */
 export const CART_STORAGE_KEY = "holland-cart-v1";
 
@@ -36,12 +38,24 @@ export interface CartItem {
   price: number;
   /** Printed packaging or size, where the item has one. Display only. */
   note?: string;
+  /** A choice bundle's picks. `name` is a display snapshot; the rest is identity. */
+  selections?: CartSelection[];
   qty: number;
 }
 
-/** A cart line's identity, for lookups and React keys. */
-export function lineKey(item: Pick<CartItem, "productId">): string {
-  return item.productId;
+export interface CartSelection {
+  group: number;
+  productId: string;
+  quantity: number;
+  name: string;
+}
+
+/**
+ * A cart line's identity, for lookups and React keys. A bundle with different
+ * picks is a different line, so it cannot merge into the one already there.
+ */
+export function lineKey(item: Pick<CartItem, "productId" | "selections">): string {
+  return lineSignature(item);
 }
 
 function money(value: number): number {
@@ -119,6 +133,21 @@ function isCartItem(value: unknown): value is CartItem {
     && typeof line.qty === "number"
     && Number.isFinite(line.qty)
     && line.qty >= 1
+    && (line.selections === undefined
+      || (Array.isArray(line.selections) && line.selections.every(isSelection)))
+  );
+}
+
+function isSelection(value: unknown): value is CartSelection {
+  if (!value || typeof value !== "object") return false;
+  const pick = value as Record<string, unknown>;
+  return (
+    Number.isInteger(pick.group)
+    && typeof pick.productId === "string"
+    && pick.productId.length > 0
+    && Number.isInteger(pick.quantity)
+    && (pick.quantity as number) >= 1
+    && typeof pick.name === "string"
   );
 }
 
@@ -147,6 +176,13 @@ export function loadCart(raw: string | null): CartItem[] {
     name: line.name,
     price: line.price,
     ...(line.note ? { note: line.note } : {}),
+    ...(line.selections?.length
+      ? {
+          selections: line.selections.map(({ group, productId, quantity, name }) => ({
+            group, productId, quantity, name,
+          })),
+        }
+      : {}),
     qty: clampQty(line.qty),
   }));
 }

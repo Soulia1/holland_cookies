@@ -7,7 +7,6 @@ import {
   useState,
   type RefObject,
 } from "react";
-import AddToCart from "@/components/AddToCart";
 import { PANS, type Pan } from "@/data/pans";
 import { useLang } from "@/lib/i18n";
 import { useCapability } from "@/lib/motion/useCapability";
@@ -168,11 +167,14 @@ function RailCard({
           match the tree React thinks it rendered. Positioned over the card by
           the stylesheet instead, which also keeps it from being announced as
           part of the card's own label. */}
-      <AddToCart
-        className="rail-add"
-        label={t.addToCart}
-        item={{ productId: pan.id, name: pan.name, price: pan.price }}
-      />
+      {/* These photographs are not products on the printed menu, so there is
+          nothing in the catalogue to add; the control leads to the real pans. */}
+      <Link className="add-btn btn rail-add" href="/menu/cookies#cookie-pans">
+        <span className="add-btn-face" aria-hidden="true">
+          →
+        </span>
+        <span className="add-btn-label">{t.railOrder}</span>
+      </Link>
     </div>
   );
 }

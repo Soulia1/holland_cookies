@@ -136,8 +136,14 @@ const translations = {
     menuNextCategory: "Next",
     menuDetailClose: "Close",
     menuDetailOpen: (name: string) => `${name} — see details`,
+    menuDetailChooseFlavor: "Choose a flavor",
 
     // — Cart ———————————————————————————————————————————————————
+    soldOut: "Sold out",
+    railOrder: "Order from the menu",
+    bundleIncludes: "Inside",
+    bundlePicked: (count: number, of: number) => `${count} of ${of}`,
+    bundleMakeChoices: "Make your choices",
     addToCart: "Add to cart",
     addToCartNamed: (name: string) => `Add ${name} to cart`,
     cartOpen: "Open cart",
@@ -378,8 +384,14 @@ const translations = {
     menuNextCategory: "التالي",
     menuDetailClose: "إقفل",
     menuDetailOpen: (name: string) => `${name} — شوف التفاصيل`,
+    menuDetailChooseFlavor: "اختار النكهة",
 
     // — Cart ———————————————————————————————————————————————————
+    soldOut: "خلصت الكمية",
+    railOrder: "اطلب من المنيو",
+    bundleIncludes: "جواها",
+    bundlePicked: (count: number, of: number) => `${count} من ${of}`,
+    bundleMakeChoices: "اختار الأول",
     addToCart: "ضيف للسلة",
     addToCartNamed: (name: string) => `ضيف ${name} للسلة`,
     cartOpen: "افتح السلة",

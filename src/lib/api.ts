@@ -98,6 +98,30 @@ export interface ApiProduct {
   regularPrice: number;
   discounted: boolean;
   available: boolean;
+  isBundle?: boolean;
+  bundleType?: "fixed" | "choice";
+  components?: { productId: string; name: string; nameAr?: string; quantity: number }[];
+  groups?: ApiBundleGroup[];
+}
+
+export interface ApiBundleGroup {
+  label: string;
+  labelAr?: string;
+  choose: number;
+  allowRepeats: boolean;
+  options: {
+    productId: string; name: string; nameAr?: string; surcharge: number; available: boolean;
+  }[];
+}
+
+export interface OrderSelection {
+  group: number;
+  label?: string;
+  labelAr?: string;
+  productId: string;
+  name: string;
+  nameAr?: string;
+  quantity: number;
 }
 
 export interface ApiCategory {
@@ -136,6 +160,8 @@ export interface Order {
   items: {
     productId: string; name: string; nameAr?: string; note?: string;
     unitPrice: number; qty: number; lineTotal: number;
+    selections?: OrderSelection[];
+    components?: { productId: string; name: string; nameAr?: string; quantity: number }[];
   }[];
   totals: OrderTotals;
   promoCode?: string;
@@ -167,7 +193,11 @@ export interface AccountOrder {
 
 export interface CheckoutBody {
   idempotencyKey: string;
-  items: { productId: string; qty: number }[];
+  items: {
+    productId: string;
+    qty: number;
+    selections?: { group: number; productId: string; quantity: number }[];
+  }[];
   firstName: string;
   lastName?: string;
   phone: string;

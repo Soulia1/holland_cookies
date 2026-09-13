@@ -102,10 +102,71 @@ export function discountProblem(product) {
   return "Choose a percentage or a fixed discount.";
 }
 
+/**
+ * What one unit of a line costs: the selling price, plus the surcharge of every
+ * option picked when the product is a choice bundle.
+ *
+ * Only `group`, `productId` and `quantity` are read from a selection. The
+ * surcharge always comes from the stored product, never from the cart.
+ */
+export function unitPrice(product, selections) {
+  const base = effectivePrice(product);
+  if (!product?.isBundle || product.bundleType !== "choice" || !Array.isArray(selections)) return base;
+  let extra = 0;
+  for (const pick of selections) {
+    const option = product.groups?.[pick?.group]?.options?.find((o) => o.productId === pick.productId);
+    if (option) extra += (Number(option.surcharge) || 0) * Math.max(0, Math.floor(Number(pick.quantity) || 0));
+  }
+  return money(base + extra);
+}
+
+/**
+ * Why these choices are not a valid way to order this product, or null.
+ *
+ * A product that is not a choice bundle takes no choices. A choice bundle needs
+ * exactly `choose` picks from each group, from that group's own options.
+ */
+export function selectionProblem(product, selections) {
+  const picks = Array.isArray(selections) ? selections : [];
+  if (!product?.isBundle || product.bundleType !== "choice") {
+    return picks.length ? "This item has no choices to make." : null;
+  }
+  const groups = Array.isArray(product.groups) ? product.groups : [];
+  for (const pick of picks) {
+    const group = groups[pick?.group];
+    if (!group || !group.options?.some((o) => o.productId === pick.productId)) {
+      return "One of your choices is no longer offered.";
+    }
+    if (!Number.isInteger(pick.quantity) || pick.quantity < 1) {
+      return "Choose a whole number of each option.";
+    }
+  }
+  for (const [index, group] of groups.entries()) {
+    const mine = picks.filter((pick) => pick.group === index);
+    if (new Set(mine.map((pick) => pick.productId)).size !== mine.length) {
+      return `“${group.label}” lists the same choice twice.`;
+    }
+    if (!group.allowRepeats && mine.some((pick) => pick.quantity > 1)) {
+      return `“${group.label}” cannot have the same one twice.`;
+    }
+    const count = mine.reduce((sum, pick) => sum + pick.quantity, 0);
+    if (count !== group.choose) return `Choose ${group.choose} for “${group.label}”.`;
+  }
+  return null;
+}
+
+/** A line's identity: the product, and for a bundle exactly what was chosen. */
+export function lineSignature(item) {
+  const picks = Array.isArray(item?.selections) ? item.selections : [];
+  if (!picks.length) return String(item?.productId ?? "");
+  const parts = picks.map((pick) => `${pick.group}:${pick.productId}:${pick.quantity}`).sort();
+  return `${item.productId}|${parts.join(",")}`;
+}
+
 /** One cart line's total, at the price the product sells for now. */
-export function lineTotal(product, qty) {
+export function lineTotal(product, qty, selections) {
   const n = Math.max(0, Math.floor(Number(qty) || 0));
-  return money(effectivePrice(product) * n);
+  return money(unitPrice(product, selections) * n);
 }
 
 /**
@@ -121,7 +182,7 @@ export function subtotalOf(items, catalogue) {
   for (const item of items) {
     const product = catalogue.get(item.productId);
     if (!product) continue;
-    total += lineTotal(product, item.qty);
+    total += lineTotal(product, item.qty, item.selections);
   }
   return money(total);
 }

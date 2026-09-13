@@ -42,6 +42,10 @@ process.env.NODE_ENV = 'test';
 // there is no mail provider in a test run, and the account suite reads them
 // back out of the log. Named explicitly so production can never fall into it.
 process.env.MAIL_TRANSPORT = 'console';
+// A key in a developer's .env would otherwise win over the console transport and
+// send real mail to the suite's fake addresses. Empty rather than deleted, so
+// dotenv, which never overwrites a variable that exists, cannot bring it back.
+process.env.BREVO_API_KEY = '';
 
 const fsdb = await import('../firestore.js');
 

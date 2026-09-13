@@ -44,7 +44,9 @@ import { createHash } from 'node:crypto';
 import {
   collections, orderCounterDoc, settingsDoc, FieldValue, Timestamp, get as firestore,
 } from './firestore.js';
-import { effectivePrice, money, priceOrder } from '../shared/pricing.mjs';
+import {
+  lineSignature, money, priceOrder, selectionProblem, unitPrice,
+} from '../shared/pricing.mjs';
 import { assertNewOrder } from './invariants.js';
 import { upsertCustomerInTransaction } from './repo/people.js';
 import { allocateReferenceInTransaction } from './repo/system.js';
@@ -122,7 +124,7 @@ export async function createOrder(payload) {
   }
   if (!Array.isArray(payload.items) || !payload.items.length || payload.items.length > 60
     || payload.items.some((i) => !Number.isInteger(i.qty) || i.qty < 1 || i.qty > 50)
-    || new Set(payload.items.map((i) => i.productId)).size !== payload.items.length
+    || new Set(payload.items.map((i) => lineSignature(i))).size !== payload.items.length
     || payload.items.reduce((sum, i) => sum + i.qty, 0) > 100) {
     throw fail(400, 'INVALID_ITEMS', 'Invalid cart quantities.');
   }
@@ -131,12 +133,20 @@ export async function createOrder(payload) {
     ...Object.fromEntries(['firstName', 'lastName', 'email', 'fulfilment', 'area', 'address',
       'building', 'floor', 'apartment', 'landmark', 'notes', 'promoCode', 'lang', 'expectedTotal']
       .map((k) => [k, payload[k] ?? ''])),
-    items: payload.items.map(({ productId, qty }) => ({ productId, qty })),
+    items: payload.items.map(({ productId, qty, selections }) => ({
+      productId, qty, ...(selections?.length ? { selections } : {}),
+    })),
     phone,
     paymentMethod: payload.paymentMethod || 'cash',
   }));
 
   const ids = [...new Set(payload.items.map((item) => item.productId))];
+  // The products a bundle line picked, read in the same pass so their names
+  // and availability are as current as the bundle's own.
+  const pickedIds = [...new Set(payload.items.flatMap(
+    (item) => (item.selections ?? []).map((pick) => pick.productId),
+  ))];
+  const optionIds = pickedIds.filter((id) => !ids.includes(id));
   const idempotencyRef = collections.orderIdempotency().doc(payload.idempotencyKey);
   const promoRef = payload.promoCode
     ? collections.promos().doc(payload.promoCode.trim().toUpperCase())
@@ -149,7 +159,9 @@ export async function createOrder(payload) {
     const [idempotencySnap, settingsSnap, counterSnap, customerSnap] = await tx.getAll(
       idempotencyRef, settingsDoc(), orderCounterDoc(), customerRef,
     );
-    const productSnaps = await tx.getAll(...ids.map((id) => collections.products().doc(id)));
+    const productSnaps = await tx.getAll(
+      ...[...ids, ...optionIds].map((id) => collections.products().doc(id)),
+    );
     const promoSnap = promoRef ? await tx.get(promoRef) : null;
 
     // --- Idempotency ------------------------------------------------------
@@ -174,6 +186,21 @@ export async function createOrder(payload) {
     const catalogue = new Map();
     for (const snap of productSnaps) {
       if (snap.exists) catalogue.set(snap.id, { id: snap.id, ...snap.data() });
+    }
+
+    // A fixed bundle's contents, so the order line can name them for the kitchen.
+    const componentIds = [...new Set(ids
+      .map((id) => catalogue.get(id))
+      .filter((product) => product?.isBundle && product.bundleType !== 'choice')
+      .flatMap((product) => (product.components ?? []).map((component) => component.productId)))]
+      .filter((id) => !catalogue.has(id));
+    if (componentIds.length) {
+      const componentSnaps = await tx.getAll(
+        ...componentIds.map((id) => collections.products().doc(id)),
+      );
+      for (const snap of componentSnaps) {
+        if (snap.exists) catalogue.set(snap.id, { id: snap.id, ...snap.data() });
+      }
     }
 
     const missing = ids.filter((id) => !catalogue.has(id));
@@ -205,6 +232,21 @@ export async function createOrder(payload) {
     if (unavailable.length) {
       throw fail(409, 'PRODUCT_UNAVAILABLE',
         'Something in your cart has sold out.', { productIds: unavailable });
+    }
+
+    // --- Bundles: the choices must still fit the bundle as it is now ---------
+    for (const item of payload.items) {
+      const problem = selectionProblem(catalogue.get(item.productId), item.selections);
+      if (problem) {
+        throw fail(400, 'INVALID_SELECTION', problem, { productId: item.productId });
+      }
+    }
+    const pickedUnavailable = pickedIds.filter(
+      (id) => !catalogue.has(id) || catalogue.get(id).available === false,
+    );
+    if (pickedUnavailable.length) {
+      throw fail(409, 'PRODUCT_UNAVAILABLE',
+        'One of your choices has sold out.', { productIds: pickedUnavailable });
     }
 
     // --- Settings, and whether the shop is even open ------------------------
@@ -261,8 +303,8 @@ export async function createOrder(payload) {
 
     const items = payload.items.map((item) => {
       const product = catalogue.get(item.productId);
-      const unit = effectivePrice(product);
-      return {
+      const unit = unitPrice(product, item.selections);
+      const line = {
         productId: product.id,
         name: product.name,
         nameAr: product.nameAr ?? '',
@@ -271,6 +313,33 @@ export async function createOrder(payload) {
         qty: item.qty,
         lineTotal: money(unit * item.qty),
       };
+      // What is actually inside, copied onto the line like the name and price
+      // are, so the order still reads correctly after the bundle is edited.
+      if (product.isBundle && product.bundleType === 'choice') {
+        line.selections = (item.selections ?? []).map((pick) => {
+          const group = product.groups[pick.group];
+          const option = group.options.find((entry) => entry.productId === pick.productId);
+          const picked = catalogue.get(pick.productId);
+          return {
+            group: pick.group,
+            label: group.label,
+            labelAr: group.labelAr ?? '',
+            productId: pick.productId,
+            name: picked?.name ?? '',
+            nameAr: picked?.nameAr ?? '',
+            quantity: pick.quantity,
+            surcharge: option?.surcharge ?? 0,
+          };
+        });
+      } else if (product.isBundle) {
+        line.components = (product.components ?? []).map((component) => ({
+          productId: component.productId,
+          name: catalogue.get(component.productId)?.name ?? '',
+          nameAr: catalogue.get(component.productId)?.nameAr ?? '',
+          quantity: component.quantity,
+        }));
+      }
+      return line;
     });
 
     const order = {

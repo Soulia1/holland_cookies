@@ -18,6 +18,7 @@ import { logEvent } from '../security.js';
 // through its `@shared` alias — so the two cannot disagree about what a status
 // is.
 import { ORDER_STATUSES } from '../../shared/orderStatus.mjs';
+import { lineSignature } from '../../shared/pricing.mjs';
 import * as orders from '../repo/orders.js';
 
 const router = Router();
@@ -38,6 +39,12 @@ const checkoutBody = z.strictObject({
   items: z.array(z.strictObject({
     productId: identifier,
     qty: z.number().int().min(1).max(50),
+    // A choice bundle's picks: which group, which product, how many.
+    selections: z.array(z.strictObject({
+      group: z.number().int().min(0).max(7),
+      productId: identifier,
+      quantity: z.number().int().min(1).max(12),
+    })).max(96).optional(),
   })).min(1, 'Your cart is empty.').max(60),
   firstName: z.string().trim().min(1, 'We need a name for the order.').max(80),
   lastName: z.string().max(80).optional(),
@@ -56,7 +63,7 @@ const checkoutBody = z.strictObject({
   lang: z.enum(['en', 'ar']).optional(),
   expectedTotal: amount.optional(),
 }).superRefine((body, ctx) => {
-  if (new Set(body.items.map((item) => item.productId)).size !== body.items.length) {
+  if (new Set(body.items.map((item) => lineSignature(item))).size !== body.items.length) {
     ctx.addIssue({ code: 'custom', path: ['items'], message: 'Each product must appear once.' });
   }
   if (body.items.reduce((sum, item) => sum + item.qty, 0) > 100) {

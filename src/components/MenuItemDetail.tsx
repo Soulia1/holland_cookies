@@ -12,11 +12,12 @@
 // opening a row and adding from it lands in the same bag as adding from the row
 // itself.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "framer-motion";
 import AddToCart from "@/components/AddToCart";
-import type { MenuCategory, MenuItem } from "@/data/menu";
+import { flavorVariants, type MenuCategory, type MenuItem } from "@/data/menu";
+import { selectionProblem, unitPrice } from "../../shared/productPricing.mjs";
 import { describeItem } from "@/data/menuCopy";
 import { itemImage } from "@/data/menuImages";
 import { localized, useLang } from "@/lib/i18n";
@@ -46,6 +47,17 @@ export default function MenuItemDetail({
   const { reduced, coarse } = useCapability();
   const open = selection !== null;
 
+  // Which flavor the customer has picked, for items that name several
+  // flavors as one printed line (see `flavorChoices` on `MenuItem`) rather
+  // than as separate items. Keyed off the item id rather than reset in an
+  // effect, so switching straight from one row's dialog to another's — the
+  // trigger stays mounted, `selection` just changes — can never leak the
+  // previous item's pick into this one.
+  const [flavorPick, setFlavorPick] = useState<{ itemId: string; flavor: string } | null>(null);
+  // A choice bundle's picks, keyed `group:productId`, and keyed off the item for
+  // the same reason as the flavor above.
+  const [picks, setPicks] = useState<{ itemId: string; counts: Record<string, number> } | null>(null);
+
   // The visual half of locking the page behind the dialog; Radix does the aria
   // half. The scrollbar compensation is what stops the page underneath sliding
   // sideways as its scrollbar disappears.
@@ -69,7 +81,54 @@ export default function MenuItemDetail({
   const category = selection?.category;
   const name = item ? localized(lang, item.name, item.nameAr) : "";
   const note = item?.note ? localized(lang, item.note, item.noteAr) : undefined;
-  const photo = item ? itemImage(item.id) : undefined;
+  const photo = item ? (item.image ?? itemImage(item.id)) : undefined;
+
+  const choices = item?.flavorChoices;
+  const chosenFlavor =
+    choices && flavorPick?.itemId === item?.id ? flavorPick.flavor : null;
+
+  // The printed line names several flavors before an em dash and the shared
+  // filling after it — "Vanilla, Red Velvet or Chocolate — Nutella filling" —
+  // so the cart line for a chosen flavor is built from that same filling text
+  // rather than a second copy of it hand-typed here.
+  const cartName =
+    choices && chosenFlavor
+      ? `${chosenFlavor}, ${name.split("—")[1]?.trim() ?? name}`
+      : name;
+  const cartProductId =
+    item && choices && chosenFlavor
+      ? flavorVariants(item).find((variant) => variant.flavor === chosenFlavor)?.id
+      : item?.id;
+
+  const bundle = item?.bundle;
+  const counts = bundle?.type === "choice" && picks && picks.itemId === item?.id ? picks.counts : {};
+  const selections = Object.entries(counts)
+    .filter(([, quantity]) => quantity > 0)
+    .map(([key, quantity]) => {
+      const split = key.indexOf(":");
+      return { group: Number(key.slice(0, split)), productId: key.slice(split + 1), quantity };
+    });
+  const pricing = item && bundle
+    ? { price: item.price, isBundle: true, bundleType: bundle.type, groups: bundle.groups }
+    : null;
+  const shownPrice = item ? (pricing ? unitPrice(pricing, selections) : item.price) : 0;
+  const choicesIncomplete = pricing && bundle?.type === "choice"
+    ? selectionProblem(pricing, selections) !== null
+    : false;
+  const cartSelections = selections.map((pick) => {
+    const option = bundle?.groups[pick.group]?.options.find((entry) => entry.productId === pick.productId);
+    return { ...pick, name: option ? localized(lang, option.name, option.nameAr) : pick.productId };
+  });
+  const setCount = (group: number, productId: string, next: number) => {
+    if (!item) return;
+    setPicks((current) => ({
+      itemId: item.id,
+      counts: {
+        ...(current?.itemId === item.id ? current.counts : {}),
+        [`${group}:${productId}`]: Math.max(0, next),
+      },
+    }));
+  };
 
   return (
     <DialogPrimitive.Root
@@ -165,7 +224,7 @@ export default function MenuItemDetail({
                         {name}
                       </DialogPrimitive.Title>
                       <span className="font-body text-[14px] font-semibold text-deep-burgundy whitespace-nowrap mt-2 tabular-nums">
-                        {t.price(item.price)}
+                        {t.price(shownPrice)}
                       </span>
                     </div>
 
@@ -179,20 +238,151 @@ export default function MenuItemDetail({
                     <DialogPrimitive.Description className="font-body text-[15px] leading-[25px] text-on-surface-variant">
                       {describeItem(item, category)}
                     </DialogPrimitive.Description>
+
+                    {/* A choice, not a bare list of flavors, so the cart line
+                        it produces names one real product instead of the
+                        printed shorthand for three. */}
+                    {choices && (
+                      <div className="mt-5" role="radiogroup" aria-label={t.menuDetailChooseFlavor}>
+                        <p className="font-body text-[12px] font-semibold uppercase tracking-[0.15em] text-secondary mb-2">
+                          {t.menuDetailChooseFlavor}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {choices.map((flavor) => {
+                            const picked = chosenFlavor === flavor;
+                            return (
+                              <button
+                                key={flavor}
+                                type="button"
+                                role="radio"
+                                aria-checked={picked}
+                                className={`btn font-body text-[13px] font-semibold px-4 py-2 rounded-full border transition-colors ${
+                                  picked
+                                    ? "bg-primary text-on-primary border-primary"
+                                    : "border-outline-variant text-primary hover:bg-surface-container-low"
+                                }`}
+                                onClick={() => setFlavorPick({ itemId: item.id, flavor })}
+                              >
+                                {flavor}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {bundle?.type === "fixed" && bundle.components.length > 0 && (
+                      <div className="mt-5">
+                        <p className="font-body text-[12px] font-semibold uppercase tracking-[0.15em] text-secondary mb-2">
+                          {t.bundleIncludes}
+                        </p>
+                        <ul className="font-body text-[14px] text-on-surface-variant space-y-1">
+                          {bundle.components.map((component) => (
+                            <li key={component.productId}>
+                              {component.quantity}× {localized(lang, component.name, component.nameAr)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {bundle?.type === "choice" && bundle.groups.map((group, groupIndex) => {
+                      const taken = group.options.reduce(
+                        (sum, option) => sum + (counts[`${groupIndex}:${option.productId}`] ?? 0), 0,
+                      );
+                      const label = localized(lang, group.label, group.labelAr);
+                      return (
+                        <div key={groupIndex} className="mt-5" role="group" aria-label={label}>
+                          <p className="font-body text-[12px] font-semibold uppercase tracking-[0.15em] text-secondary mb-2 flex justify-between gap-3">
+                            <span>{label}</span>
+                            <span className="tabular-nums">{t.bundlePicked(taken, group.choose)}</span>
+                          </p>
+                          <ul className="space-y-2">
+                            {group.options.map((option) => {
+                              const count = counts[`${groupIndex}:${option.productId}`] ?? 0;
+                              const optionName = localized(lang, option.name, option.nameAr);
+                              const canAdd = option.available
+                                && taken < group.choose
+                                && (group.allowRepeats || count === 0);
+                              return (
+                                <li key={option.productId}
+                                  className="flex items-center justify-between gap-3 rounded-sm border border-outline-variant px-3 py-2">
+                                  <span className="font-body text-[14px] text-primary">
+                                    {optionName}
+                                    {option.surcharge > 0 && (
+                                      <span className="text-secondary"> +{t.price(option.surcharge)}</span>
+                                    )}
+                                    {!option.available && <span className="text-secondary"> · {t.soldOut}</span>}
+                                  </span>
+                                  <span className="flex items-center gap-2 shrink-0">
+                                    <button type="button"
+                                      className="btn w-8 h-8 rounded-full border border-outline-variant text-primary disabled:opacity-30"
+                                      aria-label={t.cartDecrease(optionName)}
+                                      disabled={count === 0}
+                                      onClick={() => setCount(groupIndex, option.productId, count - 1)}>
+                                      −
+                                    </button>
+                                    <span className="tabular-nums w-4 text-center font-body text-[14px]">{count}</span>
+                                    <button type="button"
+                                      className="btn w-8 h-8 rounded-full border border-outline-variant text-primary disabled:opacity-30"
+                                      aria-label={t.cartIncrease(optionName)}
+                                      disabled={!canAdd}
+                                      onClick={() => setCount(groupIndex, option.productId, count + 1)}>
+                                      +
+                                    </button>
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
                 <div className="shrink-0 border-t border-outline-variant/40 bg-soft-oat p-4 md:p-5 flex gap-3 items-center">
-                  <AddToCart
-                    className="menu-detail-add"
-                    label={t.addToCart}
-                    item={{
-                      productId: item.id,
-                      name,
-                      price: item.price,
-                      ...(note ? { note } : {}),
-                    }}
-                  />
+                  {item.soldOut ? (
+                    <button
+                      type="button"
+                      className="add-btn btn menu-detail-add opacity-50 cursor-not-allowed"
+                      disabled
+                    >
+                      <span className="add-btn-label">{t.soldOut}</span>
+                    </button>
+                  ) : choicesIncomplete ? (
+                    <button
+                      type="button"
+                      className="add-btn btn menu-detail-add opacity-50 cursor-not-allowed"
+                      disabled
+                    >
+                      <span className="add-btn-label">{t.bundleMakeChoices}</span>
+                    </button>
+                  ) : choices && !chosenFlavor ? (
+                    // Blocked until a flavor is picked, rather than adding
+                    // the printed shorthand itself to the cart — the shop
+                    // cannot bake "Vanilla, Red Velvet or Chocolate".
+                    <button
+                      type="button"
+                      className="add-btn btn menu-detail-add opacity-50 cursor-not-allowed"
+                      disabled
+                    >
+                      <span className="add-btn-label">{t.menuDetailChooseFlavor}</span>
+                    </button>
+                  ) : (
+                    <AddToCart
+                      key={cartProductId}
+                      className="menu-detail-add"
+                      label={t.addToCart}
+                      item={{
+                        productId: cartProductId!,
+                        name: cartName,
+                        price: shownPrice,
+                        ...(note ? { note } : {}),
+                        ...(cartSelections.length ? { selections: cartSelections } : {}),
+                      }}
+                    />
+                  )}
                   <DialogPrimitive.Close asChild>
                     <button
                       type="button"
