@@ -92,6 +92,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm ci
+      # spaRoutes.test.js serves the built storefront shell, so dist/ must exist.
+      - run: npm run build
       # Starts the emulator, runs both suites inside its lifecycle, tears it
       # down. Includes the Firestore rules tests, which assert DENY.
       - name: Backend + security + rules

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { MenuItem } from "@/lib/api";
 import { categoryName, categoryOptions } from "@/lib/categories";
 import { formatEGP } from "@/lib/format";
+import { Picker, TextInput } from "@/components/menu-ui";
 
 /**
  * The choice-group editor, from Bad Ziggy.
@@ -75,9 +76,9 @@ function OptionRow({
 
   return (
     <div className="flex items-center gap-1.5">
-      <select
+      <Picker
         aria-label={`Option ${index + 1} product`}
-        className="adm-input min-w-0 flex-1"
+        className="min-w-0 flex-1"
         value={option.productId}
         onChange={(event) => onChange({ productId: event.target.value })}
       >
@@ -85,13 +86,13 @@ function OptionRow({
         {choosable.map((item) => (
           <option key={item.id} value={item.id}>{item.name}</option>
         ))}
-      </select>
+      </Picker>
 
       <div className="flex shrink-0 items-center gap-1">
         <span className="text-xs text-muted-foreground">+</span>
-        <input
+        <TextInput
           aria-label={`Option ${index + 1} surcharge`}
-          className="adm-input w-20 shrink-0 tabular-nums"
+          className="w-20 shrink-0 tabular-nums"
           type="number"
           min="0"
           step="1"
@@ -145,17 +146,16 @@ function GroupCard({
     <div className="space-y-2.5 rounded-lg border border-border bg-card p-3">
       <div className="flex items-start gap-1.5">
         <div className="grid min-w-0 flex-1 gap-1.5 sm:grid-cols-2">
-          <input
+          <TextInput
             aria-label={`Choice ${index + 1} name`}
-            className="adm-input font-medium"
+            className="font-medium"
             placeholder="Choose your cookies"
             maxLength={80}
             value={group.label}
             onChange={(event) => onChange({ label: event.target.value })}
           />
-          <input
+          <TextInput
             aria-label={`Choice ${index + 1} name in Arabic`}
-            className="adm-input"
             dir="rtl"
             placeholder="اختار الكوكيز"
             maxLength={80}
@@ -191,9 +191,9 @@ function GroupCard({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
         <label className="flex items-center gap-2">
           Customer picks
-          <input
+          <TextInput
             aria-label={`Choice ${index + 1} how many`}
-            className="adm-input w-16 tabular-nums"
+            className="w-16 tabular-nums"
             type="number"
             min="1"
             max="12"
@@ -244,9 +244,9 @@ function GroupCard({
 
         <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           <Sparkles className="size-3.5" aria-hidden />
-          <select
+          <Picker
             aria-label={`Fill choice ${index + 1} from a category`}
-            className="adm-input w-auto py-1 text-xs"
+            className="w-auto min-h-8 py-1 text-xs"
             value={fillFrom}
             onChange={(event) => fill(event.target.value)}
           >
@@ -254,7 +254,7 @@ function GroupCard({
             {categoryOptions().map((category) => (
               <option key={category.id} value={category.id}>{categoryName(category.id)}</option>
             ))}
-          </select>
+          </Picker>
         </label>
 
         {!problem && choose > 0 && (

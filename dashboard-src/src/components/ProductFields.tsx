@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import type { MenuItem } from "@/lib/api";
 import type { ComponentDraft } from "@/lib/productForm";
 import { ChoiceGroups, type ChoiceGroupDraft } from "@/components/ChoiceGroups";
-import { Btn } from "@/components/menu-ui";
+import { Btn, Picker, TextInput } from "@/components/menu-ui";
 
 /** A fixed bundle's contents: which products, and how many of each. */
 function ComponentEditor({
@@ -42,9 +42,9 @@ function ComponentEditor({
 
       {components.map((component, index) => (
         <div key={index} className="flex items-center gap-1.5">
-          <select
+          <Picker
             aria-label={`Component ${index + 1} product`}
-            className="adm-input min-w-0 flex-1"
+            className="min-w-0 flex-1"
             value={component.productId}
             onChange={(e) => patch(index, { productId: e.target.value })}
           >
@@ -54,10 +54,10 @@ function ComponentEditor({
               .map((item) => (
                 <option key={item.id} value={item.id}>{item.name}</option>
               ))}
-          </select>
-          <input
+          </Picker>
+          <TextInput
             aria-label={`Component ${index + 1} quantity`}
-            className="adm-input w-16 shrink-0"
+            className="w-16 shrink-0 tabular-nums"
             type="number"
             min="1"
             max="50"
