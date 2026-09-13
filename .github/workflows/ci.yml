@@ -170,7 +170,10 @@ jobs:
       # No business API is mocked: a real browser against the real Express
       # server against a real (emulated) Firestore.
       - name: Playwright
-        run: npx playwright test --project=${{ matrix.project }}
+        # data/ is gitignored, and the e2e server writes its log there.
+        run: |
+          mkdir -p data
+          npx playwright test --project=${{ matrix.project }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
