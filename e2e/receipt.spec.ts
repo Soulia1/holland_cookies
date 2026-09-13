@@ -29,7 +29,11 @@ async function ready(page: Page) {
 async function toCheckout(page: Page) {
   await page.goto("/menu", { waitUntil: "load" });
   await ready(page);
-  await page.getByRole("button", { name: "Add Vanilla, Lotus filling to cart" }).first().click();
+  const add = page.getByRole("button", { name: "Add Vanilla, Lotus filling to cart" }).first();
+  // Centred first: scrolled only "into view" on a phone, the row lands under the
+  // sticky category bar, which moves as the header condenses and takes the tap.
+  await add.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await add.click();
   await expect(page.locator(".cart-badge")).toHaveText("1");
 
   await page.evaluate(() => {
@@ -189,10 +193,16 @@ test.describe("the receipt printer", () => {
         .slice(1)
         .map((v, i) => Math.abs(v - distinct[i]))
         .filter((g) => g > 0.5);
+      // A move that is not a whole number of lines is the paper gliding.
+      const offLineMoves = gaps.filter((gap) => {
+        const lines = Math.round(gap / lineHeight);
+        return lines === 0 || Math.abs(gap - lines * lineHeight) > 1.5;
+      }).length;
       return {
         timing: getComputedStyle(paper).animationTimingFunction,
         frames: seen.length,
-        distinct: distinct.length,
+        moves: gaps.length,
+        offLineMoves,
         medianGap: gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)],
         lineHeight,
       };
@@ -203,10 +213,11 @@ test.describe("the receipt printer", () => {
     // a thermal printer drives the platen one line at a time.
     expect(motion.timing).toMatch(/^steps\(/);
 
-    // Far fewer distinct positions than frames — the paper holds, then jumps.
-    // A smooth glide would give a new position on essentially every frame.
-    expect(motion.frames).toBeGreaterThan(30);
-    expect(motion.distinct).toBeLessThan(motion.frames / 3);
+    // The paper holds, then jumps: every move is whole lines. Nothing here
+    // depends on the frame rate — counting distinct positions per frame failed
+    // on slow runners that drew 8–35 frames while the feed stepped correctly.
+    expect(motion.moves).toBeGreaterThan(0);
+    expect(motion.offLineMoves).toBe(0);
 
     // And each jump is one printed line, which is what makes it read as
     // printing rather than as a panel being nudged along.

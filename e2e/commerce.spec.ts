@@ -30,7 +30,11 @@ async function settle(page: Page) {
 async function startCheckout(page: Page, product = "Vanilla, Lotus filling") {
   await page.goto("/menu", { waitUntil: "load" });
   await ready(page);
-  await page.getByRole("button", { name: `Add ${product} to cart` }).first().click();
+  const add = page.getByRole("button", { name: `Add ${product} to cart` }).first();
+  // Centred first: scrolled only "into view" on a phone, the row lands under the
+  // sticky category bar, which moves as the header condenses and takes the tap.
+  await add.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await add.click();
   await expect(page.locator(".cart-badge")).toHaveText("1");
   await settle(page);
   await page.getByRole("button", { name: "Open cart" }).click();

@@ -63,7 +63,11 @@ async function codeFor(email: string): Promise<string> {
 async function orderAsGuest(page: Page, email: string): Promise<string> {
   await page.goto("/menu", { waitUntil: "load" });
   await ready(page);
-  await page.getByRole("button", { name: "Add Vanilla to cart" }).first().click();
+  const add = page.getByRole("button", { name: "Add Vanilla to cart" }).first();
+  // Centred first: scrolled only "into view" on a phone, the row lands under the
+  // sticky category bar, which moves as the header condenses and takes the tap.
+  await add.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await add.click();
   await expect(page.locator(".cart-badge")).toHaveText("1");
 
   await page.evaluate(() => {
