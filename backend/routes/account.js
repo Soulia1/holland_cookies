@@ -15,7 +15,7 @@ import {
   claimProfile, clearCustomerSession, issueCustomerSession, readCustomer, requireCustomer,
 } from '../customerAuth.js';
 import { isEmail, normalizeEmail, requestCode, verifyCode } from '../otp.js';
-import { mailConfigured, sendSignInCode } from '../mailer.js';
+import { accountsAvailable, mailConfigured, sendSignInCode } from '../mailer.js';
 import * as people from '../repo/people.js';
 import * as orderRepo from '../repo/orders.js';
 
@@ -41,6 +41,10 @@ router.post('/request-code', requestCodeLimiter, async (req, res, next) => {
   }).safeParse(req.body);
   if (!parsed.success || !isEmail(parsed.data.email)) {
     return res.status(400).json({ error: 'INVALID_EMAIL', message: 'That email does not look right.' });
+  }
+  // Refused before a code is minted: a code nobody can receive is not stored.
+  if (!accountsAvailable()) {
+    return res.status(503).json({ error: 'ACCOUNTS_UNAVAILABLE', message: 'Accounts are not available yet.' });
   }
 
   try {
@@ -110,7 +114,11 @@ router.post('/signout', async (req, res, next) => {
  */
 router.get('/me', async (req, res, next) => {
   try {
-    res.json({ customer: await readCustomer(req), mailConfigured: mailConfigured() });
+    res.json({
+      customer: await readCustomer(req),
+      mailConfigured: mailConfigured(),
+      accountsEnabled: accountsAvailable(),
+    });
   } catch (error) { next(error); }
 });
 

@@ -13,7 +13,7 @@ import {
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { formatEGP } from "@/lib/format";
-import { effectivePrice } from "@shared/productPricing.mjs";
+import { discountProblem, effectivePrice } from "@shared/productPricing.mjs";
 
 /**
  * The menu.
@@ -97,6 +97,53 @@ const BLANK: Draft = {
   discountEnabled: false, discountType: "percent", discountValue: "",
   isBundle: false, bundleType: "fixed", components: [], groups: [],
 };
+
+/**
+ * Why this draft cannot be saved, in words the operator can act on, or null.
+ *
+ * Checked before anything is sent, so a blank or non-numeric price never
+ * becomes `NaN` in a request. The server applies the same rules again and is
+ * the one that decides; this only means the answer arrives under the form.
+ */
+export function draftProblem(draft: Draft, categoryIds: string[]): string | null {
+  if (!draft.name.trim()) return "Enter the English name.";
+  if (!draft.category || !categoryIds.includes(draft.category)) return "Choose a category.";
+  if (!draft.price.trim()) return "Enter a price.";
+  const price = Number(draft.price);
+  if (!Number.isFinite(price) || price < 0) return "The price must be a number, zero or more.";
+  if (price > 1_000_000) return "That price is too large.";
+  if (draft.discountEnabled) {
+    const value = Number(draft.discountValue);
+    if (!draft.discountValue.trim() || !Number.isFinite(value)) return "Enter the discount as a number.";
+    const problem = discountProblem({
+      price, discountEnabled: true, discountType: draft.discountType, discountValue: value,
+    });
+    if (problem) return problem;
+  }
+  if (!draft.isBundle) return null;
+  if (draft.bundleType === "fixed") {
+    const rows = draft.components.filter((component) => component.productId);
+    if (!rows.length) return "A fixed bundle needs at least one product inside it.";
+    if (rows.some((component) => {
+      const quantity = Number(component.quantity);
+      return !Number.isInteger(quantity) || quantity < 1 || quantity > 50;
+    })) return "Each product in the bundle needs a quantity from 1 to 50.";
+    return null;
+  }
+  if (!draft.groups.length) return "Add at least one choice for the customer to make.";
+  for (const group of draft.groups) {
+    if (!group.label.trim()) return "Every choice needs a label.";
+    const choose = Number(group.choose);
+    if (!Number.isInteger(choose) || choose < 1 || choose > 12) return `“${group.label}” must ask for 1 to 12 picks.`;
+    const options = group.options.filter((option) => option.productId);
+    if (!options.length) return `“${group.label}” needs at least one option.`;
+    if (options.some((option) => option.surcharge.trim() !== ""
+      && (!Number.isFinite(Number(option.surcharge)) || Number(option.surcharge) < 0))) {
+      return `“${group.label}” has a surcharge that is not a number, zero or more.`;
+    }
+  }
+  return null;
+}
 
 function bodyFrom(draft: Draft): Partial<MenuItem> {
   const choice = draft.isBundle && draft.bundleType === "choice";
@@ -239,7 +286,8 @@ export default function Menu() {
         const created = await menuApi.create({ ...body, id: draft.id.trim() });
         setNotice(`Added “${created.name}”. It is on the shop's menu now.`);
       } else {
-        await menuApi.update(draft.id, body);
+        const updated = await menuApi.update(draft.id, body);
+        setNotice(`Saved “${updated.name}”. The shop shows the change on its next page load.`);
       }
       await load();
       close();
@@ -251,10 +299,11 @@ export default function Menu() {
   }
 
   async function remove(item: MenuItem) {
-    if (!window.confirm(`Delete ${item.name}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${item.name}? It will be removed from the shop. This cannot be undone.`)) return;
     try {
       await menuApi.remove(item.id);
       await load();
+      setNotice(`Deleted “${item.name}”. It is no longer on the shop's menu.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not delete.");
     }
@@ -587,13 +636,23 @@ function ProductForm({
   saving: boolean; error: string | null;
   onChange: (draft: Draft) => void; onCancel: () => void; onSave: () => void;
 }) {
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
-    onChange({ ...draft, [key]: value });
   // Save waits for a photo still uploading, or the product would save without it.
   const [uploading, setUploading] = useState(false);
+  // A problem found on Save, cleared as soon as the form changes.
+  const [problem, setProblem] = useState<string | null>(null);
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
+    setProblem(null);
+    onChange({ ...draft, [key]: value });
+  };
 
-  // No id requirement: a blank one is made from the English name on save.
-  const valid = draft.name.trim() !== "" && draft.price.trim() !== "";
+  function attemptSave() {
+    if (saving || uploading) return;
+    // No id requirement: a blank one is made from the English name on save.
+    const found = draftProblem(draft, categories.map((category) => category.id));
+    setProblem(found);
+    if (!found) onSave();
+  }
+
   const filedAs = slugify(draft.id) || slugify(draft.name);
 
   const price = Number(draft.price) || 0;
@@ -622,7 +681,7 @@ function ProductForm({
           const target = event.target as HTMLElement;
           if (target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
           event.preventDefault();
-          if (valid && !saving && !uploading) onSave();
+          attemptSave();
         }}
       >
         {creating && (
@@ -740,7 +799,7 @@ function ProductForm({
             groups: draft.groups,
             basePrice: selling,
           }}
-          onChange={(patch) => onChange({ ...draft, ...patch })}
+          onChange={(patch) => { setProblem(null); onChange({ ...draft, ...patch }); }}
           items={items}
           selfId={draft.id}
         />
@@ -751,13 +810,15 @@ function ProductForm({
           Available to order
         </label>
 
-        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        {(problem ?? error) && (
+          <p className="text-sm text-destructive" role="alert">{problem ?? error}</p>
+        )}
       </DialogBody>
 
       <DialogFooter>
         <Btn type="button" variant="secondary" onClick={onCancel}>Cancel</Btn>
-        <Btn type="button" disabled={saving || uploading || !valid} onClick={onSave}>
-          {saving ? "Saving…" : "Save"}
+        <Btn type="button" disabled={saving || uploading} onClick={attemptSave}>
+          {saving ? "Saving…" : uploading ? "Uploading photo…" : "Save"}
         </Btn>
       </DialogFooter>
     </>

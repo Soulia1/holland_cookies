@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { requireAdmin } from '../adminSession.js';
 import { createOrder, normalizePhone } from '../orderTransaction.js';
 import { validateParams, amount, identifier, email as emailSchema } from '../validation.js';
-import { sendOrderConfirmation } from '../mailer.js';
+import { mailConfigured, sendOrderConfirmation } from '../mailer.js';
 import { logEvent } from '../security.js';
 // The status model is shared with the dashboard, which imports the same file
 // through its `@shared` alias — so the two cannot disagree about what a status
@@ -88,6 +88,8 @@ router.post('/', async (req, res, next) => {
       const key = issue.path.join('.') || 'form';
       if (!fields[key]) fields[key] = issue.message;
     }
+    // Field names only — never the values, which are a customer's details.
+    logEvent('order_rejected', req, { code: 'INVALID', fields: Object.keys(fields).slice(0, 12) });
     return res.status(400).json({ error: 'INVALID', message: 'Check the form.', fields });
   }
 
@@ -110,7 +112,10 @@ router.post('/', async (req, res, next) => {
     //   the provider is missing or refuses; that is logged and dropped, because
     //   an order that is already in the database is not undone by a mail
     //   failure and must not be reported as failed. §74.
-    if (!duplicate) {
+    //
+    // And it is not attempted at all while email is switched off, which it is
+    // for launch — a log line per order saying mail failed would be noise.
+    if (!duplicate && mailConfigured()) {
       sendOrderConfirmation(order, parsed.data.lang)
         .then((result) => {
           if (result.delivered) logEvent('order_email_sent', req, { reference: order.reference });
@@ -127,6 +132,7 @@ router.post('/', async (req, res, next) => {
       .json({ order: orders.orderPayload(order), duplicate });
   } catch (error) {
     if (error.status) {
+      logEvent('order_rejected', req, { code: error.code, status: error.status });
       return res.status(error.status).json({
         error: error.code, message: error.message, details: error.details,
       });
@@ -186,6 +192,9 @@ router.get('/', requireAdmin, async (req, res, next) => {
       page: Math.max(1, Number(query.page) || 1),
       perPage: Math.min(100, Math.max(1, Number(query.perPage) || 25)),
       status: STATUSES.includes(query.status) ? query.status : null,
+      // Filtered by the query, not after it: filtering one page of results would
+      // make the page short and the total count everything.
+      fulfilment: ['delivery', 'pickup'].includes(query.fulfilment) ? query.fulfilment : null,
       q: query.q ?? '',
     }));
   } catch (error) { next(error); }
@@ -228,6 +237,32 @@ router.patch('/:reference/status', requireAdmin, async (req, res, next) => {
       return res.status(409).json({ error: 'INVALID_TRANSITION', message: result.rejected });
     }
 
+    const updated = await orders.getOrder(req.params.reference);
+    return res.json({ order: orders.orderPayload(updated) });
+  } catch (error) { return next(error); }
+});
+
+/**
+ * PATCH /api/orders/:reference/payment — record whether the cash was collected.
+ *
+ * Cash on delivery is the only way to pay, so this is internal bookkeeping set
+ * by staff after the handover. No payment provider is involved and nothing here
+ * claims one was.
+ */
+router.patch('/:reference/payment', requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = z.strictObject({ paymentStatus: z.enum(['paid', 'unpaid']) }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'INVALID', message: 'Payment status must be paid or unpaid.' });
+    }
+    const result = await orders.setCashCollected(
+      req.params.reference, parsed.data.paymentStatus === 'paid',
+      { actor: 'admin', requestId: req.requestId },
+    );
+    if (!result.found) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such order.' });
+    if (result.rejected) {
+      return res.status(409).json({ error: 'INVALID_PAYMENT_UPDATE', message: result.rejected });
+    }
     const updated = await orders.getOrder(req.params.reference);
     return res.json({ order: orders.orderPayload(updated) });
   } catch (error) { return next(error); }

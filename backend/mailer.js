@@ -1,9 +1,14 @@
 /**
  * Sending mail.
  *
- * One transport interface with one real implementation — Brevo — which
- * activates the moment `BREVO_API_KEY` is set, plus a development fallback that
- * writes the message to the server log.
+ * One transport interface with one real implementation — Brevo — plus a
+ * development fallback that writes the message to the server log.
+ *
+ * Email is deliberately NOT part of the launch. Brevo activates only when
+ * `MAIL_TRANSPORT=brevo` is set explicitly alongside `BREVO_API_KEY`; a key left
+ * behind in an environment on its own sends nothing. Until then no order
+ * confirmation is sent and customer sign-in (which needs an emailed code) is
+ * switched off — see `accountsAvailable`.
  *
  * Two messages are sent: the sign-in code, and the order confirmation.
  *
@@ -24,7 +29,19 @@
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
 export function mailConfigured() {
-  return Boolean(process.env.BREVO_API_KEY);
+  return process.env.MAIL_TRANSPORT === 'brevo' && Boolean(process.env.BREVO_API_KEY);
+}
+
+/**
+ * Whether customer accounts can be offered at all.
+ *
+ * Sign-in is a code sent by email. With no way to deliver it the sign-in form
+ * would be a control that can never work, so the storefront hides it instead.
+ * The console transport counts, because development and the e2e suite read the
+ * code from the server log.
+ */
+export function accountsAvailable() {
+  return mailConfigured() || consoleTransportAllowed();
 }
 
 function isProduction() {

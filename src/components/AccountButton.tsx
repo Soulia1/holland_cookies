@@ -11,8 +11,11 @@ import { Link } from "@/lib/router";
  * page live — so it is one destination whichever state you are in.
  */
 export default function AccountButton({ className = "" }: { className?: string }) {
-  const { customer, ready } = useAuth();
+  const { customer, ready, accountsEnabled } = useAuth();
   const { t } = useLang();
+
+  // No way to sign in without email, so no door to a sign-in form that cannot work.
+  if (!accountsEnabled && !customer) return null;
 
   return (
     <Link

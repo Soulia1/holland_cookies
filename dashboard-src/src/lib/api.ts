@@ -13,9 +13,8 @@
  * exported shapes belong to the components and must not drift; the fetches
  * belong to Holland's backend and may change freely.
  *
- * Where Holland genuinely has no equivalent — transactional mail, customer
- * accounts — the adapter says so honestly rather than fabricating data. See
- * `mailApi` at the bottom.
+ * Where Holland genuinely has no equivalent — transactional mail, online
+ * payment — the adapter offers no call at all rather than one that pretends.
  */
 
 export type { OrderStatus, FulfillmentType } from "@shared/orderStatus.mjs";
@@ -47,10 +46,7 @@ export interface Order {
   email?: string;
   address?: string;
   area: string;
-  deliveryTimeSlot?: string;
   fulfillmentType?: FulfillmentType;
-  deliveryDate?: string | null;
-  fulfillmentDate?: string;
   statusUpdatedAt?: string;
   deliveryFee?: number;
   paymentMethod: string;
@@ -74,20 +70,13 @@ export interface OrderDetail extends Order {
   subtotal?: number;
   discount?: number;
   promoCode?: string;
-  userId?: string | null;
   updatedAt?: string;
-  confirmationEmail?: {
-    status: "sent" | "failed";
-    provider?: string; providerEmailId?: string; providerStatus?: string;
-    errorCode?: string; sentAt?: string; failedAt?: string;
-  };
   statusHistory?: StatusHistoryEntry[];
 }
 
 export interface OrderFilters {
   status?: OrderStatus | "";
   fulfillmentType?: FulfillmentType | "";
-  fulfillmentDate?: string;
 }
 
 export interface OrderStats {
@@ -129,7 +118,6 @@ export interface MenuItem {
   discountValue?: number;
   emoji?: string;
   image?: string;
-  hoverImage?: string;
   unit?: string;
   category?: string;
   description?: string;
@@ -306,24 +294,18 @@ export interface UserDirectory {
   };
 }
 
-export interface Settings {
-  store: { name: string; email: string };
-  mail: {
-    configured: boolean;
-    provider: "brevo";
-    source: "environment";
-    fromName: string; fromEmail: string; replyTo: string;
-  };
-  fulfillment?: {
-    pickupAddress: string;
-    pickupHours: string;
-    deliveryAreas: string[];
-    deliveryFee: number;
-    freeDeliveryOver: number;
-    acceptingOrders: boolean;
-    cutoffHour: number;
-    pickupCutoffHour: number;
-  };
+/**
+ * The shop settings the server actually stores and enforces. Nothing else is
+ * editable: a field the server would discard has no place on the page.
+ */
+export interface ShopSettings {
+  deliveryFee: number;
+  /** 0 means delivery is never free. */
+  freeDeliveryOver: number;
+  acceptingOrders: boolean;
+  areas: { id: string; name: string; nameAr?: string }[];
+  /** Read-only: whether the server has an email provider switched on. */
+  emailEnabled?: boolean;
 }
 
 // ------------------------------------------------------------- the fetches ---
@@ -355,6 +337,8 @@ const FIELD_LABELS: Record<string, string> = {
   id: "Product id", categoryId: "Category", name: "Name (English)", nameAr: "Name (Arabic)",
   description: "Description", descriptionAr: "Description (Arabic)", note: "Note", noteAr: "Note (Arabic)",
   price: "Price", image: "Photo", discountValue: "Discount", group: "Menu section",
+  code: "Code", value: "Discount value", minSubtotal: "Minimum order", maxUses: "Max uses",
+  expiresAt: "Expiry", deliveryFee: "Delivery fee", freeDeliveryOver: "Free delivery over",
 };
 
 async function json<T>(response: Response, what: string): Promise<T> {
@@ -516,23 +500,16 @@ export const ordersApi = {
     });
     if (query) search.set("q", query);
     if (filters.status) search.set("status", filters.status);
+    // Both filters are applied by the server's query. Filtering a page after it
+    // arrives would leave the page short and the total counting everything.
+    if (filters.fulfillmentType) search.set("fulfilment", filters.fulfillmentType);
 
     const body = await json<{
       orders: HollandOrder[]; page: number; perPage: number; total: number; pages: number;
     }>(await apiFetch(`/api/orders?${search}`, { signal }), "load orders");
 
-    let orders = body.orders.map(toOrder);
-    // Holland's API does not filter on fulfilment, and adding a parameter for a
-    // control the operator uses occasionally is not worth a round trip through
-    // the backend. Applied to the page rather than the whole set, which is the
-    // honest limitation — the status filter, which matters far more, is done
-    // server-side.
-    if (filters.fulfillmentType) {
-      orders = orders.filter((order) => order.fulfillmentType === filters.fulfillmentType);
-    }
-
     return {
-      orders,
+      orders: body.orders.map(toOrder),
       page: body.page,
       pageSize: body.perPage,
       total: body.total,
@@ -562,12 +539,17 @@ export const ordersApi = {
   },
 
   /**
-   * Holland records a payment status but has no gateway to change it, so this
-   * is the one write the backend does not accept. It throws rather than
-   * resolving, so the control reports a failure instead of appearing to work.
+   * Record whether the cash for a completed order was collected.
+   *
+   * Cash on delivery is the only payment method, so this is staff bookkeeping —
+   * no payment provider exists and nothing here implies one.
    */
-  async updatePayment(_reference: string, _paymentStatus: string): Promise<never> {
-    throw new Error("Payment status is set by the payment provider, which is not connected yet.");
+  async updatePayment(reference: string, paymentStatus: "paid" | "unpaid"): Promise<void> {
+    const response = await apiFetch(`/api/orders/${encodeURIComponent(reference)}/payment`, {
+      method: "PATCH",
+      body: JSON.stringify({ paymentStatus }),
+    });
+    await json(response, "record the cash collection");
   },
 
   async updateStatus(reference: string, status: OrderStatus, note = ""): Promise<void> {
@@ -747,73 +729,20 @@ export const usersApi = {
 };
 
 export const settingsApi = {
-  async get(): Promise<Settings> {
-    const body = await json<{
-      settings: {
-        deliveryFee: number; freeDeliveryOver: number; acceptingOrders: boolean;
-        areas: { id: string; name: string; nameAr?: string }[];
-      };
-    }>(await apiFetch("/api/admin/settings"), "load settings");
-
-    return {
-      store: { name: "Holland Cookies", email: "" },
-      // Reported as unconfigured because it is: there is no mail provider wired
-      // to this backend. Saying "configured" here would be a lie the Settings
-      // page would then repeat to the operator.
-      mail: {
-        configured: false, provider: "brevo", source: "environment",
-        fromName: "", fromEmail: "", replyTo: "",
-      },
-      fulfillment: {
-        pickupAddress:
-          "27/19 Mohamed El-Moqrif St., off Hassan El-Mamoun — next to BIM Market, Nasr City",
-        pickupHours: "Daily 11:00 – 01:00",
-        deliveryAreas: body.settings.areas.map((area) => area.name),
-        deliveryFee: body.settings.deliveryFee,
-        freeDeliveryOver: body.settings.freeDeliveryOver,
-        acceptingOrders: body.settings.acceptingOrders,
-        cutoffHour: 12,
-        pickupCutoffHour: 20,
-      },
-    };
+  async get(): Promise<ShopSettings> {
+    const body = await json<{ settings: ShopSettings }>(
+      await apiFetch("/api/admin/settings"), "load settings",
+    );
+    return body.settings;
   },
 
-  async update(patch: {
-    fulfillment?: Partial<NonNullable<Settings["fulfillment"]>>;
-    store?: Settings["store"];
-  }): Promise<Settings> {
-    if (patch.fulfillment) {
-      const body: Record<string, unknown> = {};
-      if (patch.fulfillment.deliveryFee !== undefined) {
-        body.deliveryFee = patch.fulfillment.deliveryFee;
-      }
-      if (patch.fulfillment.freeDeliveryOver !== undefined) {
-        body.freeDeliveryOver = patch.fulfillment.freeDeliveryOver;
-      }
-      if (patch.fulfillment.acceptingOrders !== undefined) {
-        body.acceptingOrders = patch.fulfillment.acceptingOrders;
-      }
-      await json(await apiFetch("/api/admin/settings", {
-        method: "PATCH", body: JSON.stringify(body),
-      }), "save settings");
-    }
+  /** Saves, then reads back — so what the page shows is what was stored. */
+  async update(
+    patch: Partial<Pick<ShopSettings, "deliveryFee" | "freeDeliveryOver" | "acceptingOrders">>,
+  ): Promise<ShopSettings> {
+    await json(await apiFetch("/api/admin/settings", {
+      method: "PATCH", body: JSON.stringify(patch),
+    }), "save settings");
     return settingsApi.get();
-  },
-};
-
-/**
- * Mail.
- *
- * Holland has no transactional mail provider. The methods exist so the copied
- * Settings page compiles and renders, and they fail with a message that says
- * exactly that — rather than resolving silently and letting an operator believe
- * a test email went out.
- */
-export const mailApi = {
-  async verify(): Promise<never> {
-    throw new Error("No mail provider is configured for Holland Cookies yet.");
-  },
-  async test(_to: string): Promise<never> {
-    throw new Error("No mail provider is configured for Holland Cookies yet.");
   },
 };

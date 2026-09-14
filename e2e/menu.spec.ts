@@ -218,6 +218,29 @@ test("a section chip scrolls to its section and clears the sticky bar", async ({
     )
     .toBeLessThan(400);
 
+  // Under 400 is not arrived: the smooth scroll may still be travelling, and the
+  // header is still sliding out of the bar above it. Measured once both have
+  // stopped — two reads 150ms apart that agree — or a slow machine measures the
+  // page mid-flight and reports a gap the reader never sees.
+  const gap = () =>
+    page.evaluate((id) => {
+      const barEdge = document.querySelector(".cat-nav")!.getBoundingClientRect().bottom;
+      const title = document.querySelector(`#${id} .menu-section-title`)!.getBoundingClientRect().top;
+      return Math.round(title - barEdge);
+    }, last.id);
+  let settled = await gap();
+  await expect
+    .poll(
+      async () => {
+        const previous = settled;
+        await page.waitForTimeout(150);
+        settled = await gap();
+        return settled === previous;
+      },
+      { timeout: 8000, message: "the scroll never came to rest" },
+    )
+    .toBe(true);
+
   const bar = await barBottom(page);
   const heading = await page.evaluate(
     (id) => document.querySelector(`#${id} .menu-section-title`)!.getBoundingClientRect().top,

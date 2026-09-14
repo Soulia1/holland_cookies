@@ -26,38 +26,6 @@ export function formatDate(iso: string): string {
   });
 }
 
-// Today's date in Africa/Cairo as 'YYYY-MM-DD' — matches the format the server
-// stores on order.deliveryDate, so "today's deliveries" can compare directly.
-export function cairoToday(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Cairo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
-// Mirrors backend/fulfillment.js's DELIVERY_TIME_SLOTS — the order stores only
-// the id, so the dashboard needs the same id → label table to show it.
-const DELIVERY_TIME_SLOT_LABELS: Record<string, string> = {
-  "12-2pm": "12:00 PM – 2:00 PM",
-  "4-6pm": "4:00 PM – 6:00 PM",
-};
-
-export function deliveryTimeSlotLabel(id?: string | null): string {
-  if (!id) return "";
-  return DELIVERY_TIME_SLOT_LABELS[id] || id;
-}
-
-export function formatDeliveryDate(ymd?: string | null): string {
-  if (!ymd) return "—";
-  const [y, m, d] = ymd.split("-").map(Number);
-  if (!y || !m || !d) return ymd;
-  const dt = new Date(Date.UTC(y, m - 1, d, 12));
-  const label = dt.toLocaleDateString("en-EG", { day: "2-digit", month: "short" });
-  return ymd === cairoToday() ? `${label} · Today` : label;
-}
-
 /**
  * What is actually inside one order line, flattened to `qty × name` parts.
  *
@@ -82,27 +50,6 @@ export function bundleContents(item: {
   return [];
 }
 
-export function summariseItems(
-  items: {
-    name: string;
-    qty: number;
-    emoji?: string;
-    selections?: { name: string; quantity: number }[];
-    components?: { name: string; quantityPerBundle: number; totalQuantity: number }[];
-  }[]
-): string {
-  if (!Array.isArray(items) || !items.length) return "—";
-  return items
-    .map((i) => {
-      const line = `${i.emoji || ""} ${i.name} ×${i.qty}`;
-      // A bundle's name alone ("3-Cookie Bundle") does not tell the kitchen
-      // what to bake, so its contents are spelled out inline.
-      const inner = bundleContents(i);
-      return inner.length ? `${line} (${inner.join(", ")})` : line;
-    })
-    .join(", ");
-}
-
 export const TIME_RANGES = ["7d", "1m", "3m", "6m"] as const;
 export type TimeRange = (typeof TIME_RANGES)[number];
 
@@ -119,12 +66,6 @@ export const TIME_RANGE_DAYS: Record<TimeRange, number> = {
   "3m": 90,
   "6m": 180,
 };
-
-export function rangeStartDate(range: TimeRange): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - TIME_RANGE_DAYS[range]);
-  return d;
-}
 
 /** 1,240 → "1.2K". Keeps the headline figures to a single line. */
 export function formatCompact(n: number): string {

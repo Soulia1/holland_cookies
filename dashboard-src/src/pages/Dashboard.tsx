@@ -65,7 +65,7 @@ function sum(days: DailyBucket[], pick: (d: DailyBucket) => number): number {
 const METRICS: Metric[] = [
   {
     key: "revenue",
-    label: "Paid revenue",
+    label: "Cash collected",
     icon: Banknote,
     value: (d) => d.paidRevenue,
     total: (days) => sum(days, (d) => d.paidRevenue),
@@ -502,7 +502,7 @@ export default function Dashboard() {
             <div>
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span aria-hidden className="size-2 rounded-full bg-[var(--chart-c5)]" />
-                Awaiting payment
+                Cash to collect
               </span>
               <p className="mt-1 text-lg font-semibold tabular-nums">
                 {formatCompactEGP(totals?.pendingValue ?? 0)}
@@ -522,7 +522,7 @@ export default function Dashboard() {
                 {formatCompactEGP(refundDue)}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Paid, then cancelled — owed back to customers.
+                Cash collected, then cancelled — owed back to customers.
               </p>
             </div>
           )}

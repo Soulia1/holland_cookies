@@ -1,6 +1,6 @@
-import { Check, Loader2, MailCheck, MailX } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { type OrderDetail, type OrderStatus } from "@/lib/api";
-import { deliveryTimeSlotLabel, formatDate, formatDeliveryDate, formatEGP } from "@/lib/format";
+import { formatDate, formatEGP } from "@/lib/format";
 import { fulfillmentOf, moneyBreakdown, orderTimeline, statusTimestamps } from "@/lib/orderDetail";
 import { allowedNextStatuses, statusLabel, statusSteps } from "@shared/orderStatus.mjs";
 
@@ -42,13 +42,11 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+/** Cash is the only payment method, so these describe the handover, not a gateway. */
 const PAYMENT_LABELS: Record<string, string> = {
-  unpaid: "Unpaid",
-  pending: "Pending",
-  paid: "Paid",
-  failed: "Failed",
+  unpaid: "Cash not yet collected",
+  paid: "Cash collected",
   refunded: "Refunded",
-  partially_refunded: "Partially refunded",
 };
 
 export default function OrderDetailView({
@@ -69,7 +67,6 @@ export default function OrderDetailView({
   const steps = statusSteps(order.status, type, statusTimestamps(order));
   const lines = moneyBreakdown(order);
   const timeline = orderTimeline(order);
-  const email = order.confirmationEmail;
 
   return (
     <>
@@ -168,26 +165,20 @@ export default function OrderDetailView({
                 ) : null
               }
             />
-            <Field
-              label="Account"
-              value={order.userId ? "Signed-in customer" : "Guest checkout"}
-            />
           </dl>
         </Section>
 
         <Section title={isPickup ? "Pickup" : "Delivery"}>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Type" value={isPickup ? "Pickup" : "Delivery"} />
-            <Field
-              label={isPickup ? "Ready on" : "Delivery date"}
-              value={formatDeliveryDate(order.fulfillmentDate ?? order.deliveryDate)}
-            />
             {!isPickup && <Field label="Area" value={order.area} />}
             {!isPickup && <Field label="Address" value={order.address} />}
-            {!isPickup && (
-              <Field label="Time slot" value={deliveryTimeSlotLabel(order.deliveryTimeSlot)} />
-            )}
-            <Field label="Payment method" value={order.paymentMethod} />
+            <Field
+              label="Payment method"
+              value={order.paymentMethod === "cash"
+                ? (isPickup ? "Cash on pickup" : "Cash on delivery")
+                : order.paymentMethod}
+            />
             <Field
               label="Payment status"
               value={PAYMENT_LABELS[order.paymentStatus ?? "unpaid"] ?? order.paymentStatus}
@@ -279,7 +270,7 @@ export default function OrderDetailView({
         {!order.items?.length && <p className="adm-empty">No items recorded on this order.</p>}
       </Section>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4">
         <Section title="Money" note="What the customer was charged">
           <dl className="space-y-2">
             {lines.map((line) => (
@@ -298,29 +289,6 @@ export default function OrderDetailView({
           </dl>
         </Section>
 
-        <Section title="Confirmation email">
-          {email ? (
-            <div className="flex items-start gap-3">
-              {email.status === "sent" ? (
-                <MailCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
-              ) : (
-                <MailX className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
-              )}
-              <div className="text-sm">
-                <p className="font-medium">
-                  {email.status === "sent" ? "Sent" : "Failed to send"}
-                </p>
-                <p className="adm-muted mt-1 text-[12.5px]">
-                  {email.status === "sent"
-                    ? formatDate(email.sentAt || "")
-                    : `${email.errorCode || "Unknown error"} · ${formatDate(email.failedAt || "")}`}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="adm-muted text-sm">No confirmation email has been recorded yet.</p>
-          )}
-        </Section>
       </div>
 
       <Section title="History" note="Oldest first">

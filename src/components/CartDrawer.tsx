@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { api } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { lineKey, type CartItem } from "@/lib/cart-core";
 import { itemImage } from "@/data/menuImages";
@@ -32,6 +34,18 @@ function lineImage(line: CartItem): string | undefined {
 export default function CartDrawer() {
   const { items, count, subtotal, open, setOpen, setQty, remove, clear } = useCart();
   const { t, lang } = useLang();
+  // Asked each time the cart opens, so a customer learns ordering is paused here
+  // rather than after filling in the whole checkout form. The server refuses the
+  // order either way; this is only the earlier, kinder place to say so.
+  const [closed, setClosed] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    api.settings()
+      .then((result) => { if (active) setClosed(result.settings.acceptingOrders === false); })
+      .catch(() => { /* checkout checks again */ });
+    return () => { active = false; };
+  }, [open]);
 
   function goToCheckout() {
     // Closed first, then navigated. Leaving the drawer open across the
@@ -150,6 +164,7 @@ export default function CartDrawer() {
                   <strong>{t.price(subtotal)}</strong>
                 </div>
 
+                {closed && <p className="cart-closed" role="status">{t.ckClosed}</p>}
                 <button type="button" className="cart-checkout btn" onClick={goToCheckout}>
                   {t.cartCheckout}
                 </button>

@@ -146,24 +146,25 @@ export async function getOrderForTracking(reference, phone) {
  *
  * Two paths, because they have genuinely different costs:
  *
- *   No search term → a real Firestore query with the status filter, ordering and
- *   page window pushed to the server. Reads exactly one page.
+ *   No search term → a real Firestore query with the status and fulfilment
+ *   filters, ordering and page window pushed to the server. Reads exactly one
+ *   page, and the total counts the filtered set.
  *
  *   Search term → a bounded scan, filtered here. Unavoidable; see SEARCH_SCAN_CAP.
  */
-export async function listOrders({ page = 1, perPage = 25, status = null, q = '' } = {}) {
+export async function listOrders({ page = 1, perPage = 25, status = null, fulfilment = null, q = '' } = {}) {
   const needle = String(q ?? '').trim().toLowerCase();
-
-  if (!needle) {
+  const filtered = () => {
     let query = collections.orders();
     if (status) query = query.where('status', '==', status);
+    if (fulfilment) query = query.where('fulfilment', '==', fulfilment);
+    return query;
+  };
 
-    const counted = await (status
-      ? collections.orders().where('status', '==', status)
-      : collections.orders()).count().get();
-    const total = counted.data().count;
+  if (!needle) {
+    const total = (await filtered().count().get()).data().count;
 
-    const snapshot = await query
+    const snapshot = await filtered()
       .orderBy('seq', 'desc')
       .offset((page - 1) * perPage)
       .limit(perPage)
@@ -178,9 +179,7 @@ export async function listOrders({ page = 1, perPage = 25, status = null, q = ''
     };
   }
 
-  let scan = collections.orders();
-  if (status) scan = scan.where('status', '==', status);
-  const snapshot = await scan.orderBy('seq', 'desc').limit(SEARCH_SCAN_CAP).get();
+  const snapshot = await filtered().orderBy('seq', 'desc').limit(SEARCH_SCAN_CAP).get();
 
   const matched = snapshot.docs.map(orderFromDoc).filter((order) => [
     order.reference, order.firstName, order.lastName, order.phone, order.email,
@@ -279,6 +278,49 @@ export async function changeOrderStatus(reference, nextStatus, note, { actor = '
     });
 
     return { found: true, order: { ...order, status: nextStatus } };
+  });
+}
+
+/**
+ * Record whether the cash for an order has been collected.
+ *
+ * Cash on delivery is the only payment method, so `paymentStatus` is internal
+ * bookkeeping: `paid` means the driver or the counter has the money, `unpaid`
+ * undoes a misclick. Cash changes hands at the handover, so it can be marked
+ * collected only once the order is completed; a cancelled order has nothing to
+ * collect. The change and its audit event commit together.
+ */
+export async function setCashCollected(reference, collected, { actor = 'admin', requestId = '' } = {}) {
+  const ref = collections.orders().doc(String(reference).toUpperCase());
+  const db = collections.orders().firestore;
+
+  return db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) return { found: false };
+    const order = orderFromDoc(snapshot);
+
+    if (order.paymentMethod !== 'cash') {
+      return { found: true, rejected: 'Only cash orders are recorded here.' };
+    }
+    const paymentStatus = collected ? 'paid' : 'unpaid';
+    if (order.paymentStatus === paymentStatus) {
+      return { found: true, rejected: collected ? 'The cash is already marked as collected.' : 'The cash is already marked as not collected.' };
+    }
+    if (collected && order.status !== 'completed') {
+      return { found: true, rejected: 'Cash can be marked collected once the order is completed.' };
+    }
+
+    const update = { paymentStatus, updatedAt: now() };
+    assertOrderUpdate(order, update);
+    tx.update(ref, update);
+    tx.create(collections.auditEvents().doc(), {
+      actor,
+      action: `cash:${order.paymentStatus}->${paymentStatus}`,
+      resource: order.reference,
+      requestId,
+      createdAt: now(),
+    });
+    return { found: true, order: { ...order, paymentStatus } };
   });
 }
 

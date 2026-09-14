@@ -206,8 +206,6 @@ const translations = {
     // is simply the wrong sentence — the customer pays at the counter.
     ckPayPickup: "Cash on pickup",
     ckPayPickupNote: "Pay at the counter when you collect.",
-    ckPayCard: "Card",
-    ckPayCardSoon: "Card payment is coming soon.",
     ckPlaceOrder: "Place order",
     ckPlacing: "Placing your order...",
     ckEmptyTitle: "There is nothing to check out",
@@ -282,6 +280,8 @@ const translations = {
     acWrongEmail: "Use a different email",
     acDevNotice:
       "No mail provider is connected yet, so the code was printed to the server log instead of being emailed.",
+    acUnavailable:
+      "Accounts are not available yet. You can still order as a guest and track any order with its reference and your phone number.",
     acLinked: (n: number) =>
       n === 1 ? "We found 1 earlier order and added it to your account."
         : `We found ${n} earlier orders and added them to your account.`,
@@ -452,8 +452,6 @@ const translations = {
     ckPayCashNote: "هتدفع للسواق لما الطلب يوصلك.",
     ckPayPickup: "كاش عند الاستلام",
     ckPayPickupNote: "هتدفع عند الكاشير لما تيجي تستلم.",
-    ckPayCard: "بالكارت",
-    ckPayCardSoon: "الدفع بالكارت جاي قريب.",
     ckPlaceOrder: "أكد الطلب",
     ckPlacing: "بنسجل طلبك...",
     ckEmptyTitle: "مفيش حاجة تتطلب",
@@ -528,6 +526,7 @@ const translations = {
     acResendIn: (seconds: number) => `ابعت كود تاني بعد ${seconds} ثانية`,
     acWrongEmail: "استخدم إيميل تاني",
     acDevNotice: "لسه مفيش خدمة إيميل متوصلة، فالكود اتكتب في سجل السيرفر بدل ما يتبعت.",
+    acUnavailable: "الحسابات مش متاحة لسه. تقدر تطلب عادي كضيف وتتابع أي طلب برقم الطلب ورقم موبايلك.",
     acLinked: (n: number) =>
       n === 1 ? "لقينا طلب واحد قديم وضفناه لحسابك."
         : n === 2 ? "لقينا طلبين قدام وضفناهم لحسابك."

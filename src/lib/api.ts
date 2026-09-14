@@ -248,7 +248,7 @@ export const api = {
    * asks this on load, and a 401 for the ordinary anonymous case would be noise
    * rather than information.
    */
-  me: () => request<{ customer: Customer | null; mailConfigured: boolean }>("/api/account/me"),
+  me: () => request<{ customer: Customer | null; mailConfigured: boolean; accountsEnabled?: boolean }>("/api/account/me"),
 
   requestCode: (email: string, lang: "en" | "ar") =>
     request<{ ok: true; delivered: boolean; via: string }>("/api/account/request-code", {

@@ -4,7 +4,6 @@ import { Loader2, Search, X } from "lucide-react";
 import OrderDialog from "@/components/OrderDialog";
 import OrdersTable from "@/components/OrdersTable";
 import { ordersApi, type Order, type OrderStatus } from "@/lib/api";
-import { cairoToday } from "@/lib/format";
 import {
   ORDER_STATUSES,
   statusLabel,
@@ -29,7 +28,6 @@ export default function Orders() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState(initialQuery);
   const [appliedSearch, setAppliedSearch] = useState(initialQuery);
-  const [todayOnly, setTodayOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
   const [typeFilter, setTypeFilter] = useState<FulfillmentType | "">("");
   const [page, setPage] = useState(1);
@@ -72,12 +70,11 @@ export default function Orders() {
     (async () => {
       try {
         setLoading(true);
+        // There is no "today's fulfilments" view: checkout does not ask for a
+        // delivery or pickup date, so there is no date to filter on.
         const result = await ordersApi.list(page, PAGE_SIZE, appliedSearch, {
           status: statusFilter,
           fulfillmentType: typeFilter,
-          // Both fulfilment types carry fulfillmentDate; deliveryDate is null on
-          // every pickup, so keying the day view on it would hide them all.
-          fulfillmentDate: todayOnly ? cairoToday() : undefined,
         }, controller.signal);
         if (token !== latestRequest.current) return;
         setOrders(result.orders);
@@ -96,7 +93,7 @@ export default function Orders() {
     })();
 
     return () => controller.abort();
-  }, [page, appliedSearch, statusFilter, typeFilter, todayOnly, reloadNonce]);
+  }, [page, appliedSearch, statusFilter, typeFilter, reloadNonce]);
 
   useEffect(() => {
     const q = new URLSearchParams(queryString).get("q");
@@ -167,9 +164,13 @@ export default function Orders() {
   // debounce, and while the request it fires is still out.
   const searching = Boolean(search) && (search !== appliedSearch || loading);
 
-  const countLine = appliedSearch && total !== null
-    ? `Page ${page} · ${total} ${total === 1 ? "match" : "matches"} for “${appliedSearch}”`
-    : `Page ${page} · showing ${filtered.length} of ${orders.length} loaded`;
+  // The total is the server's count of everything matching the filters, not of
+  // the rows on this page.
+  const countLine = total === null
+    ? `Page ${page}`
+    : appliedSearch
+      ? `Page ${page} · ${total} ${total === 1 ? "match" : "matches"} for “${appliedSearch}”`
+      : `Page ${page} of ${Math.max(1, Math.ceil(total / PAGE_SIZE))} · ${total} ${total === 1 ? "order" : "orders"}`;
 
   return (
     <div className="adm-page">
@@ -246,24 +247,6 @@ export default function Orders() {
             </button>
           )}
         </form>
-        <div className="adm-seg flex w-full sm:inline-flex sm:w-auto">
-          <button
-            type="button"
-            className="flex-1 sm:flex-none"
-            data-active={!todayOnly}
-            onClick={() => { setPage(1); setTodayOnly(false); }}
-          >
-            All
-          </button>
-          <button
-            type="button"
-            className="flex-1 whitespace-nowrap sm:flex-none"
-            data-active={todayOnly}
-            onClick={() => { setPage(1); setTodayOnly(true); }}
-          >
-            Today&rsquo;s fulfilments
-          </button>
-        </div>
         <select
           className="adm-input min-w-0 flex-1 sm:max-w-[170px] sm:flex-none"
           aria-label="Filter by status"

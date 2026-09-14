@@ -8,12 +8,46 @@ import { formatEGP } from "@/lib/format";
 const input = "border rounded-md px-3 py-2 text-sm";
 const emptyForm = { code: "", type: "percent" as "percent" | "fixed", value: "", minSubtotal: "", expiresAt: "", active: true, maxUses: "" };
 
+/**
+ * The date picker's `YYYY-MM-DD` as the instant the code stops working: the end
+ * of that day in the operator's own time zone, as the ISO timestamp the server
+ * expects. No date means no expiry — `null`, never an empty string.
+ */
+export function expiryFromDate(date: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  if (!match) return null;
+  const end = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 23, 59, 59, 999);
+  return Number.isNaN(end.getTime()) ? null : end.toISOString();
+}
+
+/** Why the form cannot be sent, in words, or null. Numbers are checked before NaN can reach the request. */
+function formProblem(form: typeof emptyForm): string | null {
+  const code = form.code.trim();
+  if (!code) return "Enter a code.";
+  if (!/^[A-Za-z0-9_-]{2,40}$/.test(code)) return "A code is 2–40 letters, numbers, hyphens or underscores.";
+  const value = Number(form.value);
+  if (!form.value.trim() || !Number.isFinite(value) || value <= 0) return "Enter a discount greater than zero.";
+  if (form.type === "percent" && value >= 100) return "A percentage discount must be below 100.";
+  if (form.minSubtotal.trim() && (!Number.isFinite(Number(form.minSubtotal)) || Number(form.minSubtotal) < 0)) {
+    return "The minimum order must be zero or more.";
+  }
+  if (form.maxUses.trim() && (!Number.isInteger(Number(form.maxUses)) || Number(form.maxUses) < 0)) {
+    return "Max uses must be a whole number.";
+  }
+  if (form.expiresAt && !expiryFromDate(form.expiresAt)) return "Choose a valid expiry date.";
+  const expiry = expiryFromDate(form.expiresAt);
+  if (expiry && new Date(expiry).getTime() <= Date.now()) return "That expiry date has already passed.";
+  return null;
+}
+
 export default function Promos() {
   const [promos, setPromos] = useState<Promo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [formMsg, setFormMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [busyCode, setBusyCode] = useState("");
 
   async function load() {
     try {
@@ -32,41 +66,54 @@ export default function Promos() {
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
     setFormMsg(null);
-    if (!form.code || !form.value) return setFormMsg({ text: "Code and value are required.", ok: false });
+    if (creating) return;
+    const problem = formProblem(form);
+    if (problem) return setFormMsg({ text: problem, ok: false });
+    setCreating(true);
     try {
       await promosApi.create({
-        code: form.code,
+        code: form.code.trim(),
         type: form.type,
         value: Number(form.value),
-        minSubtotal: form.minSubtotal ? Number(form.minSubtotal) : 0,
-        expiresAt: form.expiresAt || "",
+        minSubtotal: form.minSubtotal.trim() ? Number(form.minSubtotal) : 0,
+        expiresAt: expiryFromDate(form.expiresAt),
         active: form.active,
-        maxUses: form.maxUses ? Number(form.maxUses) : 0,
-      });
+        maxUses: form.maxUses.trim() ? Number(form.maxUses) : 0,
+      } as Partial<Promo> & { code: string; expiresAt: string | null });
       setForm(emptyForm);
       setFormMsg({ text: "✓ Promo code created.", ok: true });
-      load();
+      await load();
     } catch (err) {
       setFormMsg({ text: err instanceof Error ? err.message : "Failed to create code.", ok: false });
+    } finally {
+      setCreating(false);
     }
   }
 
   async function toggle(p: Promo) {
+    setBusyCode(p.id);
     try {
       await promosApi.update(p.id, { active: !p.active });
-      load();
+      setError("");
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update code.");
+    } finally {
+      setBusyCode("");
     }
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this promo code?")) return;
+    if (!confirm(`Delete the promo code ${id}? Customers will no longer be able to use it.`)) return;
+    setBusyCode(id);
     try {
       await promosApi.remove(id);
-      load();
+      setError("");
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete code.");
+    } finally {
+      setBusyCode("");
     }
   }
 
@@ -116,10 +163,10 @@ export default function Promos() {
                 )}
                 {p.expiresAt && <p className="text-xs text-muted-foreground">Expires {new Date(p.expiresAt).toLocaleDateString()}</p>}
                 <div className="flex gap-2 mt-3">
-                  <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => toggle(p)}>
+                  <Button size="sm" variant="outline" className="flex-1 gap-1.5" disabled={busyCode === p.id} onClick={() => toggle(p)}>
                     <Power className="w-3.5 h-3.5" /> {p.active ? "Disable" : "Enable"}
                   </Button>
-                  <Button size="sm" variant="outline" className="flex-1 gap-1.5 text-destructive" onClick={() => remove(p.id)}>
+                  <Button size="sm" variant="outline" className="flex-1 gap-1.5 text-destructive" disabled={busyCode === p.id} onClick={() => remove(p.id)}>
                     <Trash2 className="w-3.5 h-3.5" /> Delete
                   </Button>
                 </div>
@@ -159,7 +206,9 @@ export default function Promos() {
               Active immediately
             </label>
             <div className="sm:col-span-2">
-              <Button type="submit" className="gap-1.5"><Plus className="w-4 h-4" /> Create code</Button>
+              <Button type="submit" className="gap-1.5" disabled={creating}>
+                <Plus className="w-4 h-4" /> {creating ? "Creating…" : "Create code"}
+              </Button>
               {formMsg && <p className={`text-sm mt-2 ${formMsg.ok ? "text-green-600" : "text-destructive"}`}>{formMsg.text}</p>}
             </div>
           </form>

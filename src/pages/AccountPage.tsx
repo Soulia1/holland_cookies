@@ -31,7 +31,7 @@ const STATUS_KEY: Record<string, keyof Translations> = {
 
 export default function AccountPage() {
   const { t, lang } = useLang();
-  const { customer, ready, signOut, update } = useAuth();
+  const { customer, ready, signOut, update, accountsEnabled } = useAuth();
 
   const [orders, setOrders] = useState<AccountOrder[] | null>(null);
   const [linked, setLinked] = useState(0);
@@ -104,7 +104,14 @@ export default function AccountPage() {
     return (
       <main className="ed-page">
         <div className="ed-shell ed-placed">
-          <SignInSheet onDone={setLinked} />
+          {accountsEnabled ? (
+            <SignInSheet onDone={setLinked} />
+          ) : (
+            <>
+              <span className="ed-tag">{t.acSignInTitle}</span>
+              <p className="ed-note" role="status">{t.acUnavailable}</p>
+            </>
+          )}
 
           <hr style={{ margin: "44px 0 26px", border: 0, borderTop: "1px solid rgb(93 16 29 / 0.12)" }} />
 

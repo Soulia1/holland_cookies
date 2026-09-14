@@ -140,7 +140,9 @@ jobs:
           - commerce-chromium-phone
           - commerce-webkit-phone
           - storefront-chromium-desktop
+          - storefront-chromium-phone
           - storefront-webkit-phone
+          - storefront-webkit-desktop
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -394,14 +394,33 @@ export default function MenuPage({
     const intro = introRef.current;
     if (!intro) return;
     const root = document.documentElement;
+    const apply = (bottom: number) => root.classList.toggle("is-menu-condensed", bottom <= HEADER_H);
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        root.classList.toggle("is-menu-condensed", entry.boundingClientRect.bottom <= HEADER_H);
-      },
+      ([entry]) => apply(entry.boundingClientRect.bottom),
       { rootMargin: `-${HEADER_H}px 0px 0px 0px`, threshold: 0 },
     );
     observer.observe(intro);
+
+    // The observer alone left the header hidden for good on phones: a jump
+    // straight back to the top of a long page could arrive without its
+    // callback, and the header — with the cart button in it — stayed
+    // translated off-screen at scrollY 0. A scroll check, at most once a frame,
+    // settles the same question from the intro's actual position whenever the
+    // page moves, so the header always comes back.
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        apply(intro.getBoundingClientRect().bottom);
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
     return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (frame) cancelAnimationFrame(frame);
       observer.disconnect();
       // Never left behind on a page that has no category bar for the hidden
       // header to have merged with.

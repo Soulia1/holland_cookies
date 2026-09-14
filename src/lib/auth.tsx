@@ -23,6 +23,12 @@ interface AuthValue {
   ready: boolean;
   /** False when the server has no mail provider, so the sheet can say so. */
   mailConfigured: boolean;
+  /**
+   * Whether sign-in can be offered at all. It needs an emailed code, and email
+   * is not part of the launch, so without it the account entry is hidden rather
+   * than shown as a form that can never work. False until the server answers.
+   */
+  accountsEnabled: boolean;
   signIn: (customer: Customer) => void;
   signOut: () => Promise<void>;
   update: (customer: Customer) => void;
@@ -36,12 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [ready, setReady] = useState(false);
   const [mailConfigured, setMailConfigured] = useState(true);
+  const [accountsEnabled, setAccountsEnabled] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const result = await api.me();
       setCustomer(result.customer);
       setMailConfigured(result.mailConfigured);
+      setAccountsEnabled(result.accountsEnabled === true);
     } catch {
       // A network failure is not a signed-out state. Leaving the previous value
       // alone means a customer whose wifi blinked is not silently logged out of
@@ -69,11 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     customer,
     ready,
     mailConfigured,
+    accountsEnabled,
     signIn: setCustomer,
     signOut,
     update: setCustomer,
     refresh,
-  }), [customer, ready, mailConfigured, signOut, refresh]);
+  }), [customer, ready, mailConfigured, accountsEnabled, signOut, refresh]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

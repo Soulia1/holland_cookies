@@ -37,11 +37,14 @@ export function validateEnvironment(env = process.env) {
     // every environment, set or not.
     FIRESTORE_EMULATOR_HOST: z.undefined().optional(),
 
-    BREVO_API_KEY: z.string().min(20),
-    MAIL_FROM_EMAIL: z.email(),
+    // Email is not part of the launch. It stays off unless MAIL_TRANSPORT=brevo
+    // is set on purpose, and only then are the provider variables required —
+    // a shop taking cash orders must not refuse to boot for want of a mailbox.
+    BREVO_API_KEY: z.union([z.literal(''), z.string().min(20)]).optional(),
+    MAIL_FROM_EMAIL: z.union([z.literal(''), z.email()]).optional(),
     DEPLOYMENT_MODE: z.literal('single-instance'),
     HTTPS_ORIGIN: z.literal('true').optional(),
-    MAIL_TRANSPORT: z.literal('brevo').optional(),
+    MAIL_TRANSPORT: z.enum(['brevo', 'disabled', '']).optional(),
     DISABLE_ADMIN_AUTH: z.enum(['false', '']).optional(),
     ALLOWED_ORIGINS: z.literal('').optional(),
     // The mail client's base URL is pinned in code so a stray environment
@@ -53,6 +56,9 @@ export function validateEnvironment(env = process.env) {
     throw new Error(`Invalid production configuration: ${[...new Set(parsed.error.issues.map((i) => i.path[0]))].join(', ')}`);
   }
   if (env.ADMIN_KEY === env.JWT_SECRET) throw new Error('Production secrets must be independent');
+  if (env.MAIL_TRANSPORT === 'brevo' && !(env.BREVO_API_KEY && env.MAIL_FROM_EMAIL)) {
+    throw new Error('Invalid production configuration: MAIL_TRANSPORT=brevo needs BREVO_API_KEY and MAIL_FROM_EMAIL');
+  }
 
   assertFirebaseCredentials(env);
 }

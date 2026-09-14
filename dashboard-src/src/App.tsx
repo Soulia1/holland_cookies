@@ -33,7 +33,7 @@ function Shell() {
         if (!active) return;
         const byStatus = stats.byStatus || {};
         setOpenOrders(
-          (byStatus.pending || 0) + (byStatus.confirmed || 0) + (byStatus.preparing || 0)
+          (byStatus.ordered || 0) + (byStatus.confirmed || 0) + (byStatus.baking || 0)
         );
       })
       .catch(() => {

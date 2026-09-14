@@ -121,7 +121,7 @@ export default function Sidebar({
 
   useEffect(() => {
     settingsApi.get().then((settings) => {
-      if (settings.fulfillment) setAcceptingOrders(settings.fulfillment.acceptingOrders);
+      setAcceptingOrders(settings.acceptingOrders !== false);
     }).catch(() => {});
   }, []);
 

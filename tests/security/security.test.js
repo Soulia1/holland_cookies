@@ -462,6 +462,40 @@ test('production configuration fails closed', async () => {
   }), /FIRESTORE_EMULATOR_HOST/);
 });
 
+test('production boots without an email provider, and email needs an explicit switch', () => {
+  const base = {
+    NODE_ENV: 'production',
+    ADMIN_KEY: 'a'.repeat(40), JWT_SECRET: 'b'.repeat(40),
+    APP_ORIGIN: 'https://hollandcookie.example',
+    FIREBASE_PROJECT_ID: 'holland-cookie-prod',
+    FIREBASE_CLIENT_EMAIL: 'sa@holland-cookie-prod.iam.gserviceaccount.com',
+    FIREBASE_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----${'x'.repeat(120)}`,
+    DEPLOYMENT_MODE: 'single-instance',
+  };
+  // Email is postponed: no Brevo variables at all must still boot.
+  assert.doesNotThrow(() => validateEnvironment(base));
+  // A leftover key on its own is accepted and stays dormant.
+  assert.doesNotThrow(() => validateEnvironment({ ...base, BREVO_API_KEY: 'k'.repeat(24) }));
+  // Switching Brevo on without its variables is a misconfiguration.
+  assert.throws(() => validateEnvironment({ ...base, MAIL_TRANSPORT: 'brevo' }), /MAIL_TRANSPORT=brevo/);
+});
+
+test('a Brevo key without MAIL_TRANSPORT=brevo sends nothing and offers no accounts', async () => {
+  const { mailConfigured, accountsAvailable } = await import('../../backend/mailer.js');
+  process.env.BREVO_API_KEY = 'fixture-key';
+  try {
+    assert.equal(mailConfigured(), false);
+    assert.equal(accountsAvailable(), false);
+    const me = await request('/api/account/me');
+    assert.equal(me.data.accountsEnabled, false);
+    const code = await request('/api/account/request-code', { method: 'POST', body: { email: 'x@example.test' } });
+    assert.equal(code.status, 503);
+    assert.equal(code.data.error, 'ACCOUNTS_UNAVAILABLE');
+  } finally {
+    process.env.BREVO_API_KEY = ''; process.env.MAIL_TRANSPORT = 'disabled';
+  }
+});
+
 /**
  * The order confirmation, and the rule that it can never cost an order.
  *
@@ -479,7 +513,7 @@ test('email: a missing or failing provider never costs an order, and a retry nev
   assert.equal(noProvider.status, 201, 'an order must succeed with no mail provider');
 
   // --- provider configured but refusing ------------------------------------
-  process.env.BREVO_API_KEY = 'fixture-key';
+  process.env.MAIL_TRANSPORT = 'brevo'; process.env.BREVO_API_KEY = 'fixture-key';
   globalThis.fetch = async (url, init) => {
     if (String(url).startsWith('https://api.brevo.com')) {
       sent.push(JSON.parse(init.body));
@@ -530,13 +564,13 @@ test('email: a missing or failing provider never costs an order, and a retry nev
     assert.equal(sent.length, 1, 'a duplicate submission must not send a second confirmation');
   } finally {
     globalThis.fetch = realFetch;
-    process.env.BREVO_API_KEY = '';
+    process.env.BREVO_API_KEY = ''; process.env.MAIL_TRANSPORT = 'disabled';
   }
 });
 
 test('email: an order with no address is not a mail failure', async () => {
   const realFetch = globalThis.fetch;
-  process.env.BREVO_API_KEY = 'fixture-key';
+  process.env.MAIL_TRANSPORT = 'brevo'; process.env.BREVO_API_KEY = 'fixture-key';
   let called = 0;
   globalThis.fetch = async (url, init) => {
     if (String(url).startsWith('https://api.brevo.com')) { called += 1; return new Response('{}', { status: 201 }); }
@@ -550,14 +584,14 @@ test('email: an order with no address is not a mail failure', async () => {
     assert.equal(called, 0, 'no address means no send, and no error either');
   } finally {
     globalThis.fetch = realFetch;
-    process.env.BREVO_API_KEY = '';
+    process.env.BREVO_API_KEY = ''; process.env.MAIL_TRANSPORT = 'disabled';
   }
 });
 
 test('email: the confirmation escapes HTML rather than trusting stored names', async () => {
   const { sendOrderConfirmation } = await import('../../backend/mailer.js');
   const realFetch = globalThis.fetch;
-  process.env.BREVO_API_KEY = 'fixture-key';
+  process.env.MAIL_TRANSPORT = 'brevo'; process.env.BREVO_API_KEY = 'fixture-key';
   let body;
   globalThis.fetch = async (_url, init) => { body = JSON.parse(init.body); return new Response('{}', { status: 201 }); };
   try {
@@ -572,13 +606,13 @@ test('email: the confirmation escapes HTML rather than trusting stored names', a
     assert.match(body.textContent, /<img src=x onerror=alert\(1\)>/);
   } finally {
     globalThis.fetch = realFetch;
-    process.env.BREVO_API_KEY = '';
+    process.env.BREVO_API_KEY = ''; process.env.MAIL_TRANSPORT = 'disabled';
   }
 });
 
 test('email: provider failures and redirects are bounded, no retry and no response PII disclosure', async () => {
   const realFetch = globalThis.fetch;
-  process.env.BREVO_API_KEY = 'fixture-key';
+  process.env.MAIL_TRANSPORT = 'brevo'; process.env.BREVO_API_KEY = 'fixture-key';
   let calls = 0;
   globalThis.fetch = async (url, init) => {
     calls += 1;
@@ -595,6 +629,6 @@ test('email: provider failures and redirects are bounded, no retry and no respon
     assert.equal(calls, 1, 'a failed send must not be retried into a mail loop');
   } finally {
     globalThis.fetch = realFetch;
-    process.env.BREVO_API_KEY = '';
+    process.env.BREVO_API_KEY = ''; process.env.MAIL_TRANSPORT = 'disabled';
   }
 });

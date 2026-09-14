@@ -48,6 +48,25 @@ await probe(
 );
 
 await probe(
+  'orders where fulfilment == ? order by seq desc',
+  'repo/orders.js listOrders()',
+  () => orders().where('fulfilment', '==', 'pickup').orderBy('seq', 'desc').limit(1).get(),
+);
+
+await probe(
+  'orders where status == ? and fulfilment == ? order by seq desc',
+  'repo/orders.js listOrders()',
+  () => orders().where('status', '==', 'ordered').where('fulfilment', '==', 'pickup')
+    .orderBy('seq', 'desc').limit(1).get(),
+);
+
+await probe(
+  'orders where status == ? and fulfilment == ? COUNT()',
+  'repo/orders.js listOrders()',
+  () => orders().where('status', '==', 'ordered').where('fulfilment', '==', 'pickup').count().get(),
+);
+
+await probe(
   'orders where phone == ? order by seq desc',
   'repo/orders.js ordersForPhone()',
   () => orders().where('phone', '==', '01000000000').orderBy('seq', 'desc').limit(1).get(),

@@ -18,7 +18,7 @@ const listPaths = new Set(['/orders', '/admin/customers', '/admin/users', '/admi
 export function validateEnvelope(req, res, next) {
   let schema = empty;
   if (listPaths.has(req.path) || /^\/admin\/customers\/[^/]+$/.test(req.path)) schema = pagination;
-  if (req.path === '/orders') schema = pagination.extend({status: z.enum(['ordered','confirmed','baking','in_transit','completed','cancelled']).optional()});
+  if (req.path === '/orders') schema = pagination.extend({status: z.enum(['ordered','confirmed','baking','in_transit','completed','cancelled']).optional(), fulfilment: z.enum(['delivery','pickup']).optional()});
   if (req.path === '/admin/users') schema = pagination.extend({refresh:z.literal('1').optional()});
   if (req.path === '/orders/stats') schema = z.strictObject({days:integer(365).optional()});
   if (/^\/orders\/track\//.test(req.path)) schema = z.strictObject({phone:z.string().min(6).max(24)});

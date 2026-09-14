@@ -18,6 +18,10 @@
 
 import 'dotenv/config';
 
+// Email is off unless MAIL_TRANSPORT=brevo. This script is the deliberate act of
+// trying Brevo, so it switches the transport on for its own process only.
+process.env.MAIL_TRANSPORT = 'brevo';
+
 const [, , recipient] = process.argv;
 
 const fail = (message) => { console.error(`\n  ✖ ${message}\n`); process.exit(1); };

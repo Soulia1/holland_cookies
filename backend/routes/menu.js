@@ -66,7 +66,7 @@ const bundleFields = {
 const productCreate = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, 'Use lowercase letters, numbers and hyphens.'),
   categoryId: identifier,
-  name: z.string().min(1).max(200),
+  name: z.string().trim().min(1, 'A product needs a name.').max(200),
   nameAr: z.string().max(200).optional(),
   description: z.string().max(2000).optional(),
   descriptionAr: z.string().max(2000).optional(),
@@ -275,7 +275,7 @@ export const MENU_GROUP_IDS = ['cookies', 'desserts', 'drinks'];
 
 const categoryBody = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/),
-  name: z.string().min(1).max(120),
+  name: z.string().trim().min(1).max(120),
   nameAr: z.string().max(120).optional(),
   sort: z.number().int().min(-100000).max(100000).optional(),
   visible: z.boolean().optional(),

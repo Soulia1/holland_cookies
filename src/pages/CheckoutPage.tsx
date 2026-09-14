@@ -64,6 +64,9 @@ export default function CheckoutPage() {
    * order. A key regenerated per attempt would make every retry a new order.
    */
   const idempotencyKey = useRef(newIdempotencyKey());
+  // Read synchronously by `submit`. A double tap delivers both clicks before
+  // React re-renders with `submitting`, so the state alone lets two through.
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,7 +171,7 @@ export default function CheckoutPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (submitting || !items.length) return;
+    if (submittingRef.current || !items.length) return;
     // Not until the catalogue has arrived. `lines` is derived from it and is
     // empty until it lands, so submitting early sends an empty items array and
     // the server answers, correctly and very confusingly, "Your cart is empty"
@@ -176,6 +179,7 @@ export default function CheckoutPage() {
     // not catch this: the cart is genuinely full, it is the *priced* cart that
     // is not ready.
     if (!catalogue) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setFormError(null);
     setFieldErrors({});
@@ -239,6 +243,7 @@ export default function CheckoutPage() {
         setFormError(t.ckGenericError);
       }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -381,7 +386,6 @@ export default function CheckoutPage() {
                       </span>
                     </label>
                   </div>
-                  <p className="ed-note">{t.ckPayCardSoon}</p>
                 </div>
 
                 {formError && <p className="ed-alert" role="alert">{formError}</p>}

@@ -9,6 +9,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { money } from '../../shared/pricing.mjs';
+import { mailConfigured } from '../mailer.js';
 import { logEvent } from '../security.js';
 import { validateParams, amount } from '../validation.js';
 import {
@@ -194,7 +195,9 @@ const promoShape = z.strictObject({
   minSubtotal: amount.optional(),
   maxUses: z.number().int().nonnegative().max(1000000).optional(),
   active: z.boolean().optional(),
-  expiresAt: z.string().datetime().nullish(),
+  // A full ISO timestamp or nothing. The dashboard turns its date picker into
+  // the end of that day before sending; an empty string is never an expiry.
+  expiresAt: z.string().datetime({ offset: true }).nullish(),
 });
 
 const promoBody = promoShape.superRefine((body, ctx) => {
@@ -215,6 +218,12 @@ router.post('/promos', requireAdmin, async (req, res, next) => {
     const parsed = promoBody.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'INVALID', message: 'Check the fields.', details: parsed.error.issues });
+    }
+    if (parsed.data.expiresAt && new Date(parsed.data.expiresAt).getTime() <= Date.now()) {
+      return res.status(400).json({
+        error: 'INVALID', message: 'Check the fields.',
+        details: [{ path: ['expiresAt'], message: 'That expiry date has already passed.' }],
+      });
     }
     const created = await shop.createPromo(parsed.data);
     if (created.duplicate) {
@@ -299,6 +308,7 @@ router.get('/settings', async (_req, res, next) => {
         freeDeliveryOver: settings.freeDeliveryOver,
         acceptingOrders: !!settings.acceptingOrders,
         areas: settings.areas ?? [],
+        emailEnabled: mailConfigured(),
       },
     });
   } catch (error) { next(error); }

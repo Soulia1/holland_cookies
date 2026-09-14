@@ -31,6 +31,25 @@
       ]
     },
     {
+      "//": "repo/orders.js listOrders() — the Delivery / Pickup filter, server-side.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fulfilment", "order": "ASCENDING" },
+        { "fieldPath": "seq", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "repo/orders.js listOrders() — status and fulfilment filters together.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "fulfilment", "order": "ASCENDING" },
+        { "fieldPath": "seq", "order": "DESCENDING" }
+      ]
+    },
+    {
       "//": "repo/orders.js ordersForPhone() — the customer detail page.",
       "collectionGroup": "orders",
       "queryScope": "COLLECTION",

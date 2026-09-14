@@ -7,7 +7,7 @@ import {
 import { FulfillmentPill, StatusPill } from "@/components/StatusPill";
 import { ordersApi, type Order } from "@/lib/api";
 import {
-  bundleContents, deliveryTimeSlotLabel, formatDate, formatDeliveryDate, formatEGP,
+  bundleContents, formatDate, formatEGP,
 } from "@/lib/format";
 import { fulfillmentOf } from "@/lib/orderDetail";
 import { highlightSegments } from "@/lib/orderSearch";
@@ -116,8 +116,9 @@ function ItemLines({ items, limit = 3 }: { items: Order["items"]; limit?: number
 /**
  * Whether the cash for a completed order has been collected.
  *
- * Reversible on purpose: the only other way to undo a misclick on a field nothing
- * else writes is a Firestore script. The server records both directions.
+ * Cash on delivery is the only payment method, so this is the shop's own record
+ * of the handover — not an online payment. Reversible on purpose: the only other
+ * way to undo a misclick is a Firestore script. The server audits both directions.
  */
 function PaymentControl({
   paid, busy, onChange,
@@ -137,7 +138,7 @@ function PaymentControl({
         className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[12px] font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-foreground"
       >
         <Banknote className="size-3.5 shrink-0" aria-hidden />
-        Mark paid
+        Mark cash collected
       </button>
     );
   }
@@ -146,14 +147,14 @@ function PaymentControl({
       <DropdownMenuTrigger asChild>
         {/* Styled as the same pill the Status column uses, so "paid" reads as a
             state of the order rather than a fifth kind of button. */}
-        <button type="button" className="adm-pill is-done cursor-pointer" aria-label="Payment: paid">
+        <button type="button" className="adm-pill is-done cursor-pointer whitespace-nowrap" aria-label="Cash collected">
           <CircleCheck className="size-3.5 shrink-0" aria-hidden />
-          Paid
+          Cash collected
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem variant="destructive" onClick={() => onChange("unpaid")}>
-          Mark unpaid
+          Mark cash not collected
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -398,10 +399,7 @@ export default function OrdersTable({
 
               <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px] text-muted-foreground">
                 <FulfillmentPill fulfillmentType={fulfillmentType} />
-                <span>{isPickup ? "6th of October" : formatDeliveryDate(order.deliveryDate)}</span>
-                {!isPickup && order.deliveryTimeSlot && (
-                  <span>· {deliveryTimeSlotLabel(order.deliveryTimeSlot)}</span>
-                )}
+                <span>{isPickup ? "Collect from the bakery" : order.area || "No area"}</span>
               </div>
 
               {revealed && <p className="mt-2 text-[12.5px]">{revealed}</p>}
@@ -519,10 +517,7 @@ export default function OrdersTable({
                   <td>
                     <FulfillmentPill fulfillmentType={fulfillmentType} />
                     <div className="adm-muted mt-1 text-[12px]">
-                      {isPickup ? "6th of October" : formatDeliveryDate(order.deliveryDate)}
-                      {!isPickup && order.deliveryTimeSlot && (
-                        <> · {deliveryTimeSlotLabel(order.deliveryTimeSlot)}</>
-                      )}
+                      {isPickup ? "Collect from the bakery" : order.area || "No area"}
                     </div>
                     {revealed ? (
                       <div className="mt-1 max-w-[220px] text-[12px]">{revealed}</div>

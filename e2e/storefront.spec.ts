@@ -125,11 +125,20 @@ test("the pan turns on arrival and settles square", async ({ page }) => {
   // this suite already documents for the reveal and the header.
   await page.addInitScript(() => {
     const angles: number[] = [];
+    const running: number[] = [];
     (window as unknown as { __panAngles: number[] }).__panAngles = angles;
+    (window as unknown as { __panRunning: number[] }).__panRunning = running;
     const started = performance.now();
     const tick = () => {
       const el = document.querySelector(".hero-pan-entry");
       if (el) {
+        // The turn as the browser itself reports it: a running CSS animation and
+        // its duration. Independent of how many frames a slow renderer paints.
+        for (const animation of el.getAnimations()) {
+          if ((animation as CSSAnimation).animationName === "pan-spin-in" && animation.playState === "running") {
+            running.push(Number(animation.effect?.getComputedTiming().duration) || 0);
+          }
+        }
         const t = getComputedStyle(el).transform;
         if (!t || t === "none") angles.push(0);
         else {
@@ -160,10 +169,18 @@ test("the pan turns on arrival and settles square", async ({ page }) => {
   // was never rotated in the first place — the animation silently not running is
   // exactly the failure worth catching.
   expect(Math.min(...angles), "the pan never left its start angle").toBeLessThan(-60);
-  // And it has to have been *seen* turning: at least a few frames in between the
-  // start angle and square, rather than a jump.
+  // And it has to have turned rather than jumped. Counting painted frames made
+  // this depend on the machine: a software renderer in CI paints three frames of
+  // an 1800ms turn and failed a turn that was running perfectly. So: the browser
+  // must report the arrival animation running at its full length, and at least
+  // one sample must have caught the pan between its start angle and square.
+  const running = await page.evaluate(
+    () => (window as unknown as { __panRunning: number[] }).__panRunning,
+  );
+  expect(running.length, "the arrival turn never ran as an animation").toBeGreaterThan(0);
+  expect(Math.max(...running), "the turn was a jump, not an animation").toBeGreaterThanOrEqual(1000);
   const midFlight = angles.filter((a) => a < -8 && a > -110).length;
-  expect(midFlight, "the turn was a jump, not an animation").toBeGreaterThan(4);
+  expect(midFlight, "no sample caught the pan mid-turn").toBeGreaterThan(0);
 });
 
 test("the pan turns as the hero scrolls past, then stops", async ({ page }) => {
