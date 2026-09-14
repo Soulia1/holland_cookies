@@ -127,6 +127,16 @@ describe("loadCart", () => {
     expect(items[0].productId).toBe("plain-vanilla");
   });
 
+  it("keeps a same-origin photo path and drops anything else", () => {
+    const raw = JSON.stringify([
+      { productId: "a", name: "A", price: 5, qty: 1, image: "/img/menu/a.webp" },
+      { productId: "b", name: "B", price: 5, qty: 1, image: "https://elsewhere.example/b.png" },
+      { productId: "c", name: "C", price: 5, qty: 1, image: "//elsewhere.example/c.png" },
+      { productId: "d", name: "D", price: 5, qty: 1, image: 42 },
+    ]);
+    expect(loadCart(raw).map((line) => line.image)).toEqual(["/img/menu/a.webp", undefined, undefined, undefined]);
+  });
+
   it("clamps a tampered quantity", () => {
     const raw = JSON.stringify([{ productId: "x", name: "X", price: 5, qty: 9999 }]);
     expect(loadCart(raw)[0].qty).toBe(MAX_QTY);

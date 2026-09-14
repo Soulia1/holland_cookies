@@ -99,10 +99,11 @@ export default function PanDetail({
                   coarse ? spring.panel : { duration: duration.glide, ease: ease.out },
                   reduced,
                 )}
-                /* The desktop panel is centred with a translate, and Framer
-                   animates `y` on the same element. Letting it own the centring
-                   too avoids the two fighting over the transform. */
-                style={coarse ? undefined : { x: "-50%", y: "-50%" }}
+                /* Centred by the Tailwind classes alone. Tailwind v4 writes them
+                   to the CSS `translate` property, which composes with the
+                   `transform` Framer animates — so also giving Framer x/y -50%
+                   applied the offset twice and pushed the panel a full width
+                   to the left. */
               >
                 {/* A grab handle, on touch only. It is the affordance that says
                     this panel belongs to the bottom edge. */}

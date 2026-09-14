@@ -164,7 +164,6 @@ export default function MenuItemDetail({
                   coarse ? spring.panel : { duration: duration.glide, ease: ease.out },
                   reduced,
                 )}
-                style={coarse ? undefined : { x: "-50%", y: "-50%" }}
               >
                 {coarse && (
                   <div className="pt-3 pb-1 flex justify-center shrink-0" aria-hidden="true">
@@ -379,6 +378,7 @@ export default function MenuItemDetail({
                         name: cartName,
                         price: shownPrice,
                         ...(note ? { note } : {}),
+                        ...(photo ? { image: photo } : {}),
                         ...(cartSelections.length ? { selections: cartSelections } : {}),
                       }}
                     />

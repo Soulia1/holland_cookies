@@ -38,6 +38,8 @@ export interface CartItem {
   price: number;
   /** Printed packaging or size, where the item has one. Display only. */
   note?: string;
+  /** Display snapshot: the product photo's same-origin path, for the drawer. */
+  image?: string;
   /** A choice bundle's picks. `name` is a display snapshot; the rest is identity. */
   selections?: CartSelection[];
   qty: number;
@@ -176,6 +178,10 @@ export function loadCart(raw: string | null): CartItem[] {
     name: line.name,
     price: line.price,
     ...(line.note ? { note: line.note } : {}),
+    // A path on this origin only. Storage is user-writable, and the drawer puts
+    // this straight into an `<img src>`; anything else is dropped and the
+    // drawer falls back to the menu's own photo.
+    ...(typeof line.image === "string" && /^\/(?!\/)/.test(line.image) ? { image: line.image } : {}),
     ...(line.selections?.length
       ? {
           selections: line.selections.map(({ group, productId, quantity, name }) => ({

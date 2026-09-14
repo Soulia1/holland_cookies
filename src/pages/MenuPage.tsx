@@ -663,6 +663,7 @@ function Section({
                     name: itemName,
                     price: item.price,
                     ...(note ? { note } : {}),
+                    ...(photo ? { image: photo } : {}),
                   }}
                 />
               )}

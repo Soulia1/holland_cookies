@@ -1,8 +1,19 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useCart } from "@/lib/cart";
-import { lineKey } from "@/lib/cart-core";
+import { lineKey, type CartItem } from "@/lib/cart-core";
+import { itemImage } from "@/data/menuImages";
 import { useLang } from "@/lib/i18n";
 import { Link, navigate } from "@/lib/router";
+
+/**
+ * The line's picture: the photo snapshotted when it was added, else the menu's
+ * own photo. A chosen flavor's id is `<item>--<flavor>`, so it falls back to
+ * the item it was picked from; a cart saved before lines carried a photo gets
+ * the same fallback.
+ */
+function lineImage(line: CartItem): string | undefined {
+  return line.image ?? itemImage(line.productId) ?? itemImage(line.productId.split("--")[0]);
+}
 
 /**
  * The cart.
@@ -67,6 +78,18 @@ export default function CartDrawer() {
               <ul className="cart-lines">
                 {items.map((line) => (
                   <li key={lineKey(line)} className="cart-line">
+                    {/* `alt=""`: the name sits right beside it. Every line gets
+                        the box, photographed or not, so the column stays even. */}
+                    <span className="cart-line-media" aria-hidden="true">
+                      {lineImage(line) ? (
+                        <img src={lineImage(line)} alt="" width={56} height={56} loading="lazy" decoding="async" />
+                      ) : (
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <circle cx="12" cy="12" r="9" />
+                        </svg>
+                      )}
+                    </span>
+
                     <div className="cart-line-text">
                       <p className="cart-line-name">{line.name}</p>
                       {line.note ? <p className="cart-line-note">{line.note}</p> : null}
