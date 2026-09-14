@@ -63,6 +63,46 @@ describe("withLiveCatalogue", () => {
   });
 });
 
+describe("dashboard-created categories", () => {
+  const desserts = MENU_GROUPS.find((group) => group.id === "desserts")!;
+  const catalogue: LiveMenu = {
+    products: new Map([
+      ["pistachio-cookie", product("pistachio-cookie", "seasonal", { description: "Fresh", descriptionAr: "طازج" })],
+      ["loose-item", product("loose-item", "loose")],
+    ]),
+    categories: new Map([
+      [pans.id, { name: "" }],
+      ["seasonal", { name: "Seasonal", nameAr: "موسمي", group: "desserts" }],
+      ["loose", { name: "Loose" }],
+      ["empty", { name: "Empty", group: "desserts" }],
+    ]),
+  };
+  const ids = (group: typeof cookies) => withLiveCatalogue(group, catalogue).categories.map((c) => c.id);
+
+  it("shows one on the page it was filed under, and on no other", () => {
+    expect(ids(desserts)).toContain("seasonal");
+    expect(ids(cookies)).not.toContain("seasonal");
+  });
+
+  it("carries the category's names and the product's own description", () => {
+    const seasonal = withLiveCatalogue(desserts, catalogue).categories.find((c) => c.id === "seasonal")!;
+    expect(seasonal).toMatchObject({ name: "Seasonal", nameAr: "موسمي" });
+    expect(seasonal.items).toHaveLength(1);
+    expect(seasonal.items[0]).toMatchObject({
+      id: "pistachio-cookie", name: "DB pistachio-cookie", description: "Fresh", descriptionAr: "طازج",
+    });
+  });
+
+  it("puts one with no section on the first page rather than nowhere", () => {
+    expect(ids(cookies)).toContain("loose");
+    expect(ids(desserts)).not.toContain("loose");
+  });
+
+  it("leaves out a category with nothing in it", () => {
+    expect(ids(desserts)).not.toContain("empty");
+  });
+});
+
 describe("flavorVariants", () => {
   it("gives each flavor of a printed line its own product id and name", () => {
     const scoop = cookies.categories.flatMap((c) => c.items).find((i) => i.flavorChoices)!;

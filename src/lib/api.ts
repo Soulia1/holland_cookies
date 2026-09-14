@@ -128,6 +128,8 @@ export interface ApiCategory {
   id: string;
   name: string;
   nameAr?: string;
+  /** The menu page a category created in the dashboard is shown on. */
+  group?: string;
   items: ApiProduct[];
 }
 

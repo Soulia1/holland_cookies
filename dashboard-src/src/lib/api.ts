@@ -350,16 +350,36 @@ async function apiFetch(path: string, init: RequestInit = {}): Promise<Response>
   return response;
 }
 
+/** Form labels for the fields the server names in a validation failure. */
+const FIELD_LABELS: Record<string, string> = {
+  id: "Product id", categoryId: "Category", name: "Name (English)", nameAr: "Name (Arabic)",
+  description: "Description", descriptionAr: "Description (Arabic)", note: "Note", noteAr: "Note (Arabic)",
+  price: "Price", image: "Photo", discountValue: "Discount", group: "Menu section",
+};
+
 async function json<T>(response: Response, what: string): Promise<T> {
   if (!response.ok) {
     let message = `Failed to ${what}.`;
     try {
       const body = await response.json();
       if (body?.message) message = body.message;
+      // A 400 carries which field failed and why. "Check the fields." alone
+      // told the operator nothing, so a product with a bad id was refused
+      // silently and never reached the shop.
+      const detail = Array.isArray(body?.details) ? body.details[0] : null;
+      if (detail?.message) {
+        const field = String(detail.path?.[0] ?? "");
+        message = `${FIELD_LABELS[field] ?? (field || "A field")}: ${detail.message}`;
+      }
     } catch { /* a non-JSON error body; the generic message stands */ }
     throw new Error(message);
   }
   return response.json();
+}
+
+/** A permanent id from a display name: lowercase letters, numbers and hyphens. */
+export function slugify(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 72);
 }
 
 export async function hasValidSession(): Promise<boolean> {
@@ -567,25 +587,32 @@ export const menuApi = {
     return body.products.map(toMenuItem);
   },
 
-  async categories(): Promise<{ id: string; name: string; nameAr: string }[]> {
-    return (await json<{ categories: { id: string; name: string; nameAr: string }[] }>(
+  async categories(): Promise<{ id: string; name: string; nameAr: string; group: string }[]> {
+    return (await json<{ categories: { id: string; name: string; nameAr: string; group: string }[] }>(
       await apiFetch("/api/menu/admin/categories"), "load categories",
     )).categories;
   },
 
   async create(item: Partial<MenuItem>): Promise<MenuItem> {
     // The id is required by the server and is permanent — cart lines and past
-    // orders key on it. Derived from the name when the form did not set one.
-    const id = item.id?.trim()
-      || (item.name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    const body = await json<{ product: HollandProduct }>(
-      await apiFetch("/api/menu/admin/products", {
+    // orders key on it. Made from the English name when the form left it blank,
+    // and cleaned either way, so "Pistachio Cookie" files as pistachio-cookie
+    // instead of being refused. A name with no Latin letters still gets one.
+    const typed = slugify(item.id ?? "");
+    const base = typed || slugify(item.name ?? "") || `item-${Date.now().toString(36)}`;
+    // A derived id that is already taken gets a number rather than an error:
+    // two products can share a name. An id typed by hand is never renumbered.
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+      const id = attempt === 1 ? base : `${base}-${attempt}`;
+      const response = await apiFetch("/api/menu/admin/products", {
         method: "POST",
         body: JSON.stringify({ id, ...fromMenuItem(item) }),
-      }),
-      "create the product",
-    );
-    return toMenuItem(body.product);
+      });
+      if (response.status === 409 && !typed) continue;
+      const body = await json<{ product: HollandProduct }>(response, "create the product");
+      return toMenuItem(body.product);
+    }
+    throw new Error("Every id made from this name is taken. Type a product id.");
   },
 
   async update(id: string, patch: Partial<MenuItem>): Promise<MenuItem> {
@@ -607,13 +634,14 @@ export const menuApi = {
   },
 
   /** The id is permanent — products key on it — so it is derived from the name once. */
-  async createCategory(name: string, nameAr = ""): Promise<{ id: string; name: string }> {
-    const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    if (!id) throw new Error("Give the category an English name using letters or numbers.");
+  async createCategory(name: string, nameAr = "", group = "cookies"): Promise<{ id: string; name: string }> {
+    const id = slugify(name) || `category-${Date.now().toString(36)}`;
     const body = await json<{ category: { id: string; name: string } }>(
       await apiFetch("/api/menu/admin/categories", {
         method: "POST",
-        body: JSON.stringify({ id, name: name.trim(), nameAr: nameAr.trim() }),
+        // `group` is the shop page it appears on. Without it a new category
+        // had no place on the storefront at all.
+        body: JSON.stringify({ id, name: name.trim(), nameAr: nameAr.trim(), group }),
       }),
       "create the category",
     );

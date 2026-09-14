@@ -154,6 +154,7 @@ export async function createCategory(body) {
     nameAr: body.nameAr ?? '',
     sort: body.sort ?? 0,
     visible: body.visible !== false,
+    group: body.group ?? '',
     createdAt: now(),
     updatedAt: now(),
   };
@@ -170,7 +171,7 @@ export async function createCategory(body) {
 }
 
 export async function updateCategory(id, patch) {
-  const writable = ['name', 'nameAr', 'sort', 'visible'];
+  const writable = ['name', 'nameAr', 'sort', 'visible', 'group'];
   const update = Object.fromEntries(
     Object.entries(patch).filter(([key]) => writable.includes(key)),
   );
@@ -266,6 +267,7 @@ export async function menu() {
     id: category.id,
     name: category.name,
     nameAr: category.nameAr || undefined,
+    group: category.group || undefined,
     items: byCategory.get(category.id) ?? [],
   }));
 }

@@ -62,6 +62,9 @@ export interface MenuItem {
   soldOut?: boolean;
   /** From the live catalogue: a photo an admin set, which wins over the bundled one. */
   image?: string;
+  /** From the live catalogue: a description an admin wrote, which wins over the generated one. */
+  description?: string;
+  descriptionAr?: string;
   /** From the live catalogue: what a bundle contains, or the choices it asks for. */
   bundle?: MenuBundle;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FolderPlus, Pencil, Plus, Search, Trash2 } from "lucide-react";
-import { menuApi, type MenuItem } from "@/lib/api";
+import { menuApi, slugify, type MenuItem } from "@/lib/api";
 import { invalidateCategories, loadCategories } from "@/lib/categories";
 import { Btn, Card, CardHead, Empty, Field, Picker, TextInput } from "@/components/menu-ui";
 import { BundleFields } from "@/components/ProductFields";
@@ -25,7 +25,16 @@ import { effectivePrice } from "@shared/productPricing.mjs";
  * the same product.
  */
 
-type Category = { id: string; name: string; nameAr: string };
+type Category = { id: string; name: string; nameAr: string; group?: string };
+
+/** The shop's menu pages, which a category is shown on. Mirrors backend MENU_GROUP_IDS. */
+const MENU_SECTIONS = [
+  { id: "cookies", name: "Cookies" },
+  { id: "desserts", name: "Desserts" },
+  { id: "drinks", name: "Drinks" },
+] as const;
+
+type NewCategory = { name: string; nameAr: string; group: string };
 
 type Draft = {
   id: string;
@@ -137,7 +146,7 @@ export default function Menu() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [newCategory, setNewCategory] = useState<{ name: string; nameAr: string } | null>(null);
+  const [newCategory, setNewCategory] = useState<NewCategory | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
   const [deleting, setDeleting] = useState<{ id: string; name: string; count: number } | null>(null);
   const [confirmText, setConfirmText] = useState("");
@@ -154,15 +163,17 @@ export default function Menu() {
     void loadCategories();
   }, []);
 
-  async function saveCategory(draft: { name: string; nameAr: string }) {
+  async function saveCategory(draft: NewCategory) {
     setSavingCategory(true);
     setError(null);
     try {
-      await menuApi.createCategory(draft.name, draft.nameAr);
+      await menuApi.createCategory(draft.name, draft.nameAr, draft.group);
       invalidateCategories();
       await loadCategories();
       await load();
       setNewCategory(null);
+      const section = MENU_SECTIONS.find((entry) => entry.id === draft.group)?.name ?? draft.group;
+      setNotice(`Created “${draft.name.trim()}”. It appears on the shop's ${section} page once it has a product.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not create the category.");
     } finally {
@@ -224,8 +235,12 @@ export default function Menu() {
     setError(null);
     const body = bodyFrom(draft);
     try {
-      if (creating) await menuApi.create({ ...body, id: draft.id.trim() });
-      else await menuApi.update(draft.id, body);
+      if (creating) {
+        const created = await menuApi.create({ ...body, id: draft.id.trim() });
+        setNotice(`Added “${created.name}”. It is on the shop's menu now.`);
+      } else {
+        await menuApi.update(draft.id, body);
+      }
       await load();
       close();
     } catch (caught) {
@@ -278,7 +293,7 @@ export default function Menu() {
             <option key={category.id} value={category.id}>{category.name}</option>
           ))}
         </Picker>
-        <Btn className="sm:ms-auto" variant="secondary" onClick={() => { setError(null); setNewCategory({ name: "", nameAr: "" }); }}>
+        <Btn className="sm:ms-auto" variant="secondary" onClick={() => { setError(null); setNewCategory({ name: "", nameAr: "", group: "cookies" }); }}>
           <FolderPlus className="size-4" /> New category
         </Btn>
         <Btn
@@ -308,7 +323,7 @@ export default function Menu() {
                 maxLength={120}
                 value={newCategory?.name ?? ""}
                 placeholder="Cookie Boxes"
-                onChange={(event) => setNewCategory((current) => ({ nameAr: "", ...current, name: event.target.value }))}
+                onChange={(event) => setNewCategory((current) => ({ nameAr: "", group: "cookies", ...current, name: event.target.value }))}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && newCategory?.name.trim()) void saveCategory(newCategory);
                 }}
@@ -320,8 +335,20 @@ export default function Menu() {
                 dir="rtl"
                 maxLength={120}
                 value={newCategory?.nameAr ?? ""}
-                onChange={(event) => setNewCategory((current) => ({ name: "", ...current, nameAr: event.target.value }))}
+                onChange={(event) => setNewCategory((current) => ({ name: "", group: "cookies", ...current, nameAr: event.target.value }))}
               />
+            </Field>
+            <Field label="Menu section" htmlFor="new-category-group"
+              hint="The page of the shop's menu this category is shown on.">
+              <Picker
+                id="new-category-group"
+                value={newCategory?.group ?? "cookies"}
+                onChange={(event) => setNewCategory((current) => ({ name: "", nameAr: "", ...current, group: event.target.value }))}
+              >
+                {MENU_SECTIONS.map((section) => (
+                  <option key={section.id} value={section.id}>{section.name}</option>
+                ))}
+              </Picker>
             </Field>
             {error && newCategory !== null && (
               <p className="text-sm text-destructive" role="alert">{error}</p>
@@ -565,9 +592,9 @@ function ProductForm({
   // Save waits for a photo still uploading, or the product would save without it.
   const [uploading, setUploading] = useState(false);
 
-  const valid = draft.name.trim() !== ""
-    && draft.price.trim() !== ""
-    && (!creating || draft.id.trim() !== "");
+  // No id requirement: a blank one is made from the English name on save.
+  const valid = draft.name.trim() !== "" && draft.price.trim() !== "";
+  const filedAs = slugify(draft.id) || slugify(draft.name);
 
   const price = Number(draft.price) || 0;
   const selling = effectivePrice({
@@ -599,10 +626,14 @@ function ProductForm({
         }}
       >
         {creating && (
-          <Field label="Product id" htmlFor="p-id"
-            hint="Lowercase letters, numbers and hyphens. Permanent — cart lines and past orders key on it.">
-            <TextInput id="p-id" value={draft.id} required
-              onChange={(event) => set("id", event.target.value)} />
+          <Field label="Product id (optional)" htmlFor="p-id"
+            hint={filedAs
+              ? `Saved as “${filedAs}”. Made from the English name when left blank; permanent once saved.`
+              : "Made from the English name when left blank; permanent once saved."}>
+            {/* Cleaned as it is typed, so the value on screen is the value the
+                server accepts — capitals and spaces were refused outright. */}
+            <TextInput id="p-id" value={draft.id} placeholder={slugify(draft.name) || "made-from-the-name"}
+              onChange={(event) => set("id", event.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, "-"))} />
           </Field>
         )}
 

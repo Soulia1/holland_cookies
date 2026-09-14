@@ -265,12 +265,21 @@ router.delete('/admin/products/:id', requireAdmin, async (req, res, next) => {
 
 // ------------------------------------------------------------ categories ----
 
+/**
+ * `group` is the storefront page a category is shown on (`/menu/cookies` and so
+ * on). The printed categories are placed by the storefront's own plan; a
+ * category created in the dashboard is not in that plan, so without this it
+ * had nowhere to appear and everything filed under it was invisible.
+ */
+export const MENU_GROUP_IDS = ['cookies', 'desserts', 'drinks'];
+
 const categoryBody = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(120),
   nameAr: z.string().max(120).optional(),
   sort: z.number().int().min(-100000).max(100000).optional(),
   visible: z.boolean().optional(),
+  group: z.enum(MENU_GROUP_IDS).optional(),
 });
 
 router.get('/admin/categories', requireAdmin, async (_req, res, next) => {
@@ -283,6 +292,7 @@ router.get('/admin/categories', requireAdmin, async (_req, res, next) => {
         nameAr: category.nameAr ?? '',
         sort: category.sort ?? 0,
         visible: !!category.visible,
+        group: category.group ?? '',
       })),
     });
   } catch (error) { next(error); }

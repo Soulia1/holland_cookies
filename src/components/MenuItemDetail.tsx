@@ -235,7 +235,11 @@ export default function MenuItemDetail({
                     </p>
 
                     <DialogPrimitive.Description className="font-body text-[15px] leading-[25px] text-on-surface-variant">
-                      {describeItem(item, category)}
+                      {/* What the admin wrote in the dashboard, when there is
+                          something; otherwise the sentence built from the sheet. */}
+                      {item.description
+                        ? localized(lang, item.description, item.descriptionAr)
+                        : describeItem(item, category)}
                     </DialogPrimitive.Description>
 
                     {/* A choice, not a bare list of flavors, so the cart line
