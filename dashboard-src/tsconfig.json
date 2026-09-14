@@ -18,7 +18,11 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client"],
     "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"], "@shared/*": ["../shared/*"] }
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/*": ["../shared/*"],
+      "@menuImages": ["../src/data/menuImages.ts"]
+    }
   },
   "include": ["src"]
 }

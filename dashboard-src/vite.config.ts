@@ -21,6 +21,11 @@ export default defineConfig({
       // Pricing is shared with the backend and the storefront. Three copies of
       // this arithmetic is precisely what shared/pricing.mjs exists to prevent.
       "@shared": path.resolve(ROOT, "../shared"),
+      // The one storefront module the dashboard reads: a product with no
+      // uploaded photo shows this built-in picture on the shop, so the editor
+      // must show the same one. Pure data with no imports, so nothing else of
+      // the storefront comes along with it.
+      "@menuImages": path.resolve(ROOT, "../src/data/menuImages.ts"),
     },
   },
   root: ROOT,

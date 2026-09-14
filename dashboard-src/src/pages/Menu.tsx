@@ -5,6 +5,7 @@ import { invalidateCategories, loadCategories } from "@/lib/categories";
 import { Btn, Card, CardHead, Empty, Field, Picker, TextInput } from "@/components/menu-ui";
 import { BundleFields } from "@/components/ProductFields";
 import { ImageUpload } from "@/components/ImageUpload";
+import { itemImage } from "@menuImages";
 import type { ChoiceGroupDraft } from "@/components/ChoiceGroups";
 import type { ComponentDraft } from "@/lib/productForm";
 import {
@@ -479,8 +480,9 @@ export default function Menu() {
                     return (
                       <li key={item.id}
                         className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/40 sm:px-5">
-                        {item.image ? (
-                          <img src={item.image} alt="" className="size-10 shrink-0 rounded-md object-cover" />
+                        {item.image || itemImage(item.id) ? (
+                          <img src={item.image || itemImage(item.id)} alt=""
+                            className="size-10 shrink-0 rounded-md object-cover" />
                         ) : null}
                         <div className="min-w-0 flex-1">
                           <p className="flex flex-wrap items-center gap-x-2 text-sm">
@@ -638,6 +640,7 @@ function ProductForm({
 
         <Field label="Photo" htmlFor="p-image">
           <ImageUpload id="p-image" value={draft.image}
+            fallback={draft.id ? itemImage(draft.id) : undefined}
             onChange={(path) => set("image", path)} onBusyChange={setUploading} />
         </Field>
 

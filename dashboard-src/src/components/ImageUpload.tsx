@@ -45,16 +45,23 @@ async function shrink(file: File): Promise<Blob> {
 }
 
 export function ImageUpload({
-  id, value, onChange, onBusyChange,
+  id, value, fallback, onChange, onBusyChange,
 }: {
   id: string;
   value: string;
+  /**
+   * The picture the shop shows when `value` is empty — the storefront's built-in
+   * menu photo. Shown so the editor matches the page; it cannot be removed,
+   * because clearing `value` is exactly what makes the shop show it.
+   */
+  fallback?: string;
   onChange: (path: string) => void;
   onBusyChange?: (busy: boolean) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const shown = value || fallback;
 
   async function upload(file: File) {
     setBusy(true);
@@ -73,8 +80,8 @@ export function ImageUpload({
   return (
     <div className="flex items-center gap-3">
       <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted/40">
-        {value ? (
-          <img src={value} alt="Product photo" className="size-full object-cover" data-testid="product-photo" />
+        {shown ? (
+          <img src={shown} alt="Product photo" className="size-full object-cover" data-testid="product-photo" />
         ) : (
           <ImageIcon className="size-6 text-muted-foreground" aria-hidden="true" />
         )}
@@ -82,7 +89,7 @@ export function ImageUpload({
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex flex-wrap gap-2">
           <Btn type="button" variant="secondary" disabled={busy} onClick={() => input.current?.click()}>
-            {busy ? "Uploading…" : value ? "Replace photo" : "Upload photo"}
+            {busy ? "Uploading…" : shown ? "Replace photo" : "Upload photo"}
           </Btn>
           {value && (
             <Btn type="button" variant="ghost" disabled={busy} className="text-destructive"
@@ -91,7 +98,13 @@ export function ImageUpload({
             </Btn>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">JPEG, PNG or WebP. Resized automatically.</p>
+        <p className="text-xs text-muted-foreground">
+          {value
+            ? "JPEG, PNG or WebP. Resized automatically."
+            : fallback
+              ? "The shop's current menu photo. Upload one to replace it."
+              : "JPEG, PNG or WebP. Resized automatically."}
+        </p>
         {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       </div>
       <input
