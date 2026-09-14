@@ -51,11 +51,14 @@ export interface MenuItem {
   note?: string;
   noteAr?: string;
   /**
-   * A flavor the customer must pick before adding this item to the cart, e.g.
-   * `["Vanilla", "Red Velvet", "Chocolate"]`. Only set on the handful of
-   * printed items that name several flavors as one line rather than as
-   * separate items — the choice happens at order time, on this site, instead
-   * of arriving as free text WhatsApp had to parse by hand.
+   * A choice the customer must pick before adding this item to the cart, each
+   * entry already the full cart-line label, e.g.
+   * `["Vanilla, Nutella filling", "Chocolate, white Nutella filling"]` — not
+   * just a bare flavor word, because the filling can differ between two
+   * options that share a flavor. Only set on the handful of printed items
+   * that name several flavors as one line rather than as separate items — the
+   * choice happens at order time, on this site, instead of arriving as free
+   * text WhatsApp had to parse by hand.
    */
   flavorChoices?: string[];
   /** From the live catalogue: an admin marked it unavailable. */
@@ -192,10 +195,15 @@ export const MENU: MenuCategory[] = [
     items: [
       {
         id: "scoop-nutella-foil",
-        name: "Vanilla, Red Velvet or Chocolate — Nutella filling",
+        name: "Vanilla, Red Velvet or Chocolate — Nutella or white Nutella filling",
         price: 300,
         note: "Foil tray",
-        flavorChoices: ["Vanilla", "Red Velvet", "Chocolate"],
+        flavorChoices: [
+          "Red Velvet, white Nutella filling",
+          "Vanilla, Nutella filling",
+          "Chocolate, white Nutella filling",
+          "Chocolate, Nutella filling",
+        ],
       },
       {
         id: "scoop-vanilla-bueno-foil",
@@ -387,13 +395,14 @@ export function priceFrom(category: MenuCategory): number {
  *
  * The cart and the database both key on these ids, and the seed writes one
  * product per flavor from this same function, so the two cannot drift apart.
+ * Each choice is already the full cart-line label, so the name here is that
+ * choice verbatim.
  */
 export function flavorVariants(item: MenuItem): { id: string; flavor: string; name: string }[] {
-  const filling = item.name.split("—")[1]?.trim();
   return (item.flavorChoices ?? []).map((flavor) => ({
-    id: `${item.id}--${flavor.toLowerCase().replace(/\s+/g, "-")}`,
+    id: `${item.id}--${flavor.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`,
     flavor,
-    name: filling ? `${flavor}, ${filling}` : `${flavor} ${item.name}`,
+    name: flavor,
   }));
 }
 

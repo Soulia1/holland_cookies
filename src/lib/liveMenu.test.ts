@@ -108,10 +108,11 @@ describe("flavorVariants", () => {
     const scoop = cookies.categories.flatMap((c) => c.items).find((i) => i.flavorChoices)!;
     const variants = flavorVariants(scoop);
     expect(variants.map((v) => v.id)).toEqual([
-      "scoop-nutella-foil--vanilla",
-      "scoop-nutella-foil--red-velvet",
-      "scoop-nutella-foil--chocolate",
+      "scoop-nutella-foil--red-velvet-white-nutella-filling",
+      "scoop-nutella-foil--vanilla-nutella-filling",
+      "scoop-nutella-foil--chocolate-white-nutella-filling",
+      "scoop-nutella-foil--chocolate-nutella-filling",
     ]);
-    expect(variants[1].name).toBe("Red Velvet, Nutella filling");
+    expect(variants[1].name).toBe("Vanilla, Nutella filling");
   });
 });

@@ -87,14 +87,9 @@ export default function MenuItemDetail({
   const chosenFlavor =
     choices && flavorPick?.itemId === item?.id ? flavorPick.flavor : null;
 
-  // The printed line names several flavors before an em dash and the shared
-  // filling after it — "Vanilla, Red Velvet or Chocolate — Nutella filling" —
-  // so the cart line for a chosen flavor is built from that same filling text
-  // rather than a second copy of it hand-typed here.
-  const cartName =
-    choices && chosenFlavor
-      ? `${chosenFlavor}, ${name.split("—")[1]?.trim() ?? name}`
-      : name;
+  // Each choice is already the full cart-line label (see `flavorChoices` on
+  // `MenuItem`), since two choices can share a flavor but not a filling.
+  const cartName = choices && chosenFlavor ? chosenFlavor : name;
   const cartProductId =
     item && choices && chosenFlavor
       ? flavorVariants(item).find((variant) => variant.flavor === chosenFlavor)?.id
