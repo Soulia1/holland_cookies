@@ -3,6 +3,7 @@ import { useCapability } from "@/lib/motion/useCapability";
 import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
 import type { Order } from "@/lib/api";
+import { parseStamp } from "@/lib/dates";
 
 /**
  * The order confirmation, printed.
@@ -118,7 +119,7 @@ export default function ReceiptPrinter({ order }: { order: Order }) {
   const deliverTo = [order.delivery.address, order.delivery.building, order.delivery.floor, order.delivery.apartment]
     .filter(Boolean).join(", ");
 
-  const placed = new Date(`${order.createdAt.replace(" ", "T")}Z`).toLocaleString(
+  const placed = parseStamp(order.createdAt).toLocaleString(
     lang === "ar" ? "ar-EG" : "en-GB",
     { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" },
   );

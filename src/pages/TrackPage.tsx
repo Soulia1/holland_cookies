@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiError, api, type Order, type Settings, type StatusEvent } from "@/lib/api";
 import { localized, useLang, type Translations } from "@/lib/i18n";
 import { Link } from "@/lib/router";
+import { parseStamp } from "@/lib/dates";
 
 /**
  * Order tracking.
@@ -37,7 +38,7 @@ const STATUS_KEY: Record<string, keyof Translations> = {
 
 /** `YYYY-MM-DD HH:MM:SS` in UTC with no marker — the T and Z make it explicit. */
 function when(stamp: string, lang: "en" | "ar"): string {
-  return new Date(`${stamp.replace(" ", "T")}Z`).toLocaleString(
+  return parseStamp(stamp).toLocaleString(
     lang === "ar" ? "ar-EG" : "en-GB",
     { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" },
   );

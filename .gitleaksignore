@@ -1,0 +1,5 @@
+# The e2e suite's fixture admin key and session secret, in an old revision of
+# backend/test/e2e-server.js. Test-only values that were never deployed:
+# production refuses to boot with any secret containing "e2e-" (backend/config.js).
+# Ignored by exact fingerprint, so any other finding still fails the scan.
+396288e5c83a607722893203f07f5dd490a52582:backend/test/e2e-server.js:generic-api-key:37

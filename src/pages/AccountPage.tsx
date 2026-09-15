@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { localized, useLang, type Translations } from "@/lib/i18n";
 import { Link } from "@/lib/router";
 import SignInSheet from "@/components/SignInSheet";
+import { parseStamp } from "@/lib/dates";
 
 /**
  * Your account.
@@ -209,7 +210,7 @@ export default function AccountPage() {
                     </span>
                   </div>
                   <p className="ed-order-meta">
-                    {new Date(order.createdAt.replace(" ", "T") + "Z").toLocaleDateString(
+                    {parseStamp(order.createdAt).toLocaleDateString(
                       lang === "ar" ? "ar-EG" : "en-GB",
                       { day: "numeric", month: "short", year: "numeric" },
                     )}

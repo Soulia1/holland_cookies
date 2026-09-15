@@ -252,6 +252,8 @@ test.describe("the receipt printer", () => {
     // The reference under the barcode and the one on the meta line are the
     // same order, and the line item is the cookie that was added.
     await expect(page.locator(".rcpt-meta")).toContainText(reference);
+    // Every receipt printed "Invalid Date" while the page appended a Z to an ISO stamp.
+    await expect(page.locator(".rcpt-meta")).not.toContainText("Invalid Date");
     await expect(page.locator(".rcpt-lines").first()).toContainText("Vanilla");
   });
 
