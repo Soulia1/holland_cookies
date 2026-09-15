@@ -116,7 +116,8 @@ export function isTerminal(status) {
 
 /** Every order may be cancelled until it is terminal; otherwise the only move
  *  is one step forward. No skipping and no going back. */
-export function allowedNextStatuses(currentStatus, fulfillmentType) {
+// The flow is the same for delivery and pickup; the type is accepted so callers never branch.
+export function allowedNextStatuses(currentStatus, _fulfillmentType) {
   if (isTerminal(currentStatus)) return [];
   const index = statusIndex(currentStatus);
   if (index === -1) return [];

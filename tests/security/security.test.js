@@ -24,7 +24,7 @@ process.env.DISABLE_ADMIN_AUTH = 'false';
 
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const { default: app } = await import('../../backend/server.js');
 const fsdb = await import('../../backend/firestore.js');
@@ -402,6 +402,14 @@ test('rate limiting: the durable classes survive a restart of the counter store'
   assert.ok(counters.size > 0, 'strict limiter state must be persisted, not in-process');
 });
 
+test('rate limiting: protected dashboard reads do not consume the public catalogue budget', async () => {
+  for (let i = 0; i < 305; i += 1) {
+    assert.equal((await request('/api/admin/promos')).status, 401);
+  }
+  assert.equal((await request('/api/menu')).status, 200,
+    'admin traffic must not make the public catalogue return 429');
+});
+
 // ----------------------------------------------------------------- headers ----
 
 test('headers, methods, removed debug routes and private cache', async () => {
@@ -418,6 +426,19 @@ test('headers, methods, removed debug routes and private cache', async () => {
     assert.equal((await request(route)).status, 404, route);
   }
   assert.equal((await request('/api/menu', { method: 'PUT' })).status, 405);
+});
+
+test('CSP authorizes the inline bootstrap text after HTML newline normalization', async () => {
+  const res = await request('/');
+  assert.equal(res.status, 200);
+  const csp = res.headers.get('content-security-policy');
+  const scripts = [...res.data.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)];
+  assert.ok(scripts.length > 0, 'the built storefront should contain its language bootstrap');
+  for (const match of scripts) {
+    const browserText = match[1].replace(/\r\n?/g, '\n');
+    const hash = createHash('sha256').update(browserText).digest('base64');
+    assert.match(csp, new RegExp(`'sha256-${hash.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`));
+  }
 });
 
 // ------------------------------------------------------- failure behaviour ----

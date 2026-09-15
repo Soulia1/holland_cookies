@@ -42,6 +42,9 @@ jobs:
       # `npm ci` and not `npm install`: the lockfile is the input, and a build
       # that quietly resolves a different tree is not the build that was tested.
       - run: npm ci
+      # The job was named for lint and never ran one.
+      - name: Lint
+        run: npm run lint
       - name: Typecheck
         run: npm run typecheck
       - name: Unit tests
@@ -119,6 +122,12 @@ jobs:
             echo "::error::Firebase Admin SDK or a credential leaked into a client bundle"
             exit 1
           fi
+          # Nothing from a development or test setup belongs on the production
+          # path: a loopback API, the emulator, a test project or the e2e key.
+          if grep -rlE '127\.0\.0\.1|localhost:[0-9]|FIRESTORE_EMULATOR|holland-cookie-(test|ci|e2e)|e2e-admin-key|ADMIN_KEY=' dist dist-dashboard; then
+            echo "::error::a development endpoint, emulator or test credential is in a client bundle"
+            exit 1
+          fi
           echo "client bundles are clean"
       - uses: actions/upload-artifact@v4
         with:
@@ -139,6 +148,7 @@ jobs:
           - commerce-chromium-desktop
           - commerce-chromium-phone
           - commerce-webkit-phone
+          - commerce-webkit-desktop
           - storefront-chromium-desktop
           - storefront-chromium-phone
           - storefront-webkit-phone
@@ -180,7 +190,11 @@ jobs:
         if: failure()
         with:
           name: playwright-${{ matrix.project }}
-          path: test-results/
+          # The server log as well as the traces: a trace shows what the browser
+          # saw, and only the log shows what the server did about it.
+          path: |
+            test-results/
+            data/e2e-server.log
           retention-days: 7
 
   # A single required check, so branch protection has one box to tick and a
@@ -191,10 +205,19 @@ jobs:
     needs: [static, secrets, dependencies, emulated, build, e2e]
     if: always()
     steps:
+      # Each result is checked on its own. The previous version piped the joined
+      # results into `grep -qvw success`, which inspects the *line*: any line
+      # containing one "success" is filtered out, so a run with one failed job
+      # and five green ones printed "all jobs succeeded" and passed this gate.
       - name: Verify every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          if echo '${{ join(needs.*.result, ' ') }}' | grep -qvw 'success'; then
-            echo "::error::one or more jobs did not succeed: ${{ join(needs.*.result, ' ') }}"
-            exit 1
-          fi
+          echo "job results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::one or more jobs did not succeed: $RESULTS"
+              exit 1
+            fi
+          done
           echo "all jobs succeeded"

@@ -54,7 +54,7 @@ function run(name, command, args, options = {}) {
     ...options,
   });
   const tag = `[${name}]`;
-  const write = (stream) => (chunk) => {
+  const write = (_stream) => (chunk) => {
     for (const line of String(chunk).split(/\r?\n/)) {
       if (line.trim()) console.log(`${tag} ${line}`);
     }

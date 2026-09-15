@@ -1,3 +1,4 @@
+/* global window -- referenced inside page.evaluate callbacks, which run in the browser */
 import fs from 'node:fs';
 import { chromium } from '@playwright/test';
 process.env.NODE_ENV = 'test';

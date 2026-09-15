@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useCapability } from "@/lib/motion/useCapability";
-import { useLang } from "@/lib/i18n";
+import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
 import type { Order } from "@/lib/api";
 
@@ -112,6 +112,11 @@ export default function ReceiptPrinter({ order }: { order: Order }) {
   }, [reduced]);
 
   const delivering = order.fulfilment === "delivery";
+  const customerName = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ");
+  // The address as the customer typed it. The area is stored as an id and the
+  // receipt has no settings to name it from; the tracking page names it.
+  const deliverTo = [order.delivery.address, order.delivery.building, order.delivery.floor, order.delivery.apartment]
+    .filter(Boolean).join(", ");
 
   const placed = new Date(`${order.createdAt.replace(" ", "T")}Z`).toLocaleString(
     lang === "ar" ? "ar-EG" : "en-GB",
@@ -180,9 +185,13 @@ export default function ReceiptPrinter({ order }: { order: Order }) {
             <div className="rcpt-rule" aria-hidden="true" />
 
             <ul className="rcpt-lines">
-              {order.items.map((item) => (
-                <li key={item.productId}>
-                  <span>{item.qty} × {item.name}{item.choice ? ` — ${item.choice.name}` : ""}</span>
+              {order.items.map((item, index) => (
+                // Indexed: the same product with two different options is two lines.
+                <li key={`${item.productId}-${index}`}>
+                  <span>
+                    {item.qty} × {localized(lang, item.name, item.nameAr)}
+                    {item.choice ? ` — ${localized(lang, item.choice.name, item.choice.nameAr)}` : ""}
+                  </span>
                   <span>{item.lineTotal.toFixed(2)}</span>
                 </li>
               ))}
@@ -193,7 +202,10 @@ export default function ReceiptPrinter({ order }: { order: Order }) {
             <ul className="rcpt-lines">
               <li><span>{t.cartSubtotal}</span><span>{order.totals.subtotal.toFixed(2)}</span></li>
               {order.totals.discount > 0 && (
-                <li><span>{t.ckPromo}</span><span>−{order.totals.discount.toFixed(2)}</span></li>
+                <li>
+                  <span>{order.promoCode ? `${t.ckPromo} (${order.promoCode})` : t.ckPromo}</span>
+                  <span>−{order.totals.discount.toFixed(2)}</span>
+                </li>
               )}
               <li><span>{t.ckDelivery}</span><span>{order.totals.delivery.toFixed(2)}</span></li>
             </ul>
@@ -205,6 +217,11 @@ export default function ReceiptPrinter({ order }: { order: Order }) {
 
             <ul className="rcpt-meta">
               <li><span>{t.rpOrder}</span><span dir="ltr">{order.reference}</span></li>
+              <li><span>{t.rpName}</span><span>{customerName}</span></li>
+              <li><span>{t.ckPhone}</span><span dir="ltr">{order.customer.phone}</span></li>
+              {delivering && deliverTo ? (
+                <li><span>{t.rpDeliverTo}</span><span>{deliverTo}</span></li>
+              ) : null}
               <li>
                 <span>{t.rpPaidWith}</span>
                 {/* Matches the method the checkout actually offered for

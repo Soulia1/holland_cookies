@@ -2384,7 +2384,16 @@ body.is-locked {
    for it not to crowd the name and the price it sits between. */
 @media not all and (hover: hover) {
   .menu-item { gap: 8px; }
-  .menu-item-add { padding: 4px 9px; }
+  .menu-item-add {
+    /* A tap can move a few pixels while Safari settles the sticky menu bar.
+       The old ~21px control moved out from under the pointer and WebKit then
+       cancelled the click. A real 44px target remains under the finger and is
+       also large enough to use reliably on an actual phone. */
+    min-inline-size: 44px;
+    min-block-size: 44px;
+    padding: 4px 9px;
+    touch-action: manipulation;
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {

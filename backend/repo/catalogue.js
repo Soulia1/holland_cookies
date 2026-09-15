@@ -79,6 +79,20 @@ function bundleView(product, names) {
 }
 
 /**
+ * Whether the shop can sell this product right now.
+ *
+ * A fixed bundle is made of its contents, so it is sold out while any one of
+ * them is sold out or gone: the order transaction refuses it on the same rule,
+ * and this lets the menu say so before the customer tries. The bundle's own
+ * flag is left as the admin set it, so it comes back by itself with the cookie.
+ */
+export function sellable(product, names) {
+  if (!product.available) return false;
+  if (!product.isBundle || product.bundleType === 'choice' || !(names instanceof Map)) return true;
+  return (product.components ?? []).every((component) => names.get(component.productId)?.available === true);
+}
+
+/**
  * A product as the storefront sees it.
  *
  * Unchanged from the SQLite implementation, deliberately: it carries both
@@ -102,7 +116,7 @@ export function publicProduct(product, names) {
     price: selling,
     regularPrice: regular,
     discounted: selling < regular,
-    available: !!product.available,
+    available: sellable(product, names),
     choices: (Array.isArray(product.choices) ? product.choices : []).map((choice) => ({
       name: choice.name,
       nameAr: choice.nameAr || undefined,
@@ -116,6 +130,10 @@ export function adminProduct(product, names) {
   const bundle = product.isBundle ? bundleView(product, names) : null;
   return {
     ...publicProduct(product, names),
+    // The flag as stored, not whether it can sell today: the editor saves this
+    // value back, and a bundle blocked for a while by a sold-out cookie must not
+    // be switched off for good by an unrelated edit.
+    available: !!product.available,
     discountEnabled: !!product.discountEnabled,
     discountType: product.discountType,
     discountValue: product.discountValue,

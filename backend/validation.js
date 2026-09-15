@@ -43,6 +43,7 @@ export function rejectDangerousKeys(req,res,next) {
   const inspect=(value,depth=0)=> {
     if(depth>8) return false;
     if(value && typeof value==='object') return Object.entries(value).every(([key,entry])=>!['__proto__','prototype','constructor'].includes(key) && inspect(entry,depth+1));
+    // eslint-disable-next-line no-control-regex -- refusing control characters is the purpose of this check
     return typeof value !== 'string' || !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ud800-\udfff]/u.test(value);
   };
   return inspect(req.body)?next():invalid(res);

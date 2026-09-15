@@ -20,6 +20,15 @@ const iso = (value) => (value?.toDate ? value.toDate().toISOString() : (value ??
 
 export const normalizeCode = (code) => String(code ?? '').trim().toUpperCase();
 
+/**
+ * Whether a normalised code can name a promo document at all.
+ *
+ * Firestore reads a "/" as a path and reserves ids shaped like `__name__`, and
+ * either one threw inside the SDK: a customer typing `a/b` into the promo box
+ * got a server error for what is only a code that does not exist.
+ */
+export const isPromoCode = (code) => /^(?!__.*__$)[A-Z0-9_-]{1,40}$/.test(String(code));
+
 export const promoOut = (promo) => ({
   code: promo.code,
   type: promo.type,
@@ -41,7 +50,9 @@ export async function listPromos() {
 }
 
 export async function getPromo(code) {
-  const doc = await collections.promos().doc(normalizeCode(code)).get();
+  const id = normalizeCode(code);
+  if (!isPromoCode(id)) return null;
+  const doc = await collections.promos().doc(id).get();
   return doc.exists ? promoFromDoc(doc) : null;
 }
 
@@ -79,6 +90,7 @@ export async function createPromo(body) {
 const PROMO_WRITABLE = ['type', 'value', 'minSubtotal', 'maxUses', 'active', 'expiresAt'];
 
 export async function updatePromo(code, patch) {
+  if (!isPromoCode(normalizeCode(code))) return { found: false, changed: false };
   const update = Object.fromEntries(
     Object.entries(patch).filter(([key]) => PROMO_WRITABLE.includes(key)),
   );
@@ -93,6 +105,7 @@ export async function updatePromo(code, patch) {
 }
 
 export async function deletePromo(code) {
+  if (!isPromoCode(normalizeCode(code))) return false;
   const ref = collections.promos().doc(normalizeCode(code));
   if (!(await ref.get()).exists) return false;
   await ref.delete();

@@ -183,6 +183,14 @@ export default function OrderDetailView({
               label="Payment status"
               value={PAYMENT_LABELS[order.paymentStatus ?? "unpaid"] ?? order.paymentStatus}
             />
+            {/* Collected at checkout under "Notes for the kitchen". Rendered as
+                text, never markup, and kept on its own line breaks. */}
+            <div className="sm:col-span-2">
+              <Field
+                label="Customer notes"
+                value={order.notes ? <span className="whitespace-pre-wrap">{order.notes}</span> : null}
+              />
+            </div>
           </dl>
         </Section>
       </div>

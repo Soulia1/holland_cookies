@@ -34,7 +34,12 @@ const hashes=[];
 for(const directory of [dist,dashboardDist]){
   const file=path.join(directory,'index.html');
   if(fs.existsSync(file))for(const match of fs.readFileSync(file,'utf8').matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)){
-    hashes.push("'sha256-"+createHash('sha256').update(match[1]).digest('base64')+"'");
+    // HTML parsers normalise CRLF to LF before checking an inline-script hash.
+    // Hashing the raw Windows build therefore produced a different value and
+    // blocked this script under our own CSP, while the same build worked on
+    // Linux. Hash the text the browser actually executes.
+    const script=match[1].replace(/\r\n?/g,'\n');
+    hashes.push("'sha256-"+createHash('sha256').update(script).digest('base64')+"'");
   }
 }
 app.use(helmet({contentSecurityPolicy:{directives:{
@@ -47,7 +52,20 @@ app.use(helmet({contentSecurityPolicy:{directives:{
 const allowedOrigins=process.env.NODE_ENV==='production'?[]:(process.env.ALLOWED_ORIGINS||'').split(',').filter(Boolean);
 app.use(cors({origin:allowedOrigins.length?allowedOrigins:false,credentials:true,methods:['GET','POST','PATCH','DELETE'],allowedHeaders:['Content-Type','X-Requested-With']}));
 app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next();});
-app.use('/api',limit('public',60000,300));
+const publicReadLimit=limit('public',60000,300);
+app.use('/api',(req,res,next)=>{
+  // Protected routes have purpose-built limits below. Counting their reads
+  // against the catalogue budget could lock a signed-in administrator out of
+  // the dashboard during a normal editing session, while adding no protection
+  // to the public menu. Login, checkout, tracking, reporting and mutations all
+  // retain their stricter independent limits.
+  // Two unauthenticated reads live under /admin and stay on the public budget:
+  // the shop settings the storefront fetches, and the session probe. Each is a
+  // Firestore read anyone can trigger, which is what this limiter is for.
+  const publicUnderAdmin=req.method==='GET' && /^\/admin\/(?:settings|session)$/.test(req.path);
+  if(!publicUnderAdmin && (/^\/(?:admin|orders)(?:\/|$)/.test(req.path) || /^\/menu\/admin(?:\/|$)/.test(req.path)))return next();
+  return publicReadLimit(req,res,next);
+});
 app.post('/api/admin/session',limit('login',15*60000,10));
 app.post('/api/orders',limit('checkout',10*60000,20));
 app.use('/api/orders/track',limit('tracking',15*60000,20));
@@ -78,7 +96,7 @@ app.get('/api/ready',async(_req,res)=>{
 });
 app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);
 app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No such endpoint.'}));
-const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\/]assets[\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
+const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\\/]assets[\\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
 app.use('/dashboard',express.static(dashboardDist,staticOptions));app.use(express.static(dist,staticOptions));
 app.get(['/dashboard','/dashboard/','/dashboard/orders','/dashboard/orders/:id','/dashboard/menu','/dashboard/users','/dashboard/promos','/dashboard/settings'],(_req,res)=>{res.set('Cache-Control','no-cache');res.sendFile(path.join(dashboardDist,'index.html'));});
 // `/menu/:slug` is not decoration: the menu is a page per group, so `/menu/cookies`

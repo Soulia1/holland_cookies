@@ -41,7 +41,7 @@ const SERVER_LOG = path.resolve("data/e2e-server.log");
 process.env.HOLLAND_E2E_LOG = SERVER_LOG;
 
 const STATIC = /(splash-lifecycle|storefront|menu|bilingual-cart)\.spec\.ts$/;
-const COMMERCE = /(commerce|account|receipt|dashboard-to-shop|admin-dashboard)\.spec\.ts$/;
+const COMMERCE = /(commerce|account|receipt|dashboard-to-shop|admin-dashboard|security)\.spec\.ts$/;
 
 const PREVIEW = "http://127.0.0.1:4173";
 const SERVER = "http://127.0.0.1:3100";
@@ -142,6 +142,14 @@ export default defineConfig({
       name: "commerce-webkit-phone",
       testMatch: COMMERCE,
       use: { ...devices["iPhone 13"], baseURL: SERVER },
+    },
+    {
+      // The dashboard is run from a laptop at least as often as from a phone, and
+      // desktop Safari is where a confirm dialog, a date input or a wide table
+      // behaves differently from Chromium.
+      name: "commerce-webkit-desktop",
+      testMatch: COMMERCE,
+      use: { browserName: "webkit", baseURL: SERVER, viewport: VIEWPORTS.desktop },
     },
   ],
 });

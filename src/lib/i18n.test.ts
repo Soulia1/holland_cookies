@@ -16,7 +16,6 @@ import { localized } from "./i18n";
 // Imported through the module's private shape rather than re-exported from it:
 // the dictionary is an implementation detail of the provider and nothing in the
 // app should be reading it directly.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mod = (await import("./i18n")) as any;
 
 /** Values that are intentionally identical in both languages. */

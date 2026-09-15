@@ -163,7 +163,10 @@ function serviceAccount() {
     } catch (error) {
       throw new Error(
         'FIREBASE_SERVICE_ACCOUNT_JSON is set but is not valid JSON. Paste the '
-        + `exact contents of serviceAccount.json. Parse error: ${error.message}`,
+        + 'exact contents of serviceAccount.json.',
+        // Never the parser's message: it can quote the text it failed on,
+        // which is the private key, into the boot log.
+        { cause: error },
       );
     }
     if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {

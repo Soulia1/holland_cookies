@@ -20,6 +20,7 @@ export {
   selectionProblem,
   choiceProblem,
   lineSignature,
+  deliveryFee,
 } from './pricing.mjs';
 
 import { effectivePrice, money, discountPercent, isDiscounted } from './pricing.mjs';

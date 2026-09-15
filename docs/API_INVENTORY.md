@@ -36,13 +36,13 @@ Applied in `backend/server.js` in this order:
 
 ## Rate-limit classes
 
-Seven classes, not one limiter. **Durable** classes are backed by Firestore and
+Nine classes, not one limiter. **Durable** classes are backed by Firestore and
 survive a restart; the rest use in-process counters. See `backend/security.js`
 for why the split is drawn where it is.
 
 | Class | Window | Limit | Durable | Applies to |
 |---|---|---|---|---|
-| `public` | 60s | 300 | no | all `/api` |
+| `public` | 60s | 300 | no | all `/api`, except the authenticated dashboard routes (`/api/admin/*`, `/api/orders*`, `/api/menu/admin/*`), which have the classes below so a working admin is never throttled by the catalogue budget. `GET /api/admin/settings` and `GET /api/admin/session` are unauthenticated and stay on it. |
 | `login` | 15min | 10 | **yes** | `POST /api/admin/session` |
 | `checkout` | 10min | 20 | **yes** | `POST /api/orders` |
 | `tracking` | 15min | 20 | **yes** | `/api/orders/track/*` |
@@ -131,6 +131,13 @@ staff notes are stripped from the response.
 
 The sign-in comparison is constant-time over SHA-256 digests of both sides, and
 returns the same 401 shape for a malformed body and a wrong key.
+
+**A promo's expiry is a day in Cairo.** The dashboard's date picker sends `expiresAt` as the
+last millisecond of the chosen day in `Africa/Cairo` (UTC+3 in summer, UTC+2 in winter),
+computed by `shared/cairoTime.mjs`; with no date it sends `null`, never an empty string. The
+server stores that instant, refuses a date already past on create, and stops accepting the code
+once it has passed. A code is letters, numbers, `-` and `_` only, and never `__name__`, because
+it is the Firestore document id; anything else is `400 INVALID_PROMO`, never a server error.
 
 `POST /api/admin/promos/validate` is public because checkout has to tell a
 customer their code is good before they commit — but it returns **only the

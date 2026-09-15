@@ -34,3 +34,10 @@ export function lineSignature(item: { productId: string; choice?: string; select
 export function hasDiscount(product: DiscountableProduct): boolean;
 export function discountAmount(product: DiscountableProduct): number;
 export function discountPercentOff(product: DiscountableProduct): number;
+
+/** Delivery for a subtotal under the shop settings: 0 for pickup, and free from the threshold up. */
+export declare function deliveryFee(
+  subtotal: number,
+  settings: { deliveryFee?: number; freeDeliveryOver?: number } | null | undefined,
+  fulfilment: string,
+): number;

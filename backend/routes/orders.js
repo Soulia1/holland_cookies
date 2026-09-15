@@ -35,7 +35,9 @@ const STATUSES = ORDER_STATUSES;
  * refusal.
  */
 const checkoutBody = z.strictObject({
-  idempotencyKey: z.string().min(8).max(120),
+  // Used as a Firestore document id, so held to characters one can take: a "/"
+  // is read as a path and `__name__` is reserved, and both threw as a 500.
+  idempotencyKey: z.string().min(8).max(120).regex(/^(?!__.*__$)[A-Za-z0-9._:-]+$/),
   items: z.array(z.strictObject({
     productId: identifier,
     qty: z.number().int().min(1).max(50),

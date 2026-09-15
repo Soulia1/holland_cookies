@@ -49,11 +49,15 @@ import {
 } from '../shared/pricing.mjs';
 import { assertNewOrder } from './invariants.js';
 import { upsertCustomerInTransaction } from './repo/people.js';
+import { isPromoCode } from './repo/shop.js';
 import { allocateReferenceInTransaction } from './repo/system.js';
 
 function hash(value) {
   return createHash('sha256').update(String(value), 'utf8').digest('hex');
 }
+
+/** A checkout key is stored as a document id: no "/", no `__name__`, no "." or "..". */
+const CHECKOUT_KEY = /^(?!__.*__$)(?!\.\.?$)[A-Za-z0-9._:-]{1,120}$/;
 
 function fail(status, code, message, details) {
   const error = new Error(message);
@@ -147,10 +151,18 @@ export async function createOrder(payload) {
     (item) => (item.selections ?? []).map((pick) => pick.productId),
   ))];
   const optionIds = pickedIds.filter((id) => !ids.includes(id));
+
+  // Both become document ids below. Checked first, because the Firestore SDK
+  // throws on an id it cannot use and that surfaced as a server error.
+  if (!CHECKOUT_KEY.test(String(payload.idempotencyKey ?? ''))) {
+    throw fail(400, 'INVALID', 'Invalid checkout key.');
+  }
+  const requestedCode = String(payload.promoCode ?? '').trim().toUpperCase();
+  if (requestedCode && !isPromoCode(requestedCode)) {
+    throw fail(400, 'INVALID_PROMO', 'That code is not recognised.');
+  }
   const idempotencyRef = collections.orderIdempotency().doc(payload.idempotencyKey);
-  const promoRef = payload.promoCode
-    ? collections.promos().doc(payload.promoCode.trim().toUpperCase())
-    : null;
+  const promoRef = requestedCode ? collections.promos().doc(requestedCode) : null;
   const customerRef = collections.customers().doc(phone);
 
   return firestore().runTransaction(async (tx) => {
@@ -251,6 +263,23 @@ export async function createOrder(payload) {
     if (pickedUnavailable.length) {
       throw fail(409, 'PRODUCT_UNAVAILABLE',
         'One of your choices has sold out.', { productIds: pickedUnavailable });
+    }
+
+    // A fixed bundle is made of its contents. While one of them is sold out or
+    // gone the kitchen has nothing to put in the box, so the bundle cannot be
+    // sold either. The public menu shows it as sold out on the same rule (see
+    // `sellable` in repo/catalogue.js); this is the check a request cannot skip.
+    const heldUnavailable = ids.filter((id) => {
+      const product = catalogue.get(id);
+      if (!product.isBundle || product.bundleType === 'choice') return false;
+      return (product.components ?? []).some((component) => {
+        const inside = catalogue.get(component.productId);
+        return !inside || inside.available === false;
+      });
+    });
+    if (heldUnavailable.length) {
+      throw fail(409, 'PRODUCT_UNAVAILABLE',
+        'Something in your cart has sold out.', { productIds: heldUnavailable });
     }
 
     // --- Settings, and whether the shop is even open ------------------------

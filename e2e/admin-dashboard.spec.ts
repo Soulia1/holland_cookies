@@ -34,6 +34,8 @@ const RENAMED = `Loop Double Chunk ${RUN}`;
 const BOX = { name: `Loop Box ${RUN}`, id: `loop-box-${RUN}` };
 const CHOICE_ID = `loop-pick-${RUN}`;
 const PROMOS = [`LOOP${RUN}`.toUpperCase(), `LOOPDATE${RUN}`.toUpperCase(), `LOOPFIX${RUN}`.toUpperCase()];
+/** Kitchen notes as a customer might type them, with markup that has to stay text. */
+const NOTE = `Ring twice, no nuts <img src=x onerror="window.__xss=1"> ${RUN}`;
 
 const headers = (baseURL: string) => ({ "x-requested-with": "Holland", origin: baseURL });
 
@@ -84,6 +86,11 @@ async function publicProduct(page: Page, id: string) {
 /** Put lines straight into the cart the storefront keeps, then open checkout. */
 async function checkoutWith(page: Page, lines: { productId: string; name: string; price: number; qty: number }[]) {
   await page.goto("/track", { waitUntil: "load" });
+  // The cart provider writes its state to storage when it mounts, and `load` can
+  // fire before React has committed. Writing first let that mount overwrite the
+  // lines with an empty cart on a slow WebKit phone, so checkout opened empty.
+  await ready(page);
+  await page.waitForFunction(() => localStorage.getItem("holland-cart-v1") !== null);
   await page.evaluate((cart) => localStorage.setItem("holland-cart-v1", JSON.stringify(cart)), lines);
   await page.goto("/checkout", { waitUntil: "load" });
   await ready(page);
@@ -178,6 +185,17 @@ test("settings are stored, survive a reload, and checkout and the server obey th
     await checkoutWith(page, [{ productId: product.id, name: product.name, price: product.price, qty: 1 }]);
     await expect(summaryRow(page, "Delivery")).toHaveText("45.00 EGP");
     await expect(page.locator(".ed-srow.total span:last-child")).toHaveText(`${(product.price + 45).toFixed(2)} EGP`);
+
+    // Free delivery starts at exactly the threshold: this basket's subtotal is
+    // free, a piastre more is not. The backend suite proves the server agrees.
+    for (const [threshold, fee] of [[product.price, "0.00 EGP"], [product.price + 0.01, "45.00 EGP"]] as const) {
+      await signIn(page, "settings");
+      await page.locator("#free-delivery-over").fill(String(threshold));
+      await page.getByRole("button", { name: "Save settings" }).click();
+      await expect(page.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
+      await checkoutWith(page, [{ productId: product.id, name: product.name, price: product.price, qty: 1 }]);
+      await expect(summaryRow(page, "Delivery")).toHaveText(fee);
+    }
 
     // Accepting orders off: the shop says so, the button is off, the server refuses.
     await signIn(page, "settings");
@@ -445,6 +463,14 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   await expect(dialog).toHaveCount(0);
   expect((await publicProduct(page, PRODUCT.id))!.available).toBe(false);
 
+  // The menu says so, and offers no way to add it.
+  await page.goto("/menu/cookies", { waitUntil: "load" });
+  await ready(page);
+  const soldOutSection = page.locator(`#${CATEGORY.id}`);
+  await expect(soldOutSection).toContainText(RENAMED);
+  await expect(soldOutSection).toContainText("Sold out");
+  await expect(page.getByRole("button", { name: `Add ${RENAMED} to cart` })).toHaveCount(0);
+
   await page.goto("/checkout", { waitUntil: "load" });
   await ready(page);
   await expect(page.locator(".ed-sum-item.is-gone")).toContainText(RENAMED);
@@ -467,7 +493,38 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   await ready(page);
   await expect(page.locator(".ed-sum-item.is-gone")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Place order" })).toBeEnabled();
-  await page.evaluate(() => localStorage.removeItem("holland-cart-v1"));
+
+  // The order is charged the edited price, not the one it was first sold at, and
+  // the customer's notes reach the kitchen as typed: markup included, as text.
+  await page.getByRole("radio", { name: "Pickup" }).click();
+  await page.locator("#firstName").fill("Edited");
+  await page.locator("#phone").fill(phone);
+  await page.locator("#notes").fill(NOTE);
+  await page.getByRole("button", { name: "Place order" }).click();
+  await expect(page.locator(".rcpt-barcode-text")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".rcpt-total-value")).toHaveText("108.00 EGP");
+  await expect(page.locator(".rcpt-meta")).toContainText(phone);
+  const editedReference = (await page.locator(".rcpt-barcode-text").innerText()).trim();
+  const editedOrder = (await (await page.request.get(`/api/orders/${editedReference}`)).json()).order;
+  expect(editedOrder.items[0]).toMatchObject({ productId: PRODUCT.id, name: RENAMED, nameAr: PRODUCT.nameAr, unitPrice: 108 });
+  expect(editedOrder.delivery.notes).toBe(NOTE);
+  await page.goto(`/dashboard/orders/${editedReference}`, { waitUntil: "load" });
+  await expect(page.getByText(NOTE, { exact: true })).toBeVisible();
+  await expect(page.locator('img[src="x"]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
+
+  // A fixed amount off: refused at the full price, then sold at the difference.
+  await page.goto("/dashboard/menu", { waitUntil: "load" });
+  dialog = await openEditor(page, RENAMED);
+  await dialog.locator("#p-dtype").selectOption("fixed");
+  await dialog.locator("#p-dvalue").fill("120");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("A fixed discount must be less than the price.");
+  await dialog.locator("#p-dvalue").fill("20");
+  await expect(dialog.getByText("Sells for 100 EGP")).toBeVisible();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await publicProduct(page, PRODUCT.id)).toMatchObject({ price: 100, regularPrice: 120, discounted: true });
 
   // -------------------------------------------------------- bundles ----
   await page.goto("/dashboard/menu", { waitUntil: "load" });
@@ -488,6 +545,23 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
     isBundle: true, bundleType: "fixed", price: 200,
     components: [{ productId: PRODUCT.id, quantity: 2, name: RENAMED }],
   });
+
+  // A box is sold out while a cookie inside it is: on the menu, and at the server.
+  const sellCookie = (available: boolean) => page.request.patch(`/api/menu/admin/products/${PRODUCT.id}`, {
+    headers: headers(baseURL!), data: { available },
+  });
+  expect((await sellCookie(false)).ok()).toBeTruthy();
+  expect((await publicProduct(page, BOX.id))!.available).toBe(false);
+  const boxRefused = await page.request.post("/api/orders", {
+    headers: headers(baseURL!),
+    data: {
+      idempotencyKey: crypto.randomUUID(), firstName: "Box", phone, fulfilment: "pickup",
+      items: [{ productId: BOX.id, qty: 1 }],
+    },
+  });
+  expect(boxRefused.status(), "a box with a sold-out cookie inside").toBe(409);
+  expect((await sellCookie(true)).ok()).toBeTruthy();
+  expect((await publicProduct(page, BOX.id))!.available).toBe(true);
 
   const plain = (await publicMenu(page)).flatMap((c) => c.items)
     .find((item) => item.available && !item.isBundle && item.id !== PRODUCT.id)!;
@@ -555,6 +629,15 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   }
   expect(await publicProduct(page, PRODUCT.id)).toBeUndefined();
   expect(await publicProduct(page, BOX.id)).toBeUndefined();
+  const ghost = await page.request.post("/api/orders", {
+    headers: headers(baseURL!),
+    data: {
+      idempotencyKey: crypto.randomUUID(), firstName: "Ghost", phone, fulfilment: "pickup",
+      items: [{ productId: PRODUCT.id, qty: 1 }],
+    },
+  });
+  expect(ghost.status(), "a deleted product cannot be ordered by hand").toBe(400);
+  expect((await ghost.json()).error).toBe("PRODUCT_MISSING");
 
   await page.getByRole("button", { name: `Delete the ${CATEGORY.name} category` }).click();
   const confirmCategory = page.getByRole("dialog");
@@ -629,9 +712,27 @@ test("promo codes are created with and without an expiry, used at checkout, swit
   await page.locator("#firstName").fill("Promo");
   await page.locator("#phone").fill("01012345678");
   await expect(page.locator(".ed-srow.total span:last-child")).toHaveText(`${(subtotal - discount).toFixed(2)} EGP`);
-  await page.getByRole("button", { name: "Place order" }).click();
-  await expect(page.locator(".rcpt-barcode-text")).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator(".rcpt-total-value")).toHaveText(`${(subtotal - discount).toFixed(2)} EGP`);
+
+  // The price moves while the customer is on the page. The server refuses the
+  // stale total; the page re-prices, checks the code again against the new
+  // subtotal, and the second attempt goes through at the new figure.
+  const admin = await adminApi(baseURL!);
+  try {
+    const moved = await admin.patch(`/api/menu/admin/products/${product.id}`, { data: { price: product.regularPrice + 10 } });
+    expect(moved.ok(), await moved.text()).toBeTruthy();
+    const newSubtotal = (await publicProduct(page, product.id))!.price * 2;
+    const newTotal = newSubtotal - Math.round(newSubtotal * 0.2 * 100) / 100;
+    await page.getByRole("button", { name: "Place order" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "Prices changed" })).toBeVisible();
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText(`${newTotal.toFixed(2)} EGP`);
+    await page.getByRole("button", { name: "Place order" }).click();
+    await expect(page.locator(".rcpt-barcode-text")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".rcpt-total-value")).toHaveText(`${newTotal.toFixed(2)} EGP`);
+    await expect(page.locator(".rcpt-lines").nth(1)).toContainText(datedCode);
+  } finally {
+    await admin.patch(`/api/menu/admin/products/${product.id}`, { data: { price: product.regularPrice } });
+    await admin.dispose();
+  }
 
   // Disable, enable, delete — each one read back from the server.
   await signIn(page, "promos");

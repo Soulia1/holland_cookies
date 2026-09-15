@@ -5,7 +5,7 @@ import {
 } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { lineKey } from "@/lib/cart-core";
-import { choiceProblem, unitPrice } from "../../shared/productPricing.mjs";
+import { choiceProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
 import { localized, useLang } from "@/lib/i18n";
 import { Link, navigate } from "@/lib/router";
 import ReceiptPrinter from "@/components/ReceiptPrinter";
@@ -56,6 +56,10 @@ export default function CheckoutPage() {
   const [promo, setPromo] = useState<{ code: string; discount: number } | null>(null);
   const [promoMsg, setPromoMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
+  // The subtotal the applied code was checked against, and a counter so only
+  // the newest check may write. See the re-check effect below `totals`.
+  const promoSubtotal = useRef<number | null>(null);
+  const promoCheck = useRef(0);
 
   /**
    * Generated once for the life of this form, not per submit — which is what
@@ -124,17 +128,39 @@ export default function CheckoutPage() {
       .reduce((sum, line) => sum + line.lineTotal, 0);
     const subtotal = Math.round(raw * 100) / 100;
     const discount = Math.min(promo?.discount ?? 0, subtotal);
-    // Mirrors deliveryFee() in shared/pricing.mjs. The server recomputes it, so
-    // a divergence shows up as a refused order rather than a wrong charge.
-    const delivery = form.fulfilment === "pickup" || !settings?.deliveryFee
-      ? 0
-      : (settings.freeDeliveryOver > 0 && subtotal >= settings.freeDeliveryOver
-        ? 0 : settings.deliveryFee);
+    // The server's own function rather than a copy of it: free delivery starts
+    // at exactly the threshold on both sides, or an order at that figure would
+    // be refused as a price change.
+    const delivery = deliveryFee(subtotal, settings, form.fulfilment);
     return {
       subtotal, discount, delivery,
       total: Math.round((subtotal - discount + delivery) * 100) / 100,
     };
   }, [lines, promo, form.fulfilment, settings]);
+
+  // A code's discount was worked out against the subtotal it was checked with.
+  // When the subtotal moves afterwards (the catalogue re-priced after a refusal,
+  // or a line sold out) the code is checked again. Without this the page kept
+  // the old discount, sent a total the server could not reproduce, and was
+  // refused with "prices changed" on every retry.
+  const genericError = useRef(t.ckGenericError);
+  genericError.current = t.ckGenericError;
+  useEffect(() => {
+    if (!promo || promoSubtotal.current === null || promoSubtotal.current === totals.subtotal) return;
+    const token = ++promoCheck.current;
+    const subtotal = totals.subtotal;
+    promoSubtotal.current = subtotal;
+    api.validatePromo(promo.code, subtotal)
+      .then((result) => {
+        if (token === promoCheck.current) setPromo(result);
+      })
+      .catch((error) => {
+        if (token !== promoCheck.current) return;
+        setPromo(null);
+        promoSubtotal.current = null;
+        setPromoMsg({ text: error instanceof ApiError ? error.message : genericError.current, ok: false });
+      });
+  }, [promo, totals.subtotal]);
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -157,13 +183,17 @@ export default function CheckoutPage() {
     if (!catalogue || totals.subtotal <= 0) return;
     setPromoBusy(true);
     setPromoMsg(null);
+    // A re-check of the previous code still in flight must not land on this one.
+    promoCheck.current += 1;
     try {
       const result = await api.validatePromo(code, totals.subtotal);
+      promoSubtotal.current = totals.subtotal;
       setPromo(result);
       setPromoInput("");
       setPromoMsg({ text: t.ckPromoApplied(result.code), ok: true });
     } catch (error) {
       setPromo(null);
+      promoSubtotal.current = null;
       setPromoMsg({
         text: error instanceof ApiError ? error.message : t.ckGenericError,
         ok: false,

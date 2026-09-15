@@ -551,3 +551,114 @@ test('customer text is stored as text, and oversized or wrongly typed fields are
     assert.equal(response.status, 400, `${JSON.stringify(extra).slice(0, 60)} must be refused`);
   }
 });
+
+
+test('a fixed bundle cannot be sold while something inside it is sold out', async () => {
+  const off = await request('/api/menu/admin/products/plain', { method: 'PATCH', body: { available: false } });
+  assert.equal(off.status, 200);
+
+  assert.equal((await publicProduct('box')).available, false, 'the menu shows the box as sold out');
+  const listed = (await request('/api/menu/admin/products')).data.products.find((product) => product.id === 'box');
+  assert.equal(listed.available, true, 'the stored flag is untouched, so the box comes back with its contents');
+
+  const refused = await place({ items: [{ productId: 'box', qty: 1 }] });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.error, 'PRODUCT_UNAVAILABLE');
+  assert.deepEqual(refused.data.details.productIds, ['box']);
+  assert.equal((await fsdb.collections.orders().get()).size, 0, 'nothing was written');
+
+  assert.equal((await request('/api/menu/admin/products/plain', { method: 'PATCH', body: { available: true } })).status, 200);
+  assert.equal((await publicProduct('box')).available, true);
+  const sold = await place({ items: [{ productId: 'box', qty: 1 }] });
+  assert.equal(sold.status, 201);
+  assert.equal(sold.data.order.totals.total, 180);
+});
+
+test('free delivery starts exactly at the threshold, and checkout uses the same arithmetic', async () => {
+  const { deliveryFee } = await import('../../shared/productPricing.mjs');
+  // A basket of exactly 290: two plain at 100 and one at 10% off 100.
+  const basket = [{ productId: 'plain', qty: 2 }, { productId: 'percent-off', qty: 1 }];
+  for (const [threshold, expected] of [[291, 40], [290, 0], [289, 0]]) {
+    const saved = await request('/api/admin/settings', { method: 'PATCH', body: { deliveryFee: 40, freeDeliveryOver: threshold } });
+    assert.equal(saved.status, 200);
+    const placed = await place({ items: basket, fulfilment: 'delivery', area: 'nasr-city', address: '1 Street' });
+    assert.equal(placed.status, 201, JSON.stringify(placed.data));
+    assert.equal(placed.data.order.totals.subtotal, 290);
+    assert.equal(placed.data.order.totals.delivery, expected, `server, threshold ${threshold}`);
+    assert.equal(deliveryFee(290, { deliveryFee: 40, freeDeliveryOver: threshold }, 'delivery'), expected,
+      `checkout, threshold ${threshold}`);
+  }
+});
+
+test('an expired, forged or customer session is refused like no session at all', async () => {
+  const { createSession } = await import('../sessionStore.js');
+  const expired = await createSession('admin', 'admin', -60);
+  const customer = await createSession('customer', 'someone@example.com', 3600);
+  const forged = 'A'.repeat(43);
+
+  for (const [label, token] of [['expired', expired], ['customer', customer], ['forged', forged]]) {
+    const headers = { 'x-requested-with': 'Holland', cookie: `holland_admin_session=${token}` };
+    const read = await fetch(`${base}/api/admin/promos`, { headers });
+    assert.equal(read.status, 401, `${label} session reading promos`);
+    const write = await fetch(`${base}/api/admin/settings`, {
+      method: 'PATCH', headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ acceptingOrders: false }),
+    });
+    assert.equal(write.status, 401, `${label} session changing settings`);
+    const probe = await fetch(`${base}/api/admin/session`, { headers });
+    assert.deepEqual(await probe.json(), { signedIn: false }, `${label} session probe`);
+  }
+  assert.equal((await request('/api/admin/settings', { admin: false })).data.settings.acceptingOrders, true);
+});
+
+test('search, status and fulfilment filters combine, and the pages count the combined set', async () => {
+  const references = [];
+  for (const [fulfilment, firstName] of [['pickup', 'Pat'], ['pickup', 'Pat'], ['pickup', 'Pat'], ['delivery', 'Pat'], ['pickup', 'Omar']]) {
+    const response = await place({
+      fulfilment, firstName, ...(fulfilment === 'delivery' ? { area: 'nasr-city', address: '1 Street' } : {}),
+    });
+    assert.equal(response.status, 201);
+    references.push(response.data.order.reference);
+  }
+  for (const reference of [references[0], references[3]]) {
+    assert.equal((await request(`/api/orders/${reference}/status`, { method: 'PATCH', body: { status: 'confirmed' } })).status, 200);
+  }
+
+  const first = await request('/api/orders?fulfilment=pickup&q=pat&perPage=2');
+  assert.equal(first.data.total, 3);
+  assert.equal(first.data.pages, 2);
+  assert.equal(first.data.orders.length, 2);
+  const second = await request('/api/orders?fulfilment=pickup&q=pat&perPage=2&page=2');
+  assert.equal(second.data.orders.length, 1);
+  assert.equal(new Set([...first.data.orders, ...second.data.orders].map((o) => o.reference)).size, 3,
+    'no order repeats or goes missing across pages');
+
+  const confirmedDeliveries = await request('/api/orders?status=confirmed&fulfilment=delivery');
+  assert.deepEqual(confirmedDeliveries.data.orders.map((o) => o.reference), [references[3]]);
+  assert.equal(confirmedDeliveries.data.total, 1);
+
+  const all = await request('/api/orders?status=ordered&fulfilment=pickup&q=pat');
+  assert.equal(all.data.total, 2);
+  assert.ok(all.data.orders.every((o) => o.fulfilment === 'pickup' && o.status === 'ordered' && o.customer.firstName === 'Pat'));
+
+  const none = await request('/api/orders?status=confirmed&fulfilment=pickup&q=omar');
+  assert.equal(none.data.total, 0);
+  assert.equal(none.data.pages, 1);
+});
+
+test('codes and checkout keys that cannot name a document are a 400, never a server error', async () => {
+  for (const code of ['a/b', '../orders', '__proto__', '<script>alert(1)</script>']) {
+    const validated = await request('/api/admin/promos/validate', { method: 'POST', body: { code, subtotal: 100 }, admin: false });
+    assert.equal(validated.status, 400, `validate ${code}`);
+    const placed = await place({ promoCode: code });
+    assert.equal(placed.status, 400, `order with ${code}`);
+    assert.equal(placed.data.error, 'INVALID_PROMO');
+  }
+  for (const idempotencyKey of ['has/a/slash', '__reserved__']) {
+    assert.equal((await place({ idempotencyKey })).status, 400, idempotencyKey);
+  }
+  assert.equal((await request('/api/admin/promos', { method: 'POST', body: { code: '__X__', type: 'percent', value: 10 } })).status, 400);
+  assert.equal((await request('/api/admin/promos/__X__', { method: 'DELETE' })).status, 404);
+  assert.equal((await request('/api/admin/promos/__X__', { method: 'PATCH', body: { active: false } })).status, 404);
+  assert.equal((await fsdb.collections.orders().get()).size, 0, 'nothing was written');
+});

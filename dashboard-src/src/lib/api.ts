@@ -52,7 +52,8 @@ export interface Order {
   statusUpdatedAt?: string;
   deliveryFee?: number;
   paymentMethod: string;
-  paymentStatus?: "unpaid" | "pending" | "paid" | "failed" | "refunded" | "partially_refunded";
+  /** Cash on delivery only: whether staff have recorded the cash as collected. */
+  paymentStatus?: "unpaid" | "paid" | "refunded";
   items: OrderItem[];
   total: number;
   status: OrderStatus;
@@ -69,6 +70,8 @@ export interface StatusHistoryEntry {
 }
 
 export interface OrderDetail extends Order {
+  /** What the customer wrote under "Notes for the kitchen" at checkout. */
+  notes?: string;
   subtotal?: number;
   discount?: number;
   promoCode?: string;
@@ -327,16 +330,25 @@ export function setSessionLostHandler(handler: (() => void) | null): void {
 }
 
 async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const response = await fetch(path, {
-    // The admin session is an httpOnly cookie: nothing here holds a credential.
-    credentials: "include",
-    ...init,
-    headers: {
-      "X-Requested-With": "Holland",
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...init.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      // The admin session is an httpOnly cookie: nothing here holds a credential.
+      credentials: "include",
+      ...init,
+      headers: {
+        "X-Requested-With": "Holland",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...init.headers,
+      },
+    });
+  } catch (error) {
+    // An abort is the caller replacing its own request and must stay an abort.
+    if (init.signal?.aborted) throw error;
+    // Otherwise the request never reached the server. The browser's wording
+    // ("Failed to fetch", "Load failed") would be shown as if it were a reason.
+    throw new Error("Could not reach the server. Check the connection and try again.", { cause: error });
+  }
   if (response.status === 401) sessionLost?.();
   return response;
 }
@@ -490,6 +502,7 @@ function toOrder(order: HollandOrder): OrderDetail {
     total: order.totals.total,
     subtotal: order.totals.subtotal,
     discount: order.totals.discount,
+    notes: order.delivery.notes || undefined,
     promoCode: order.promoCode,
     status: order.status as OrderStatus,
     createdAt: isoOf(order.createdAt),
@@ -633,7 +646,11 @@ export const menuApi = {
     const response = await apiFetch(`/api/menu/admin/products/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
-    if (!response.ok && response.status !== 204) throw new Error("Failed to delete the product.");
+    if (response.status === 204) return;
+    // Keep the server's reason. In particular, deleting a product that a
+    // bundle still uses is a safe, deliberate 409 with instructions for the
+    // operator; replacing it with a generic failure made the guard look broken.
+    await json(response, "delete the product");
   },
 
   /** The id is permanent — products key on it — so it is derived from the name once. */
@@ -708,18 +725,11 @@ export const promosApi = {
     const response = await apiFetch(`/api/admin/promos/${encodeURIComponent(code)}`, {
       method: "DELETE",
     });
-    if (!response.ok && response.status !== 204) throw new Error("Failed to delete the code.");
+    if (response.status === 204) return;
+    await json(response, "delete the code");
   },
 };
 
-/**
- * Customers.
- *
- * Scooby's "Users" are accounts with a sign-in; Holland has no accounts, and a
- * customer record is created by their first order. The directory shape is the
- * same, so the page works unchanged — it is simply listing people who have
- * ordered rather than people who have registered.
- */
 /**
  * The customer directory.
  *

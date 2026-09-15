@@ -4,20 +4,22 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { promosApi, type Promo } from "@/lib/api";
 import { formatEGP } from "@/lib/format";
+import { endOfShopDay, shopDateOf } from "@shared/cairoTime.mjs";
 
 const input = "border rounded-md px-3 py-2 text-sm";
 const emptyForm = { code: "", type: "percent" as "percent" | "fixed", value: "", minSubtotal: "", expiresAt: "", active: true, maxUses: "" };
 
 /**
- * The date picker's `YYYY-MM-DD` as the instant the code stops working: the end
- * of that day in the operator's own time zone, as the ISO timestamp the server
- * expects. No date means no expiry — `null`, never an empty string.
+ * The date picker's `YYYY-MM-DD` as the instant the code stops working, as the
+ * ISO timestamp the server expects. No date means no expiry — `null`, never an
+ * empty string.
+ *
+ * The shop's clock decides, not the operator's: a code set to 30 September
+ * works until 23:59:59.999 on 30 September in Cairo, whatever time zone the
+ * laptop it was typed on is set to. See shared/cairoTime.mjs.
  */
 export function expiryFromDate(date: string): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
-  if (!match) return null;
-  const end = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 23, 59, 59, 999);
-  return Number.isNaN(end.getTime()) ? null : end.toISOString();
+  return endOfShopDay(date);
 }
 
 /** Why the form cannot be sent, in words, or null. Numbers are checked before NaN can reach the request. */
@@ -136,7 +138,7 @@ export default function Promos() {
         </Button>
       </div>
 
-      {error && <p className="text-destructive text-sm mb-4">{error}</p>}
+      {error && <p role="alert" className="text-destructive text-sm mb-4">{error}</p>}
 
       {loading ? (
         <p className="text-sm text-muted-foreground py-10 text-center">Loading codes…</p>
@@ -161,7 +163,7 @@ export default function Promos() {
                 {!!p.maxUses && (
                   <p className="text-xs text-muted-foreground">Used {p.usedCount || 0} / {p.maxUses}</p>
                 )}
-                {p.expiresAt && <p className="text-xs text-muted-foreground">Expires {new Date(p.expiresAt).toLocaleDateString()}</p>}
+                {p.expiresAt && <p className="text-xs text-muted-foreground">Expires after {shopDateOf(p.expiresAt)} (Cairo time)</p>}
                 <div className="flex gap-2 mt-3">
                   <Button size="sm" variant="outline" className="flex-1 gap-1.5" disabled={busyCode === p.id} onClick={() => toggle(p)}>
                     <Power className="w-3.5 h-3.5" /> {p.active ? "Disable" : "Enable"}
@@ -197,9 +199,10 @@ export default function Promos() {
             <input className={input} type="number" placeholder="Max uses (optional, e.g. 50)"
               value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} />
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Expiry (optional)</label>
-              <input className={`${input} w-full`} type="date"
+              <label className="text-xs font-medium text-muted-foreground mb-1 block" htmlFor="promo-expiry">Last day (optional)</label>
+              <input id="promo-expiry" className={`${input} w-full`} type="date"
                 value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e.target.value })} />
+              <p className="text-xs text-muted-foreground mt-1">The code stops working at the end of that day, Cairo time.</p>
             </div>
             <label className="flex items-center gap-2 text-sm self-end pb-2">
               <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
@@ -209,7 +212,7 @@ export default function Promos() {
               <Button type="submit" className="gap-1.5" disabled={creating}>
                 <Plus className="w-4 h-4" /> {creating ? "Creating…" : "Create code"}
               </Button>
-              {formMsg && <p className={`text-sm mt-2 ${formMsg.ok ? "text-green-600" : "text-destructive"}`}>{formMsg.text}</p>}
+              {formMsg && <p role={formMsg.ok ? "status" : "alert"} className={`text-sm mt-2 ${formMsg.ok ? "text-green-600" : "text-destructive"}`}>{formMsg.text}</p>}
             </div>
           </form>
         </CardContent>

@@ -189,7 +189,8 @@ router.get('/users', requireAdmin, async (_req, res, next) => {
 // ---------------------------------------------------------------- promos ----
 
 const promoShape = z.strictObject({
-  code: z.string().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/, 'Letters, numbers, hyphens and underscores only.'),
+  // `__name__` is reserved by Firestore for its own ids.
+  code: z.string().min(2).max(40).regex(/^(?!__.*__$)[A-Za-z0-9_-]+$/, 'Letters, numbers, hyphens and underscores only.'),
   type: z.enum(['percent', 'fixed']),
   value: z.number().positive().max(1000000),
   minSubtotal: amount.optional(),
@@ -287,6 +288,11 @@ router.post('/promos/validate', async (req, res, next) => {
       subtotal: amount,
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'INVALID', message: 'Enter a code.' });
+    // A code that cannot name a promo is simply not one. Refused here rather than
+    // handed to Firestore, which reads a "/" as a path and throws.
+    if (!shop.isPromoCode(shop.normalizeCode(parsed.data.code))) {
+      return res.status(400).json({ error: 'INVALID_PROMO', message: 'That code is not recognised.' });
+    }
 
     const { evaluatePromo } = await import('../orderTransaction.js');
     const promo = await shop.getPromo(parsed.data.code);

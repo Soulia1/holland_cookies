@@ -38,7 +38,7 @@ let env;
 const COLLECTIONS = [
   'categories', 'products', 'customers', 'orders', 'promos', 'settings',
   'profiles', 'otpCodes', 'sessions', 'rateLimits', 'auditEvents', 'counters',
-  'orderIdempotency',
+  'orderIdempotency', 'productImages',
 ];
 
 before(async () => {

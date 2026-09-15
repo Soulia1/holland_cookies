@@ -1,3 +1,4 @@
+/* global window, document -- referenced inside page.evaluate callbacks, which run in the browser */
 /**
  * Smoke test against the running dev stack.
  *

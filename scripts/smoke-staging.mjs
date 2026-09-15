@@ -16,7 +16,7 @@
  * testing against the shop.
  */
 
-import { collections, orderCounterDoc, settingsDoc, get as firestore, currentTarget } from '../backend/firestore.js';
+import { collections, settingsDoc, get as firestore, currentTarget } from '../backend/firestore.js';
 import { createOrder } from '../backend/orderTransaction.js';
 import * as ordersRepo from '../backend/repo/orders.js';
 import * as people from '../backend/repo/people.js';
