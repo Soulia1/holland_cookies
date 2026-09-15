@@ -52,7 +52,13 @@ async function ready(page: Page) {
 
 async function signIn(page: Page, path = "") {
   await page.goto("/dashboard/", { waitUntil: "load" });
-  if (await page.locator("#admin-key").count()) {
+  // The gate asks the server whether a session exists before it draws either the
+  // key form or the dashboard. Counting the form while that answer was still out
+  // found nothing, skipped signing in, and left the next page stuck on the gate
+  // (seen on desktop WebKit, which is fast enough to land in that window).
+  const keyForm = page.locator("#admin-key");
+  await expect(keyForm.or(page.locator("main"))).toBeVisible({ timeout: 15_000 });
+  if (await keyForm.count()) {
     await page.locator("#admin-key").fill(ADMIN_KEY);
     await page.getByRole("button", { name: "Unlock", exact: true }).click();
     await expect(page.locator("#admin-key")).toHaveCount(0);
