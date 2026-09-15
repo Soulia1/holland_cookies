@@ -674,7 +674,7 @@ function Section({
                   Chocolate" — straight into the cart with no flavor picked.
                   Opening the row is still the way in; the dialog is where the
                   choice and the real add-to-cart control live. */}
-              {!item.flavorChoices && !item.soldOut && item.bundle?.type !== "choice" && (
+              {!item.choices?.length && !item.soldOut && item.bundle?.type !== "choice" && (
                 <AddToCart
                   className="menu-item-add"
                   item={{

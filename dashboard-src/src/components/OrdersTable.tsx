@@ -101,6 +101,7 @@ function ItemLines({ items, limit = 3 }: { items: Order["items"]; limit?: number
           <li key={`${item.name}-${index}`} className="leading-snug">
             <span className="text-foreground">
               {item.qty}× {item.name}
+              {item.choice ? <span className="adm-muted"> — {item.choice}</span> : null}
             </span>
             {contents.length > 0 && (
               <span className="adm-muted block ps-3 text-[12px]">↳ {contents.join(", ")}</span>

@@ -6,8 +6,8 @@ import { GROUP_BY_CATEGORY_ID, MENU_GROUPS, type MenuCategory, type MenuGroup, t
  * The catalogue as the dashboard last left it.
  *
  * The printed menu in `data/menu.ts` stays the page's structure — groups,
- * order, flavor choices, bundled photos — and this lays the database over it,
- * so a price, name, photo, availability or visibility change made in the
+ * order, bundled photos — and this lays the database over it, so a price,
+ * name, photo, options, availability or visibility change made in the
  * dashboard reaches the page. If the request fails the printed menu is shown
  * as it is.
  */
@@ -58,6 +58,7 @@ function overlay(item: MenuItem, product: ApiProduct): MenuItem {
     image: product.image || undefined,
     description: product.description || undefined,
     descriptionAr: product.descriptionAr || undefined,
+    choices: product.choices?.length ? product.choices : undefined,
     soldOut: !product.available,
     bundle: product.isBundle
       ? {
@@ -78,7 +79,7 @@ function liveItems(live: LiveMenu, categoryId: string, printed: readonly MenuIte
     if (product) items.push(overlay(item, product));
   }
   for (const product of live.products.values()) {
-    // `--` ids are the per-flavor products behind a printed line, not rows.
+    // `--` ids are per-flavor products an earlier version wrote behind a printed line, not rows.
     if (product.categoryId !== categoryId || listed.has(product.id) || product.id.includes("--")) continue;
     items.push(overlay({ id: product.id, name: product.name, price: product.price }, product));
   }

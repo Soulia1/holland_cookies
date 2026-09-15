@@ -79,6 +79,7 @@ async function seed({ force = false } = {}) {
   ]);
   const haveCategory = new Set(existingCategories.docs.map((doc) => doc.id));
   const haveProduct = new Set(existingProducts.docs.map((doc) => doc.id));
+  const storedChoices = new Map(existingProducts.docs.map((doc) => [doc.id, doc.data().choices]));
 
   // Firestore batches are capped at 500 writes; the menu is ~105 products plus
   // 17 categories, but the cap is respected rather than assumed away because the
@@ -137,39 +138,16 @@ async function seed({ force = false } = {}) {
           available: true,
           createdAt: now(),
         }),
+        // Options: written for a new product, under --force, or onto a stored
+        // product that has never had a list. Once the dashboard has saved one,
+        // even an empty one, a plain re-seed leaves it alone.
+        ...(item.choices && (!productExists || force || !Array.isArray(storedChoices.get(item.id)))
+          ? { choices: item.choices.map(({ name, nameAr }) => ({ name, nameAr: nameAr ?? '' })) }
+          : {}),
         sort: itemIndex,
         updatedAt: now(),
       }, true);
       productCount += 1;
-
-      // A line printed with several flavors is ordered as one product per
-      // flavor; the cart sends these ids, so without them it cannot be bought.
-      for (const variant of menuModule.flavorVariants(item)) {
-        const variantExists = haveProduct.has(variant.id);
-        await queue(collections.products().doc(variant.id), {
-          categoryId: category.id,
-          ...(variantExists && !force ? {} : {
-            name: variant.name,
-            nameAr: '',
-            note: item.note ?? '',
-            price: item.price,
-          }),
-          ...(variantExists ? {} : {
-            description: '',
-            descriptionAr: '',
-            noteAr: '',
-            image: '',
-            discountEnabled: false,
-            discountType: 'percent',
-            discountValue: 0,
-            available: true,
-            createdAt: now(),
-          }),
-          sort: itemIndex,
-          updatedAt: now(),
-        }, true);
-        productCount += 1;
-      }
     }
   }
   await flush();

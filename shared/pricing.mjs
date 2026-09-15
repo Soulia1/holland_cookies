@@ -155,12 +155,31 @@ export function selectionProblem(product, selections) {
   return null;
 }
 
-/** A line's identity: the product, and for a bundle exactly what was chosen. */
+/**
+ * Why this option is not a valid way to order this product, or null.
+ *
+ * A product with options needs exactly one of them, named as stored; a product
+ * without options takes none.
+ */
+export function choiceProblem(product, choice) {
+  const choices = Array.isArray(product?.choices) ? product.choices : [];
+  const picked = typeof choice === "string" ? choice : "";
+  if (!choices.length) return picked ? "This item has no options to choose from." : null;
+  if (!picked) return "Choose an option for this item.";
+  return choices.some((entry) => entry?.name === picked) ? null : "That option is no longer offered.";
+}
+
+/**
+ * A line's identity: the product, the option picked when it has options, and
+ * for a bundle exactly what was chosen.
+ */
 export function lineSignature(item) {
   const picks = Array.isArray(item?.selections) ? item.selections : [];
-  if (!picks.length) return String(item?.productId ?? "");
+  const choice = typeof item?.choice === "string" ? item.choice : "";
+  const product = choice ? `${item?.productId ?? ""}#${choice}` : String(item?.productId ?? "");
+  if (!picks.length) return product;
   const parts = picks.map((pick) => `${pick.group}:${pick.productId}:${pick.quantity}`).sort();
-  return `${item.productId}|${parts.join(",")}`;
+  return `${product}|${parts.join(",")}`;
 }
 
 /** One cart line's total, at the price the product sells for now. */

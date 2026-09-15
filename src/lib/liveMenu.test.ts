@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MENU_GROUPS, flavorVariants } from "../data/menu";
+import { MENU_GROUPS } from "../data/menu";
 import type { ApiProduct } from "./api";
 import { withLiveCatalogue, type LiveMenu } from "./liveMenu";
 
@@ -103,16 +103,18 @@ describe("dashboard-created categories", () => {
   });
 });
 
-describe("flavorVariants", () => {
-  it("gives each flavor of a printed line its own product id and name", () => {
-    const scoop = cookies.categories.flatMap((c) => c.items).find((i) => i.flavorChoices)!;
-    const variants = flavorVariants(scoop);
-    expect(variants.map((v) => v.id)).toEqual([
-      "scoop-nutella-foil--red-velvet-white-nutella-filling",
-      "scoop-nutella-foil--vanilla-nutella-filling",
-      "scoop-nutella-foil--chocolate-white-nutella-filling",
-      "scoop-nutella-foil--chocolate-nutella-filling",
-    ]);
-    expect(variants[1].name).toBe("Vanilla, Nutella filling");
+describe("options", () => {
+  const scoop = cookies.categories.flatMap((c) => c.items).find((i) => i.choices)!;
+  const scoops = cookies.categories.find((c) => c.items.includes(scoop))!;
+  const shown = (extra: Partial<ApiProduct>) =>
+    withLiveCatalogue(cookies, live([product(scoop.id, scoops.id, extra)], [scoops.id]))
+      .categories[0].items[0];
+
+  it("shows the options the dashboard saved, not the printed ones", () => {
+    expect(shown({ choices: [{ name: "Lotus" }] }).choices).toEqual([{ name: "Lotus" }]);
+  });
+
+  it("shows none once the dashboard has emptied the list", () => {
+    expect(shown({ choices: [] }).choices).toBeUndefined();
   });
 });

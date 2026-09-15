@@ -229,6 +229,9 @@ export default function OrderDetailView({
                           <span className="adm-pill is-pickup">Bundle</span>
                         )}
                       </div>
+                      {item.choice && (
+                        <p className="mt-1 text-[12.5px] adm-muted">{item.choice}</p>
+                      )}
                       {contents.length > 0 && (
                         <ul className="mt-2 space-y-1 border-s-2 border-border ps-3 text-[12.5px]">
                           {contents.map((c) => (

@@ -18,6 +18,7 @@ export {
   lineTotal,
   unitPrice,
   selectionProblem,
+  choiceProblem,
   lineSignature,
 } from './pricing.mjs';
 

@@ -182,7 +182,7 @@ export default function ReceiptPrinter({ order }: { order: Order }) {
             <ul className="rcpt-lines">
               {order.items.map((item) => (
                 <li key={item.productId}>
-                  <span>{item.qty} × {item.name}</span>
+                  <span>{item.qty} × {item.name}{item.choice ? ` — ${item.choice.name}` : ""}</span>
                   <span>{item.lineTotal.toFixed(2)}</span>
                 </li>
               ))}

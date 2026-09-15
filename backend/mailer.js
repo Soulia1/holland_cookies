@@ -187,7 +187,9 @@ export async function sendOrderConfirmation(order, lang = 'en') {
     : `Your Holland Cookies order ${order.reference}`;
 
   const lines = (order.items ?? []).map((item) => {
-    const name = arabic && item.nameAr ? item.nameAr : item.name;
+    const product = arabic && item.nameAr ? item.nameAr : item.name;
+    const option = item.choice ? (arabic && item.choice.nameAr ? item.choice.nameAr : item.choice.name) : '';
+    const name = option ? `${product} — ${option}` : product;
     const inside = [...(item.selections ?? []), ...(item.components ?? [])]
       .map((part) => `${part.quantity}× ${arabic && part.nameAr ? part.nameAr : part.name}`);
     return {

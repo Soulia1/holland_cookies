@@ -5,7 +5,7 @@ import {
 } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { lineKey } from "@/lib/cart-core";
-import { unitPrice } from "../../shared/productPricing.mjs";
+import { choiceProblem, unitPrice } from "../../shared/productPricing.mjs";
 import { localized, useLang } from "@/lib/i18n";
 import { Link, navigate } from "@/lib/router";
 import ReceiptPrinter from "@/components/ReceiptPrinter";
@@ -97,15 +97,19 @@ export default function CheckoutPage() {
       const pickSoldOut = (item.selections ?? []).some((pick) =>
         product?.groups?.[pick.group]?.options
           .find((option) => option.productId === pick.productId)?.available === false);
+      const option = product?.choices?.find((entry) => entry.name === item.choice);
       return {
         ...item,
         key: lineKey(item),
         name: product ? localized(lang, product.name, product.nameAr) : item.name,
+        choiceLabel: option ? localized(lang, option.name, option.nameAr) : item.choiceLabel,
         note: product?.note ? localized(lang, product.note, product.noteAr) : item.note,
         image: product?.image,
         unitPrice: unit,
         lineTotal: unit * item.qty,
-        gone: !product,
+        // An option since removed, or options added since, leave a line the
+        // kitchen can no longer take as it stands.
+        gone: !product || choiceProblem(product, item.choice) !== null,
         soldOut: !!product && (!product.available || pickSoldOut),
       };
     });
@@ -194,6 +198,7 @@ export default function CheckoutPage() {
           .map((line) => ({
             productId: line.productId,
             qty: line.qty,
+            ...(line.choice ? { choice: line.choice } : {}),
             ...(line.selections?.length
               ? {
                   selections: line.selections.map(({ group, productId, quantity }) => ({
@@ -411,6 +416,7 @@ export default function CheckoutPage() {
                     </div>
                     <div className="ed-sum-info">
                       <span>{line.name}</span>
+                      {line.choiceLabel ? <small>{line.choiceLabel}</small> : null}
                       {line.selections?.length ? (
                         <small>
                           {line.selections.map((pick) => `${pick.quantity}× ${pick.name}`).join(", ")}

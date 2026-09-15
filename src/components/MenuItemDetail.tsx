@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "framer-motion";
 import AddToCart from "@/components/AddToCart";
-import { flavorVariants, type MenuCategory, type MenuItem } from "@/data/menu";
+import type { MenuCategory, MenuItem } from "@/data/menu";
 import { selectionProblem, unitPrice } from "../../shared/productPricing.mjs";
 import { describeItem } from "@/data/menuCopy";
 import { itemImage } from "@/data/menuImages";
@@ -47,9 +47,8 @@ export default function MenuItemDetail({
   const { reduced, coarse } = useCapability();
   const open = selection !== null;
 
-  // Which flavor the customer has picked, for items that name several
-  // flavors as one printed line (see `flavorChoices` on `MenuItem`) rather
-  // than as separate items. Keyed off the item id rather than reset in an
+  // Which option the customer has picked, for items that have options (see
+  // `choices` on `MenuItem`). Keyed off the item id rather than reset in an
   // effect, so switching straight from one row's dialog to another's — the
   // trigger stays mounted, `selection` just changes — can never leak the
   // previous item's pick into this one.
@@ -83,17 +82,10 @@ export default function MenuItemDetail({
   const note = item?.note ? localized(lang, item.note, item.noteAr) : undefined;
   const photo = item ? (item.image ?? itemImage(item.id)) : undefined;
 
-  const choices = item?.flavorChoices;
-  const chosenFlavor =
-    choices && flavorPick?.itemId === item?.id ? flavorPick.flavor : null;
-
-  // Each choice is already the full cart-line label (see `flavorChoices` on
-  // `MenuItem`), since two choices can share a flavor but not a filling.
-  const cartName = choices && chosenFlavor ? chosenFlavor : name;
-  const cartProductId =
-    item && choices && chosenFlavor
-      ? flavorVariants(item).find((variant) => variant.flavor === chosenFlavor)?.id
-      : item?.id;
+  const choices = item?.choices?.length ? item.choices : undefined;
+  const chosen = choices && flavorPick?.itemId === item?.id
+    ? choices.find((choice) => choice.name === flavorPick?.flavor) ?? null
+    : null;
 
   const bundle = item?.bundle;
   const counts = bundle?.type === "choice" && picks && picks.itemId === item?.id ? picks.counts : {};
@@ -237,20 +229,19 @@ export default function MenuItemDetail({
                         : describeItem(item, category)}
                     </DialogPrimitive.Description>
 
-                    {/* A choice, not a bare list of flavors, so the cart line
-                        it produces names one real product instead of the
-                        printed shorthand for three. */}
+                    {/* A choice, not a bare list, so the cart line it
+                        produces names the one option the kitchen makes. */}
                     {choices && (
                       <div className="mt-5" role="radiogroup" aria-label={t.menuDetailChooseFlavor}>
                         <p className="font-body text-[12px] font-semibold uppercase tracking-[0.15em] text-secondary mb-2">
                           {t.menuDetailChooseFlavor}
                         </p>
                         <div className="flex flex-wrap gap-2">
-                          {choices.map((flavor) => {
-                            const picked = chosenFlavor === flavor;
+                          {choices.map((choice) => {
+                            const picked = chosen?.name === choice.name;
                             return (
                               <button
-                                key={flavor}
+                                key={choice.name}
                                 type="button"
                                 role="radio"
                                 aria-checked={picked}
@@ -259,9 +250,9 @@ export default function MenuItemDetail({
                                     ? "bg-primary text-on-primary border-primary"
                                     : "border-outline-variant text-primary hover:bg-surface-container-low"
                                 }`}
-                                onClick={() => setFlavorPick({ itemId: item.id, flavor })}
+                                onClick={() => setFlavorPick({ itemId: item.id, flavor: choice.name })}
                               >
-                                {flavor}
+                                {localized(lang, choice.name, choice.nameAr)}
                               </button>
                             );
                           })}
@@ -356,7 +347,7 @@ export default function MenuItemDetail({
                     >
                       <span className="add-btn-label">{t.bundleMakeChoices}</span>
                     </button>
-                  ) : choices && !chosenFlavor ? (
+                  ) : choices && !chosen ? (
                     // Blocked until a flavor is picked, rather than adding
                     // the printed shorthand itself to the cart — the shop
                     // cannot bake "Vanilla, Red Velvet or Chocolate".
@@ -369,12 +360,15 @@ export default function MenuItemDetail({
                     </button>
                   ) : (
                     <AddToCart
-                      key={cartProductId}
+                      key={chosen?.name ?? item.id}
                       className="menu-detail-add"
                       label={t.addToCart}
                       item={{
-                        productId: cartProductId!,
-                        name: cartName,
+                        productId: item.id,
+                        name,
+                        ...(chosen
+                          ? { choice: chosen.name, choiceLabel: localized(lang, chosen.name, chosen.nameAr) }
+                          : {}),
                         price: shownPrice,
                         ...(note ? { note } : {}),
                         ...(photo ? { image: photo } : {}),

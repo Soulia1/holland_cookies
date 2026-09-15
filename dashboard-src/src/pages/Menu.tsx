@@ -52,6 +52,7 @@ type Draft = {
   bundleType: "fixed" | "choice";
   components: ComponentDraft[];
   groups: ChoiceGroupDraft[];
+  choices: { name: string; nameAr: string }[];
 };
 
 function draftFrom(item: MenuItem): Draft {
@@ -88,6 +89,7 @@ function draftFrom(item: MenuItem): Draft {
         surcharge: option.surcharge ? String(option.surcharge) : "",
       })),
     })),
+    choices: (item.choices ?? []).map((choice) => ({ name: choice.name, nameAr: choice.nameAr ?? "" })),
   };
 }
 
@@ -95,7 +97,7 @@ const BLANK: Draft = {
   id: "", category: "", name: "", nameAr: "", description: "", descriptionAr: "",
   note: "", noteAr: "", price: "", image: "", isAvailable: true,
   discountEnabled: false, discountType: "percent", discountValue: "",
-  isBundle: false, bundleType: "fixed", components: [], groups: [],
+  isBundle: false, bundleType: "fixed", components: [], groups: [], choices: [],
 };
 
 /**
@@ -120,6 +122,11 @@ export function draftProblem(draft: Draft, categoryIds: string[]): string | null
     });
     if (problem) return problem;
   }
+  const options = draft.choices.filter((choice) => choice.name.trim() || choice.nameAr.trim());
+  if (options.some((choice) => !choice.name.trim())) return "Every option needs an English name.";
+  const optionNames = options.map((choice) => choice.name.trim().toLowerCase());
+  if (new Set(optionNames).size !== optionNames.length) return "Each option must have a different name.";
+  if (options.length && draft.isBundle) return "A bundle cannot also have options. Remove them, or make it a plain product.";
   if (!draft.isBundle) return null;
   if (draft.bundleType === "fixed") {
     const rows = draft.components.filter((component) => component.productId);
@@ -180,6 +187,10 @@ function bodyFrom(draft: Draft): Partial<MenuItem> {
           .filter((component) => component.productId)
           .map((component) => ({ productId: component.productId, quantity: Number(component.quantity) || 0 }))
       : [],
+    // A blank row is "Add option" pressed and left empty, not an option.
+    choices: draft.choices
+      .filter((choice) => choice.name.trim())
+      .map((choice) => ({ name: choice.name.trim(), nameAr: choice.nameAr.trim() })),
   };
 }
 
@@ -571,6 +582,11 @@ export default function Menu() {
                                 {item.bundleType === "choice" ? "Choice bundle" : "Bundle"}
                               </span>
                             )}
+                            {!!item.choices?.length && (
+                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">
+                                {item.choices.length} option{item.choices.length === 1 ? "" : "s"}
+                              </span>
+                            )}
                             {item.isAvailable === false && (
                               <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs text-rose-900">
                                 Sold out
@@ -790,6 +806,13 @@ function ProductForm({
           </>
         )}
 
+        <hr className="border-border" />
+
+        <OptionFields
+          choices={draft.choices}
+          onChange={(choices) => set("choices", choices)}
+        />
+
         <BundleFields
           idPrefix="p"
           form={{
@@ -822,5 +845,64 @@ function ProductForm({
         </Btn>
       </DialogFooter>
     </>
+  );
+}
+
+/**
+ * Options the customer picks exactly one of before adding the product — a
+ * flavor, a size. The shop shows them as a required choice in the item's
+ * dialog, and the order line records which one was picked.
+ */
+function OptionFields({
+  choices, onChange,
+}: {
+  choices: Draft["choices"];
+  onChange: (choices: Draft["choices"]) => void;
+}) {
+  const update = (index: number, patch: Partial<Draft["choices"][number]>) =>
+    onChange(choices.map((choice, at) => (at === index ? { ...choice, ...patch } : choice)));
+
+  return (
+    <div className="space-y-2.5">
+      <div>
+        <p className="text-sm font-medium">Options</p>
+        <p className="text-xs text-muted-foreground">
+          The customer must pick one before adding it to the cart — for example a flavor.
+          Leave the list empty for a product with no options.
+        </p>
+      </div>
+      {choices.map((choice, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <TextInput
+            aria-label={`Option ${index + 1} (English)`}
+            placeholder="Vanilla, Nutella filling"
+            maxLength={80}
+            value={choice.name}
+            onChange={(event) => update(index, { name: event.target.value })}
+          />
+          <TextInput
+            aria-label={`Option ${index + 1} (Arabic)`}
+            dir="rtl"
+            placeholder="Arabic (optional)"
+            maxLength={80}
+            value={choice.nameAr}
+            onChange={(event) => update(index, { nameAr: event.target.value })}
+          />
+          <Btn
+            type="button"
+            variant="ghost"
+            aria-label={`Remove option ${index + 1}`}
+            onClick={() => onChange(choices.filter((_, at) => at !== index))}
+          >
+            <Trash2 className="size-4" />
+          </Btn>
+        </div>
+      ))}
+      {choices.length < 20 && (
+        <Btn type="button" variant="secondary" onClick={() => onChange([...choices, { name: "", nameAr: "" }])}>
+          <Plus className="size-4" /> Add option
+        </Btn>
+      )}
+    </div>
   );
 }

@@ -107,6 +107,7 @@ export default function CartDrawer() {
                     <div className="cart-line-text">
                       <p className="cart-line-name">{line.name}</p>
                       {line.note ? <p className="cart-line-note">{line.note}</p> : null}
+                      {line.choiceLabel ? <p className="cart-line-note">{line.choiceLabel}</p> : null}
                       {line.selections?.length ? (
                         <p className="cart-line-note">
                           {line.selections.map((pick) => `${pick.quantity}× ${pick.name}`).join(", ")}

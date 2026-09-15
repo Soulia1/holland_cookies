@@ -210,7 +210,8 @@ export default function TrackPage() {
               {order.items.map((item, index) => (
                 <li key={`${item.productId}-${index}`}>
                   <span>
-                    {localized(lang, item.name, item.nameAr)} × {item.qty}
+                    {localized(lang, item.name, item.nameAr)}
+                    {item.choice ? ` — ${localized(lang, item.choice.name, item.choice.nameAr)}` : ""} × {item.qty}
                     {item.selections?.length
                       ? ` (${item.selections
                           .map((pick) => `${pick.quantity}× ${localized(lang, pick.name, pick.nameAr)}`)

@@ -103,6 +103,10 @@ export function publicProduct(product, names) {
     regularPrice: regular,
     discounted: selling < regular,
     available: !!product.available,
+    choices: (Array.isArray(product.choices) ? product.choices : []).map((choice) => ({
+      name: choice.name,
+      nameAr: choice.nameAr || undefined,
+    })),
     ...(product.isBundle ? bundleView(product, names) : {}),
   };
 }
@@ -292,6 +296,7 @@ export async function createProduct(body) {
     bundleType: body.bundleType ?? 'fixed',
     components: body.components ?? [],
     groups: body.groups ?? [],
+    choices: body.choices ?? [],
     createdAt: now(),
     updatedAt: now(),
   };
@@ -316,7 +321,7 @@ export async function createProduct(body) {
 const PRODUCT_WRITABLE = [
   'categoryId', 'name', 'nameAr', 'description', 'descriptionAr', 'note', 'noteAr',
   'price', 'image', 'discountEnabled', 'discountType', 'discountValue', 'available', 'sort',
-  'isBundle', 'bundleType', 'components', 'groups',
+  'isBundle', 'bundleType', 'components', 'groups', 'choices',
 ];
 
 export async function updateProduct(id, patch) {

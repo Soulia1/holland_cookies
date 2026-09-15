@@ -98,6 +98,8 @@ export interface ApiProduct {
   regularPrice: number;
   discounted: boolean;
   available: boolean;
+  /** Options the customer picks exactly one of. */
+  choices?: { name: string; nameAr?: string }[];
   isBundle?: boolean;
   bundleType?: "fixed" | "choice";
   components?: { productId: string; name: string; nameAr?: string; quantity: number }[];
@@ -162,6 +164,7 @@ export interface Order {
   items: {
     productId: string; name: string; nameAr?: string; note?: string;
     unitPrice: number; qty: number; lineTotal: number;
+    choice?: { name: string; nameAr?: string };
     selections?: OrderSelection[];
     components?: { productId: string; name: string; nameAr?: string; quantity: number }[];
   }[];
@@ -198,6 +201,7 @@ export interface CheckoutBody {
   items: {
     productId: string;
     qty: number;
+    choice?: string;
     selections?: { group: number; productId: string; quantity: number }[];
   }[];
   firstName: string;

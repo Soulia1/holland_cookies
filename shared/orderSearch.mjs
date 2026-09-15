@@ -89,6 +89,7 @@ function itemNames(items) {
   if (!Array.isArray(items)) return [];
   return items.flatMap((item) => [
     item?.name,
+    item?.choice?.name,
     ...(Array.isArray(item?.selections) ? item.selections.map((one) => one?.name) : []),
     ...(Array.isArray(item?.components) ? item.components.map((one) => one?.name) : []),
   ]);

@@ -32,6 +32,8 @@ export interface OrderItem {
   qty: number;
   emoji?: string;
   type?: string;
+  /** The option the customer picked, for a product with options. */
+  choice?: string;
   selections?: { productId: string; name: string; quantity: number }[];
   components?: {
     productId: string; name: string; quantityPerBundle: number; totalQuantity: number;
@@ -135,6 +137,8 @@ export interface MenuItem {
   bundleCategory?: string;
   components?: { productId: string; name?: string; quantity: number }[];
   groups?: BundleGroup[];
+  /** Options the customer picks exactly one of before adding it. */
+  choices?: { name: string; nameAr?: string }[];
 }
 
 export interface BundleGroup {
@@ -168,6 +172,7 @@ interface HollandProduct {
   bundleType: "fixed" | "choice";
   components: { productId: string; name: string; quantity: number }[];
   groups: BundleGroup[];
+  choices?: { name: string; nameAr?: string }[];
 }
 
 function toMenuItem(product: HollandProduct): MenuItem {
@@ -193,6 +198,7 @@ function toMenuItem(product: HollandProduct): MenuItem {
     bundleType: product.bundleType,
     components: product.components ?? [],
     groups: product.groups ?? [],
+    choices: product.choices ?? [],
   };
 }
 
@@ -211,6 +217,9 @@ function fromMenuItem(item: Partial<MenuItem>): Record<string, unknown> {
   copy("order", "sort");
   if (item.isAvailable !== undefined) body.available = item.isAvailable;
   copy("isBundle"); copy("bundleType");
+  if (item.choices !== undefined) {
+    body.choices = item.choices.map(({ name, nameAr }) => ({ name, nameAr: nameAr ?? "" }));
+  }
   if (item.components !== undefined) {
     body.components = item.components.map(({ productId, quantity }) => ({ productId, quantity }));
   }
@@ -405,6 +414,7 @@ interface HollandOrder {
   items: {
     productId: string; name: string; nameAr?: string; note?: string;
     unitPrice: number; qty: number; lineTotal: number;
+    choice?: { name: string; nameAr?: string };
     selections?: { group: number; label: string; productId: string; name: string; quantity: number }[];
     components?: { productId: string; name: string; quantity: number }[];
   }[];
@@ -429,9 +439,19 @@ function addressOf(order: HollandOrder): string {
   ].filter(Boolean).join(", ");
 }
 
-/** Holland stamps `YYYY-MM-DD HH:MM:SS` in UTC with no marker. */
+/**
+ * A timestamp the dates on every page can parse.
+ *
+ * The API speaks ISO 8601 (`2026-09-15T10:30:00.000Z`) since the Firestore
+ * migration. The SQLite build stamped `YYYY-MM-DD HH:MM:SS` in UTC with no
+ * marker, and this used to append a `Z` unconditionally — which turned every
+ * real ISO timestamp into `…ZZ` and every date in the dashboard into
+ * "Invalid Date". The old shape is still accepted; a stamp that already carries
+ * its time zone is passed through untouched.
+ */
 function isoOf(stamp: string): string {
-  return `${stamp.replace(" ", "T")}Z`;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(stamp)) return `${stamp.replace(" ", "T")}Z`;
+  return stamp;
 }
 
 function toOrder(order: HollandOrder): OrderDetail {
@@ -452,6 +472,7 @@ function toOrder(order: HollandOrder): OrderDetail {
       name: item.name,
       price: item.unitPrice,
       qty: item.qty,
+      ...(item.choice?.name ? { choice: item.choice.name } : {}),
       ...(item.selections?.length ? {
         selections: item.selections.map((pick) => ({
           productId: pick.productId, name: pick.name, quantity: pick.quantity,

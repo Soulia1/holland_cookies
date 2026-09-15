@@ -136,7 +136,7 @@ const translations = {
     menuNextCategory: "Next",
     menuDetailClose: "Close",
     menuDetailOpen: (name: string) => `${name} — see details`,
-    menuDetailChooseFlavor: "Choose a flavor",
+    menuDetailChooseFlavor: "Choose one",
 
     // — Cart ———————————————————————————————————————————————————
     soldOut: "Sold out",
@@ -384,7 +384,7 @@ const translations = {
     menuNextCategory: "التالي",
     menuDetailClose: "إقفل",
     menuDetailOpen: (name: string) => `${name} — شوف التفاصيل`,
-    menuDetailChooseFlavor: "اختار النكهة",
+    menuDetailChooseFlavor: "اختار واحد",
 
     // — Cart ———————————————————————————————————————————————————
     soldOut: "خلصت الكمية",

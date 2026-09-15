@@ -39,6 +39,8 @@ const checkoutBody = z.strictObject({
   items: z.array(z.strictObject({
     productId: identifier,
     qty: z.number().int().min(1).max(50),
+    // The one option picked, for a product that has options.
+    choice: z.string().trim().min(1).max(80).optional(),
     // A choice bundle's picks: which group, which product, how many.
     selections: z.array(z.strictObject({
       group: z.number().int().min(0).max(7),

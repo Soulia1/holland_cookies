@@ -45,7 +45,7 @@ import {
   collections, orderCounterDoc, settingsDoc, FieldValue, Timestamp, get as firestore,
 } from './firestore.js';
 import {
-  lineSignature, money, priceOrder, selectionProblem, unitPrice,
+  choiceProblem, lineSignature, money, priceOrder, selectionProblem, unitPrice,
 } from '../shared/pricing.mjs';
 import { assertNewOrder } from './invariants.js';
 import { upsertCustomerInTransaction } from './repo/people.js';
@@ -133,8 +133,8 @@ export async function createOrder(payload) {
     ...Object.fromEntries(['firstName', 'lastName', 'email', 'fulfilment', 'area', 'address',
       'building', 'floor', 'apartment', 'landmark', 'notes', 'promoCode', 'lang', 'expectedTotal']
       .map((k) => [k, payload[k] ?? ''])),
-    items: payload.items.map(({ productId, qty, selections }) => ({
-      productId, qty, ...(selections?.length ? { selections } : {}),
+    items: payload.items.map(({ productId, qty, selections, choice }) => ({
+      productId, qty, ...(selections?.length ? { selections } : {}), ...(choice ? { choice } : {}),
     })),
     phone,
     paymentMethod: payload.paymentMethod || 'cash',
@@ -240,6 +240,10 @@ export async function createOrder(payload) {
       if (problem) {
         throw fail(400, 'INVALID_SELECTION', problem, { productId: item.productId });
       }
+      const choiceIssue = choiceProblem(catalogue.get(item.productId), item.choice);
+      if (choiceIssue) {
+        throw fail(400, 'INVALID_CHOICE', choiceIssue, { productId: item.productId });
+      }
     }
     const pickedUnavailable = pickedIds.filter(
       (id) => !catalogue.has(id) || catalogue.get(id).available === false,
@@ -313,6 +317,10 @@ export async function createOrder(payload) {
         qty: item.qty,
         lineTotal: money(unit * item.qty),
       };
+      if (item.choice) {
+        const picked = product.choices.find((entry) => entry.name === item.choice);
+        line.choice = { name: picked.name, nameAr: picked.nameAr ?? '' };
+      }
       // What is actually inside, copied onto the line like the name and price
       // are, so the order still reads correctly after the bundle is edited.
       if (product.isBundle && product.bundleType === 'choice') {

@@ -107,7 +107,10 @@ async function switchLanguage(page: Page, lang: "en" | "ar") {
     root.style.scrollBehavior = "";
   });
   const button = page.getByRole("button", { name: lang === "ar" ? "AR" : "EN", exact: true }).filter({ visible: true });
-  if (!(await button.count())) await page.getByRole("button", { name: "Open menu" }).click();
+  // A modal still closing hides the page from role queries, so wait for any dialog to go first.
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const inHeader = await button.first().waitFor({ state: "visible", timeout: 3_000 }).then(() => true, () => false);
+  if (!inHeader) await page.getByRole("button", { name: "Open menu" }).filter({ visible: true }).click();
   await button.first().click();
   await expect(page.locator("html")).toHaveAttribute("lang", lang);
   if (await page.getByRole("button", { name: /close menu/i }).filter({ visible: true }).count()) {

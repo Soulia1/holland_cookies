@@ -25,6 +25,12 @@
  * tray", "kraft box", "14 inch") and would otherwise be lost.
  */
 
+/** An option the customer picks exactly one of before adding an item. */
+export interface MenuChoice {
+  name: string;
+  nameAr?: string;
+}
+
 export interface MenuItem {
   /** Stable. Never derived from the display name at runtime. */
   id: string;
@@ -51,16 +57,12 @@ export interface MenuItem {
   note?: string;
   noteAr?: string;
   /**
-   * A choice the customer must pick before adding this item to the cart, each
-   * entry already the full cart-line label, e.g.
-   * `["Vanilla, Nutella filling", "Chocolate, white Nutella filling"]` — not
-   * just a bare flavor word, because the filling can differ between two
-   * options that share a flavor. Only set on the handful of printed items
-   * that name several flavors as one line rather than as separate items — the
-   * choice happens at order time, on this site, instead of arriving as free
-   * text WhatsApp had to parse by hand.
+   * Options the customer must pick exactly one of before adding this item —
+   * here, the flavors of a printed line that names several. This copy only
+   * seeds the database; the dashboard edits the list from then on, and the
+   * live catalogue's version is what the page shows.
    */
-  flavorChoices?: string[];
+  choices?: MenuChoice[];
   /** From the live catalogue: an admin marked it unavailable. */
   soldOut?: boolean;
   /** From the live catalogue: a photo an admin set, which wins over the bundled one. */
@@ -198,11 +200,11 @@ export const MENU: MenuCategory[] = [
         name: "Vanilla, Red Velvet or Chocolate — Nutella or white Nutella filling",
         price: 300,
         note: "Foil tray",
-        flavorChoices: [
-          "Red Velvet, white Nutella filling",
-          "Vanilla, Nutella filling",
-          "Chocolate, white Nutella filling",
-          "Chocolate, Nutella filling",
+        choices: [
+          { name: "Red Velvet, white Nutella filling" },
+          { name: "Vanilla, Nutella filling" },
+          { name: "Chocolate, white Nutella filling" },
+          { name: "Chocolate, Nutella filling" },
         ],
       },
       {
@@ -390,21 +392,6 @@ export function priceFrom(category: MenuCategory): number {
   return category.items.reduce((low, item) => Math.min(low, item.price), Infinity);
 }
 
-/**
- * The orderable products behind an item with flavor choices.
- *
- * The cart and the database both key on these ids, and the seed writes one
- * product per flavor from this same function, so the two cannot drift apart.
- * Each choice is already the full cart-line label, so the name here is that
- * choice verbatim.
- */
-export function flavorVariants(item: MenuItem): { id: string; flavor: string; name: string }[] {
-  return (item.flavorChoices ?? []).map((flavor) => ({
-    id: `${item.id}--${flavor.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`,
-    flavor,
-    name: flavor,
-  }));
-}
 
 /* ────────────────────────────────────────────────────────────────────────────
    Groups

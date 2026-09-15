@@ -63,6 +63,14 @@ const bundleFields = {
   })).max(8).optional(),
 };
 
+/** Options the customer picks exactly one of, such as a flavor. Stored on the product. */
+const choiceFields = {
+  choices: z.array(z.strictObject({
+    name: z.string().trim().min(1, 'Every option needs a name.').max(80),
+    nameAr: z.string().trim().max(80).optional(),
+  })).max(20, 'A product can have at most 20 options.').optional(),
+};
+
 const productCreate = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, 'Use lowercase letters, numbers and hyphens.'),
   categoryId: identifier,
@@ -78,6 +86,7 @@ const productCreate = z.strictObject({
   sort: z.number().int().min(-100000).max(100000).optional(),
   ...discountFields,
   ...bundleFields,
+  ...choiceFields,
 });
 
 const productPatch = productCreate.partial().omit({ id: true });
@@ -170,6 +179,20 @@ async function bundleProblem(bundle, selfId) {
   return null;
 }
 
+/** Why a product's options cannot be saved, or null. Checked against the merged document. */
+function choicesProblem(choices, isBundle) {
+  if (!choices.length) return null;
+  if (isBundle) return 'A bundle cannot also have options.';
+  const names = choices.map((choice) => choice.name.trim().toLowerCase());
+  if (new Set(names).size !== names.length) return 'Each option must have a different name.';
+  return null;
+}
+
+const storedChoices = (choices) => choices.map(({ name, nameAr }) => ({
+  name: name.trim(),
+  nameAr: (nameAr ?? '').trim(),
+}));
+
 async function adminView(product) {
   return catalogue.adminProduct(product, catalogue.lookupOf(await catalogue.listProducts()));
 }
@@ -204,7 +227,13 @@ router.post('/admin/products', requireAdmin, async (req, res, next) => {
     const bundleIssue = await bundleProblem(bundle, body.id);
     if (bundleIssue) return badRequest(res, bundleIssue);
 
-    const created = await catalogue.createProduct({ ...body, ...bundleFieldsFor(bundle) });
+    const choices = body.choices ?? [];
+    const choiceIssue = choicesProblem(choices, bundle.isBundle);
+    if (choiceIssue) return badRequest(res, choiceIssue);
+
+    const created = await catalogue.createProduct({
+      ...body, ...bundleFieldsFor(bundle), choices: storedChoices(choices),
+    });
     if (created.duplicate) {
       return conflict(res, 'DUPLICATE', 'That product id is taken.');
     }
@@ -241,7 +270,15 @@ router.patch('/admin/products/:id', requireAdmin, async (req, res, next) => {
     const bundleIssue = await bundleProblem(bundle, req.params.id);
     if (bundleIssue) return badRequest(res, bundleIssue);
 
-    const product = await catalogue.updateProduct(req.params.id, { ...patch, ...bundleFieldsFor(bundle) });
+    const choices = patch.choices ?? existing.choices ?? [];
+    const choiceIssue = choicesProblem(choices, bundle.isBundle);
+    if (choiceIssue) return badRequest(res, choiceIssue);
+
+    const product = await catalogue.updateProduct(req.params.id, {
+      ...patch,
+      ...bundleFieldsFor(bundle),
+      ...(patch.choices ? { choices: storedChoices(patch.choices) } : {}),
+    });
     if (!product) return res.status(404).json({ error: 'NOT_FOUND', message: 'No such product.' });
     return res.json({ product: await adminView(product) });
   } catch (error) { return next(error); }
