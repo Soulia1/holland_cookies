@@ -8,6 +8,7 @@ import { lineKey } from "@/lib/cart-core";
 import { choiceProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
 import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
+import { itemImage } from "@/data/menuImages";
 import ReceiptPrinter from "@/components/ReceiptPrinter";
 
 /**
@@ -108,7 +109,10 @@ export default function CheckoutPage() {
         name: product ? localized(lang, product.name, product.nameAr) : item.name,
         choiceLabel: option ? localized(lang, option.name, option.nameAr) : item.choiceLabel,
         note: product?.note ? localized(lang, product.note, product.noteAr) : item.note,
-        image: product?.image,
+        // The photo the menu shows: one uploaded in the dashboard, else the
+        // bundled menu photo, else what the cart kept. Only the upload was read,
+        // so every product still on its bundled photo showed a placeholder here.
+        image: product?.image || itemImage(item.productId) || item.image,
         unitPrice: unit,
         lineTotal: unit * item.qty,
         // An option since removed, or options added since, leave a line the

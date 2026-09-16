@@ -67,6 +67,11 @@ test.describe("placing an order", () => {
 
     await expect(page.locator(".ed-sum-info span").first()).toHaveText("Vanilla, Lotus filling");
     await expect(page.locator(".ed-sum-price").first()).toHaveText("60.00 EGP");
+    // No photo was uploaded for it in the dashboard, so the summary shows the
+    // menu's own photo — not the placeholder cookie.
+    const thumb = page.locator(".ed-sum-thumb img").first();
+    await expect(thumb).toHaveAttribute("src", /cup-caramel\.webp$/);
+    expect(await thumb.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
     // 60 subtotal + 40 delivery, below the 600 free-delivery threshold.
     await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("100.00 EGP");
   });
