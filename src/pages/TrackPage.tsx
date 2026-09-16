@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiError, api, type Order, type Settings, type StatusEvent } from "@/lib/api";
 import { localized, useLang, type Translations } from "@/lib/i18n";
 import { Link } from "@/lib/router";
-import { parseStamp } from "@/lib/dates";
+import { parseStamp, SHOP_TIME_ZONE } from "@/lib/dates";
 
 /**
  * Order tracking.
@@ -40,7 +40,7 @@ const STATUS_KEY: Record<string, keyof Translations> = {
 function when(stamp: string, lang: "en" | "ar"): string {
   return parseStamp(stamp).toLocaleString(
     lang === "ar" ? "ar-EG" : "en-GB",
-    { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" },
+    { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: SHOP_TIME_ZONE },
   );
 }
 

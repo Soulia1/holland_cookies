@@ -1420,6 +1420,28 @@ html.is-menu-condensed .site-header {
   color: var(--color-primary);
 }
 
+/* Where the sections go while the catalogue is on its way, or if it failed. */
+.menu-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  gap: 12px 16px;
+  min-height: 40vh;
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-on-surface-variant);
+}
+
+.menu-status-retry {
+  min-height: 44px;
+  padding-inline: 20px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
 .menu-section-meta {
   font-family: var(--font-body);
   font-size: 13px;
@@ -2864,8 +2886,10 @@ html[dir="rtl"] .cart-panel { animation-name: cart-slide-rtl; }
 .ed-shell {
   max-width: 1120px;
   margin-inline: auto;
-  /* The top pad clears the fixed 88px header. */
-  padding: 88px 48px 96px;
+  /* The top pad clears the fixed header, which is 82px on a phone and grows to
+     112px on a desktop. A flat 88px left "Back to cart" underneath it from
+     1024px up, where the header took every click aimed at it. */
+  padding: 136px 48px 96px;
 }
 
 .ed-top {
@@ -3195,7 +3219,23 @@ html[dir="rtl"] .ed-choice button { letter-spacing: 0; }
   border-block-end: 1px solid rgb(93 16 29 / 0.08);
 }
 
-.ed-sum-item.is-gone { opacity: 0.5; }
+.ed-sum-item.is-gone > .ed-sum-thumb,
+.ed-sum-item.is-gone .ed-sum-info > :not(.ed-sum-blocked) { opacity: 0.5; }
+.ed-sum-info .ed-sum-blocked { color: var(--color-error, #ba1a1a); font-weight: 600; }
+
+.ed-sum-remove {
+  min-height: 44px;
+  padding-inline: 14px;
+  border: 1px solid rgb(93 16 29 / 0.3);
+  border-radius: 2px;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-deep-burgundy);
+  white-space: nowrap;
+}
 
 .ed-sum-thumb {
   width: 46px;
@@ -3261,7 +3301,7 @@ html[dir="rtl"] .ed-choice button { letter-spacing: 0; }
 }
 
 @media (max-width: 860px) {
-  .ed-shell { padding: 88px 22px 64px; }
+  .ed-shell { padding: 112px 22px 64px; }
   .ed-top { margin-block-end: 32px; }
   .ed-title { margin-block-end: 32px; }
   .ed-grid { grid-template-columns: 1fr; gap: 44px; }

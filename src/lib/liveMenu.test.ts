@@ -27,10 +27,6 @@ function live(products: ApiProduct[], categoryIds: string[]): LiveMenu {
 }
 
 describe("withLiveCatalogue", () => {
-  it("shows the printed menu untouched until the catalogue arrives", () => {
-    expect(withLiveCatalogue(cookies, null)).toBe(cookies);
-  });
-
   it("applies the database's name, price, photo and availability", () => {
     const first = pans.items[0];
     const catalogue = live(
@@ -116,5 +112,10 @@ describe("options", () => {
 
   it("shows none once the dashboard has emptied the list", () => {
     expect(shown({ choices: [] }).choices).toBeUndefined();
+  });
+
+  it("shows none when the database never had a list, whatever the printed sheet says", () => {
+    expect(scoop.choices?.length).toBeGreaterThan(0);
+    expect(shown({}).choices).toBeUndefined();
   });
 });

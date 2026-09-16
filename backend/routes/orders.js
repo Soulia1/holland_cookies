@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdmin } from '../adminSession.js';
+import { readCustomer } from '../customerAuth.js';
 import { createOrder, normalizePhone } from '../orderTransaction.js';
 import { validateParams, amount, identifier, email as emailSchema } from '../validation.js';
 import { mailConfigured, sendOrderConfirmation } from '../mailer.js';
@@ -98,7 +99,9 @@ router.post('/', async (req, res, next) => {
   }
 
   try {
-    const { order, duplicate } = await createOrder(parsed.data);
+    // The session, never the body, says whose account this is.
+    const customer = await readCustomer(req);
+    const { order, duplicate } = await createOrder(parsed.data, { profileId: customer?.email ?? null });
 
     // The confirmation goes out AFTER the order has committed, and its failure
     // is swallowed. Three things are load-bearing here:
@@ -204,11 +207,13 @@ router.get('/', requireAdmin, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-/** GET /api/orders/stats?days=N — the aggregates the overview is built on. */
+/** GET /api/orders/stats?days=N&topDays=M — the aggregates the overview is built on. */
 router.get('/stats', requireAdmin, async (req, res, next) => {
   try {
     const days = Math.min(365, Math.max(1, Number(req.validatedQuery?.days) || 30));
-    res.json(await orders.orderStats({ days }));
+    // How many of those days best sellers and areas cover; all of them by default.
+    const topDays = Math.min(days, Math.max(1, Number(req.validatedQuery?.topDays) || days));
+    res.json(await orders.orderStats({ days, topDays }));
   } catch (error) { next(error); }
 });
 

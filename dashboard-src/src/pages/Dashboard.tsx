@@ -173,7 +173,7 @@ export default function Dashboard() {
     try {
       setLoading(true);
       const [summary, page] = await Promise.all([
-        ordersApi.stats(windowDays * 2),
+        ordersApi.stats(windowDays * 2, windowDays),
         ordersApi.list(1, 8, query),
       ]);
       setStats(summary);
@@ -211,7 +211,7 @@ export default function Dashboard() {
   // refresh them without the row's spinner waiting on the result.
   const refreshStats = useCallback(async () => {
     try {
-      setStats(await ordersApi.stats(days * 2));
+      setStats(await ordersApi.stats(days * 2, days));
     } catch {
       // The figures keep their last good values. The status change itself
       // already succeeded, so this must not be reported as a failure.
@@ -422,7 +422,7 @@ export default function Dashboard() {
           ) : (
             <p className="adm-empty">No sales yet.</p>
           )}
-          <p className="mt-3 text-xs text-muted-foreground">By quantity · all time</p>
+          <p className="mt-3 text-xs text-muted-foreground">By quantity · last {days} days</p>
         </div>
 
         {/* Orders per day */}

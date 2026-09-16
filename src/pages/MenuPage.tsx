@@ -56,7 +56,7 @@ import { cx, useReveal } from "@/lib/reveal";
  * frame cannot miss a state, because it does not depend on transitions at all.
  */
 
-/** The fixed site header's height. Matches HEADER_HEIGHT in TopBar.tsx. */
+/** The fixed site header's height before it can be measured. Matches HEADER_HEIGHT in TopBar.tsx. */
 const HEADER_H = 88;
 
 // The dialog brings Radix and Framer Motion with it and is closed on load, so
@@ -84,7 +84,13 @@ export default function MenuPage({
 }) {
   const { t, lang } = useLang();
   const live = useLiveMenu();
-  const shown = useMemo(() => withLiveCatalogue(group, live), [group, live]);
+  // No sections until the database answers: the printed products are never
+  // shown in its place (see liveMenu.ts).
+  const shown = useMemo(
+    () => (live.status === "ready" ? withLiveCatalogue(group, live.menu) : { ...group, categories: [] }),
+    [group, live],
+  );
+  const ready = live.status === "ready";
   const barRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
   const subNavRef = useRef<HTMLDivElement>(null);
@@ -372,7 +378,8 @@ export default function MenuPage({
     };
     // `group.id` is in here so that arriving at a *different* group at the same
     // section id — impossible today, but a regrouping away — still lands.
-  }, [section, group.id]);
+    // `ready` because the sections only exist once the catalogue has arrived.
+  }, [section, group.id, ready]);
 
   /**
    * Merge the two bars.
@@ -394,7 +401,11 @@ export default function MenuPage({
     const intro = introRef.current;
     if (!intro) return;
     const root = document.documentElement;
-    const apply = (bottom: number) => root.classList.toggle("is-menu-condensed", bottom <= HEADER_H);
+    // The header's real height: 88px is its phone size, and on a desktop it is
+    // 112px, which left the category bar under it for the last 24px of travel.
+    const header = document.querySelector<HTMLElement>(".site-header");
+    const apply = (bottom: number) =>
+      root.classList.toggle("is-menu-condensed", bottom <= (header?.offsetHeight || HEADER_H));
     const observer = new IntersectionObserver(
       ([entry]) => apply(entry.boundingClientRect.bottom),
       { rootMargin: `-${HEADER_H}px 0px 0px 0px`, threshold: 0 },
@@ -504,6 +515,17 @@ export default function MenuPage({
         </div>
 
         <div className="menu-sections">
+          {live.status === "loading" && (
+            <p className="menu-status" role="status">{t.menuLoading}</p>
+          )}
+          {live.status === "error" && (
+            <div className="menu-status" role="alert">
+              <p>{t.menuLoadFailed}</p>
+              <button type="button" className="menu-status-retry" onClick={live.retry}>
+                {t.menuRetry}
+              </button>
+            </div>
+          )}
           {shown.categories.map((category) => (
             <Section key={category.id} category={category} onOpen={openItem} />
           ))}

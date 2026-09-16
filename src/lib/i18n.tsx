@@ -37,6 +37,11 @@ export type Lang = "en" | "ar";
 
 const STORAGE_KEY = "holland-lang";
 
+/** An amount in pounds with exactly two decimals, rounded to piastres. */
+function formatAmount(amount: number): string {
+  return (Math.round((Number(amount) || 0) * 100) / 100).toFixed(2);
+}
+
 /**
  * Arabic web fonts, requested only for an Arabic reader.
  *
@@ -137,10 +142,12 @@ const translations = {
     menuDetailClose: "Close",
     menuDetailOpen: (name: string) => `${name} — see details`,
     menuDetailChooseFlavor: "Choose one",
+    menuLoading: "Loading the menu…",
+    menuLoadFailed: "The menu could not be loaded. Check your connection and try again.",
+    menuRetry: "Try again",
 
     // — Cart ———————————————————————————————————————————————————
     soldOut: "Sold out",
-    railOrder: "Order from the menu",
     bundleIncludes: "Inside",
     bundlePicked: (count: number, of: number) => `${count} of ${of}`,
     bundleMakeChoices: "Make your choices",
@@ -167,13 +174,18 @@ const translations = {
     cartHandoffNote: "Pay cash when your order arrives. Delivery is added at checkout.",
     cartAdded: (name: string) => `${name} added to your cart`,
     currency: "EGP",
-    // Prices are whole pounds on the printed sheets; the .00 is the house style.
-    price: (amount: number) => `${amount}.00 EGP`,
+    // Always two decimals, the house style. Appending ".00" to the number only
+    // worked for whole pounds: a percentage discount printed "76.5.00 EGP".
+    price: (amount: number) => `${formatAmount(amount)} EGP`,
 
 
     // — Checkout ———————————————————————————————————————————————
     ckTitle: "Checkout",
     ckBackToCart: "Back to cart",
+    ckLineGone: "No longer available",
+    ckLineSoldOut: "Sold out",
+    ckLineRemove: "Remove",
+    ckBlocked: "Some items can't be ordered right now. Remove them to place your order.",
     ckSummary: "Your order",
     ckYourDetails: "Your details",
     ckFirstName: "First name",
@@ -387,10 +399,12 @@ const translations = {
     menuDetailClose: "إقفل",
     menuDetailOpen: (name: string) => `${name} — شوف التفاصيل`,
     menuDetailChooseFlavor: "اختار واحد",
+    menuLoading: "بنحمّل المنيو…",
+    menuLoadFailed: "مقدرناش نحمّل المنيو. اتأكد من النت وجرّب تاني.",
+    menuRetry: "جرّب تاني",
 
     // — Cart ———————————————————————————————————————————————————
     soldOut: "خلصت الكمية",
-    railOrder: "اطلب من المنيو",
     bundleIncludes: "جواها",
     bundlePicked: (count: number, of: number) => `${count} من ${of}`,
     bundleMakeChoices: "اختار الأول",
@@ -418,12 +432,16 @@ const translations = {
     cartHandoffNote: "هتدفع كاش لما الطلب يوصلك. التوصيل بيتحسب عند إتمام الطلب.",
     cartAdded: (name: string) => `${name} اتضافت لسلّتك`,
     currency: "ج.م",
-    price: (amount: number) => `${amount}.00 ج.م`,
+    price: (amount: number) => `${formatAmount(amount)} ج.م`,
 
 
     // — Checkout ———————————————————————————————————————————————
     ckTitle: "إتمام الطلب",
     ckBackToCart: "ارجع للسلة",
+    ckLineGone: "مبقاش متاح",
+    ckLineSoldOut: "خلصت الكمية",
+    ckLineRemove: "شيل",
+    ckBlocked: "فيه حاجات مينفعش تتطلب دلوقتي. شيلها عشان تكمل الطلب.",
     ckSummary: "طلبك",
     ckYourDetails: "بياناتك",
     ckFirstName: "الاسم الأول",

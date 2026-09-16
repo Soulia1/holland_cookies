@@ -10,8 +10,8 @@
  * a constant: +03:00 in summer, +02:00 in winter. It is read from the runtime's
  * time zone data for the date in question rather than hard-coded.
  *
- * Pure, no dependencies, used by the dashboard. The server stores and compares
- * the resulting ISO instant, so this is the only place the rule lives.
+ * Pure, no dependencies, used by the dashboard and by the server's overview
+ * figures, so this is the only place the rule lives.
  */
 
 export const SHOP_TIME_ZONE = "Africa/Cairo";
@@ -44,6 +44,21 @@ export function endOfShopDay(date) {
   let instant = wall - offsetMinutes(wall) * 60000;
   instant = wall - offsetMinutes(instant) * 60000;
   return new Date(instant).toISOString();
+}
+
+/**
+ * The last `days` Cairo calendar days, today included, oldest first, and the
+ * instant the first of them began. What the dashboard's daily figures count in:
+ * bucketed by UTC day, an order placed just after midnight in Cairo was filed
+ * under the day before.
+ */
+export function shopDays(days, nowMs = Date.now()) {
+  const [year, month, day] = shopDateOf(new Date(nowMs).toISOString()).split("-").map(Number);
+  const dateAt = (offset) => new Date(Date.UTC(year, month - 1, day - offset)).toISOString().slice(0, 10);
+  const dates = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) dates.push(dateAt(offset));
+  const start = new Date(Date.parse(endOfShopDay(dateAt(days))) + 1).toISOString();
+  return { dates, start };
 }
 
 /** The Cairo calendar day an instant falls on, as `YYYY-MM-DD`, or "" for nonsense. */

@@ -504,6 +504,57 @@ test('the delivery / pickup filter is applied by the query, and the total counts
   assert.equal((await request('/api/orders?fulfillmentDate=2026-09-15')).status, 400, 'there is no date filter to pretend with');
 });
 
+test('the overview counts days in Cairo, and best sellers cover only the range asked for', async () => {
+  const { shopDays } = await import('../../shared/cairoTime.mjs');
+  const today = shopDays(1);
+  const backdate = async (reference, iso) => fsdb.collections.orders().doc(reference)
+    .update({ createdAt: fsdb.Timestamp.fromDate(new Date(iso)) });
+
+  // Thirty minutes after midnight in Cairo: the previous day in UTC.
+  const early = await place({ items: [{ productId: 'percent-off', qty: 2 }] });
+  assert.equal(early.status, 201, JSON.stringify(early.data));
+  await backdate(early.data.order.reference, new Date(Date.parse(today.start) + 30 * 60000).toISOString());
+
+  // Five Cairo days ago: inside a 14-day window, outside a 3-day one.
+  const old = await place({
+    items: [{ productId: 'plain', qty: 5 }], fulfilment: 'delivery', area: 'nasr-city', address: '1 Street',
+  });
+  assert.equal(old.status, 201, JSON.stringify(old.data));
+  await backdate(old.data.order.reference, new Date(Date.parse(shopDays(5).start) + 60 * 60000).toISOString());
+
+  const stats = await request('/api/orders/stats?days=14&topDays=3');
+  assert.equal(stats.status, 200, JSON.stringify(stats.data));
+  const { daily, topProducts, byArea } = stats.data;
+  assert.equal(daily.length, 14);
+  assert.equal(daily.at(-1).date, today.dates[0]);
+  assert.equal(daily.at(-1).orders, 1, 'the after-midnight order is on today in Cairo');
+  assert.equal(daily.reduce((sum, day) => sum + day.orders, 0), 2);
+  assert.deepEqual(topProducts.map((row) => row.name), ['Ten Percent Off']);
+  assert.deepEqual(byArea, []);
+
+  const wide = await request('/api/orders/stats?days=14');
+  assert.deepEqual(wide.data.topProducts.map((row) => row.name).sort(), ['Plain', 'Ten Percent Off']);
+  assert.deepEqual(wide.data.byArea, [{ area: 'nasr-city', count: 1 }]);
+
+  assert.equal((await request('/api/orders/stats?days=7&topDays=8')).status, 400, 'topDays cannot exceed days');
+});
+
+test('the customer directory\'s lifetime value leaves cancelled orders out, as it says', async () => {
+  const kept = await place({ items: [{ productId: 'plain', qty: 2 }] });
+  const cancelled = await place({ items: [{ productId: 'plain', qty: 5 }] });
+  assert.equal(kept.status, 201);
+  assert.equal(cancelled.status, 201);
+  const patch = await request(`/api/orders/${cancelled.data.order.reference}/status`, {
+    method: 'PATCH', body: { status: 'cancelled' },
+  });
+  assert.equal(patch.status, 200, JSON.stringify(patch.data));
+
+  const directory = await request('/api/admin/users');
+  assert.equal(directory.status, 200);
+  assert.equal(directory.data.totals.orderValue, 200);
+  assert.equal(directory.data.users[0].totalSpent, 200, 'the row and the headline agree');
+});
+
 test('cash collection is recorded by staff, only once the order is handed over', async () => {
   const { data } = await place();
   const reference = data.order.reference;

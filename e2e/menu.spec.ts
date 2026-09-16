@@ -357,7 +357,11 @@ test("the home page links to the menu instead of listing it", async ({ page }) =
   // The teaser rail, not the menu. If the whole thing ever gets rendered on the
   // home page again, this is what says so.
   await expect(page.locator(".menu-section")).toHaveCount(0);
-  await expect(page.locator(".pan-card")).toHaveCount(3);
+  // Only the cookie pans, not every category.
+  const menu = await (await page.request.get("/api/menu")).json();
+  const pans = menu.categories.find((category: { id: string }) => category.id === "cookie-pans");
+  await expect(page.locator(".pan-card"))
+    .toHaveCount(pans.items.filter((item: { available: boolean }) => item.available).length);
 
   await page.getByRole("link", { name: "See the full menu" }).click();
   await expect(page).toHaveURL(new RegExp(`/menu/${COOKIES.id}$`));

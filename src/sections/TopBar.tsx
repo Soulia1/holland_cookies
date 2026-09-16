@@ -75,6 +75,11 @@ export default function TopBar() {
       if (!hero || hero === watched) return;
       observer?.disconnect();
       watched = hero;
+      // The bar's measured height where it exists: HEADER_HEIGHT is its phone
+      // size, and on a desktop it is 112px. The same number has to be both the
+      // margin and the comparison, or a crossing is reported on one line and
+      // judged against another.
+      const bar = document.querySelector<HTMLElement>(".site-header")?.offsetHeight || HEADER_HEIGHT;
       observer = new IntersectionObserver(
         ([entry]) => {
           // The bar goes solid once the hero has left the strip beneath it.
@@ -82,12 +87,12 @@ export default function TopBar() {
           // position rather than an inference. `boundingClientRect` is measured
           // by the observer and handed over on the entry, so this still costs no
           // main-thread layout.
-          setSolid(entry.boundingClientRect.bottom <= HEADER_HEIGHT);
+          setSolid(entry.boundingClientRect.bottom <= bar);
         },
-        // The root is the viewport with its top HEADER_HEIGHT trimmed off, so
+        // The root is the viewport with the bar's height trimmed off its top, so
         // the hero stops intersecting at exactly the moment its bottom edge
         // passes under the bar.
-        { rootMargin: `-${HEADER_HEIGHT}px 0px 0px 0px`, threshold: 0 },
+        { rootMargin: `-${bar}px 0px 0px 0px`, threshold: 0 },
       );
       observer.observe(hero);
     };

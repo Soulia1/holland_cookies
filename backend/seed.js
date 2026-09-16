@@ -4,11 +4,13 @@
  *
  * That file stays the record of what the sheets say; this copies it into
  * Firestore once so the shop starts with its real menu rather than an empty one.
- * It is idempotent — existing products are left exactly as they are, so running
- * it again after an admin has edited a price does not undo their work.
+ * Running it again over a shop the dashboard has edited undoes nothing: names,
+ * prices, the category a product was moved to, products and categories that
+ * were deleted, and the shop settings all stay as the admin left them. Only
+ * positions (`sort`) and options a product has never had are filled in.
  *
- * Run with `npm run seed`. Pass `--force` to overwrite names and prices from
- * the file again (it still never deletes anything).
+ * Run with `npm run seed`. Pass `--force` to put the printed menu back: names,
+ * prices, categories, and anything deleted since (it still never deletes).
  */
 
 import path from 'node:path';
@@ -80,6 +82,11 @@ async function seed({ force = false } = {}) {
   const haveCategory = new Set(existingCategories.docs.map((doc) => doc.id));
   const haveProduct = new Set(existingProducts.docs.map((doc) => doc.id));
   const storedChoices = new Map(existingProducts.docs.map((doc) => [doc.id, doc.data().choices]));
+  // A shop that already has a catalogue has been through the dashboard, where
+  // a printed product that is missing was deleted on purpose. Only an empty
+  // shop, or --force, gets missing rows created.
+  const fresh = existingCategories.empty && existingProducts.empty;
+  const skipped = [];
 
   // Firestore batches are capped at 500 writes; the menu is ~105 products plus
   // 17 categories, but the cap is respected rather than assumed away because the
@@ -103,6 +110,10 @@ async function seed({ force = false } = {}) {
 
   for (const [index, category] of categories.entries()) {
     const exists = haveCategory.has(category.id);
+    if (!exists && !fresh && !force) {
+      skipped.push(category.id);
+      continue;
+    }
     // `sort` is always refreshed: it is positional data owned by the menu file,
     // not something an admin edits. Names and prices are only overwritten under
     // --force.
@@ -116,9 +127,15 @@ async function seed({ force = false } = {}) {
 
     for (const [itemIndex, item] of category.items.entries()) {
       const productExists = haveProduct.has(item.id);
+      if (!productExists && !fresh && !force) {
+        skipped.push(item.id);
+        continue;
+      }
       await queue(collections.products().doc(item.id), {
-        categoryId: category.id,
         ...(productExists && !force ? {} : {
+          // The category too: an admin may have moved it, and a re-seed moving
+          // it back is an edit nobody made.
+          categoryId: category.id,
           name: item.name,
           // Left empty: the Arabic item names are on the printed sheets and
           // have not been transcribed. `localized()` falls back to English
@@ -152,9 +169,11 @@ async function seed({ force = false } = {}) {
   }
   await flush();
 
-  // Starting settings, written only if the shop has never been configured.
+  // Starting settings, written only if the shop has never been configured. A
+  // delivery fee of 0 is a configuration — free delivery — and was being
+  // overwritten, along with the areas and a closed shop's `acceptingOrders`.
   const settings = await settingsDoc().get();
-  if (!settings.exists || (settings.data().deliveryFee ?? 0) === 0) {
+  if (!settings.exists) {
     await settingsDoc().set({
       deliveryFee: 40,
       freeDeliveryOver: 600,
@@ -169,7 +188,7 @@ async function seed({ force = false } = {}) {
   const counter = await orderCounterDoc().get();
   if (!counter.exists) await orderCounterDoc().set({ value: 1000 });
 
-  return { categories: categories.length, products: productCount };
+  return { categories: categories.length, products: productCount, skipped };
 }
 
 const invokedDirectly = process.argv[1]
@@ -182,6 +201,10 @@ if (invokedDirectly) {
     `[holland] seeded ${result.products} products across ${result.categories} categories`
     + `${force ? ' (forced)' : ''}`,
   );
+  if (result.skipped.length) {
+    console.log(`[holland] left out ${result.skipped.length} printed row(s) no longer in the shop `
+      + `(deleted in the dashboard; --force puts them back): ${result.skipped.join(', ')}`);
+  }
   process.exit(0);
 }
 

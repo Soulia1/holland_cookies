@@ -139,6 +139,40 @@ test('the dashboard cannot save blank or duplicate options, or options on a bund
   assert.match(bundle.data.message, /cannot also have options/);
 });
 
+// A bundle line carries no option for what is inside it, so a product with
+// options inside a bundle would reach the kitchen with no flavor named.
+test('a bundle cannot contain or offer a product that has options', async () => {
+  await saveOptions([{ name: VANILLA }]);
+  const fixed = await request('/api/menu/admin/products', {
+    method: 'POST',
+    body: { id: 'box', categoryId: 'scoops', name: 'Box', price: 500, isBundle: true, bundleType: 'fixed',
+      components: [{ productId: 'scoop', quantity: 1 }] },
+  });
+  assert.equal(fixed.status, 400, JSON.stringify(fixed.data));
+  assert.match(fixed.data.message, /has options/);
+
+  const choice = await request('/api/menu/admin/products', {
+    method: 'POST',
+    body: { id: 'pick', categoryId: 'scoops', name: 'Pick', price: 500, isBundle: true, bundleType: 'choice',
+      groups: [{ label: 'Scoop', choose: 1, options: [{ productId: 'scoop' }, { productId: 'plain' }] }] },
+  });
+  assert.equal(choice.status, 400, JSON.stringify(choice.data));
+  assert.match(choice.data.message, /has options/);
+});
+
+test('a product inside a bundle cannot be given options', async () => {
+  const box = await request('/api/menu/admin/products', {
+    method: 'POST',
+    body: { id: 'box', categoryId: 'scoops', name: 'Box', price: 500, isBundle: true, bundleType: 'fixed',
+      components: [{ productId: 'scoop', quantity: 1 }] },
+  });
+  assert.equal(box.status, 201, JSON.stringify(box.data));
+  const refused = await saveOptions([{ name: VANILLA }]);
+  assert.equal(refused.status, 400, JSON.stringify(refused.data));
+  assert.match(refused.data.message, /inside Box/);
+  assert.equal((await saveOptions([])).status, 200, 'an empty list is still fine');
+});
+
 test('a new product can be created with options', async () => {
   const created = await request('/api/menu/admin/products', {
     method: 'POST',

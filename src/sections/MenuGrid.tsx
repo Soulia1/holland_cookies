@@ -3,12 +3,18 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
 } from "react";
-import { PANS, type Pan } from "@/data/pans";
-import { useLang } from "@/lib/i18n";
+import AddToCart from "@/components/AddToCart";
+import type { MenuSelection } from "@/components/MenuItemDetail";
+import { GROUP_BY_CATEGORY_ID, type MenuCategory, type MenuItem } from "@/data/menu";
+import { describeItem } from "@/data/menuCopy";
+import { itemImage } from "@/data/menuImages";
+import { localized, useLang } from "@/lib/i18n";
+import { useLiveMenu, withLiveCatalogue } from "@/lib/liveMenu";
 import { useCapability } from "@/lib/motion/useCapability";
 import { Link } from "@/lib/router";
 import { cx, useReveal } from "@/lib/reveal";
@@ -18,19 +24,20 @@ import { useOnceOpened } from "@/lib/useOnceOpened";
  * The product section: a horizontal rail of photographs, built to the reference
  * screenshot's best-sellers row.
  *
- * It replaced a three-column grid rather than being added beside one. The site
- * has three products; two sections listing the same three, one as a grid and one
- * as a rail, is not two features, it is the same feature twice.
- *
- * The dialog, the focus return, the lazy import and the reveal all carry over
- * unchanged — only the layout is new.
+ * The cards are the Cookie Pans as the dashboard left them — name, price, photo
+ * and availability — and open the same dialog the menu page does. They were
+ * three made-up products with their own prices, which the dashboard could not
+ * change, whose "Order this" went to a placeholder WhatsApp number.
  */
+
+/** The category the rail shows, and the section its link leads to. */
+const RAIL_CATEGORY = "cookie-pans";
 
 // The detail modal brings Framer Motion with it, and it is closed on load. All
 // of that would otherwise sit in the bundle the hero has to wait for, to render
 // a surface nobody has asked for yet. Fetched the first time a card is opened,
 // and kept from then on — see useOnceOpened.
-const PanDetail = lazy(() => import("@/components/PanDetail"));
+const MenuItemDetail = lazy(() => import("@/components/MenuItemDetail"));
 
 interface RailState {
   /** The rail has somewhere to go at all. */
@@ -113,17 +120,28 @@ function useRailState(rail: RefObject<HTMLDivElement | null>): RailState {
 }
 
 function RailCard({
-  pan,
+  item,
+  category,
   index,
   onOpen,
 }: {
-  pan: Pan;
+  item: MenuItem;
+  category: MenuCategory;
   index: number;
   /** Handed the button as well as the product, so focus can be returned to it. */
-  onOpen: (pan: Pan, trigger: HTMLElement) => void;
+  onOpen: (item: MenuItem, category: MenuCategory, trigger: HTMLElement) => void;
 }) {
   const [ref, anim] = useReveal<HTMLDivElement>(index);
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const name = localized(lang, item.name, item.nameAr);
+  const note = item.note ? localized(lang, item.note, item.noteAr) : undefined;
+  const photo = item.image ?? itemImage(item.id);
+  const blurb = item.description
+    ? localized(lang, item.description, item.descriptionAr)
+    : describeItem(item, category);
+  // A quick add only where one tap is a complete order; options and a choice
+  // bundle are picked in the dialog.
+  const quickAdd = !item.choices?.length && item.bundle?.type !== "choice";
 
   return (
     <div ref={ref} className={cx("rail-item", anim.className)} style={anim.style}>
@@ -136,29 +154,32 @@ function RailCard({
           tabindex of its own and adds no empty tab stop. */}
       <button
         type="button"
-        onClick={(event) => onOpen(pan, event.currentTarget)}
+        onClick={(event) => onOpen(item, category, event.currentTarget)}
         aria-haspopup="dialog"
+        aria-label={t.menuDetailOpen(name)}
         className="pan-card group text-start w-full"
       >
-        {/* Square, following the reference. The source is 1408x768, so a square
-            crop keeps 768px of it — against a 480px card that is a 1.09x stretch
-            on a retina display, which is as far as this photograph goes. A
-            portrait crop like the reference's own would keep less and magnify
-            more. */}
+        {/* Square, following the reference. `alt=""`: the name is right under
+            the picture, and the button's own label already carries it. */}
         <div className="rail-photo">
-          <img
-            src={pan.image}
-            alt={pan.alt}
-            className="pan-card-img"
-            width={768}
-            height={768}
-            loading="lazy"
-            decoding="async"
-          />
+          {photo ? (
+            <img
+              src={photo}
+              alt=""
+              className="pan-card-img"
+              width={768}
+              height={768}
+              loading="lazy"
+              decoding="async"
+            />
+          ) : null}
         </div>
-        <h3 className="rail-name">{pan.name}</h3>
-        <p className="rail-price">{t.price(pan.price)}</p>
-        <p className="rail-blurb">{pan.blurb}</p>
+        <h3 className="rail-name">{name}</h3>
+        <p className="rail-price">
+          {t.price(item.price)}
+          {item.soldOut ? <> · {t.soldOut}</> : null}
+        </p>
+        <p className="rail-blurb">{blurb}</p>
       </button>
 
       {/* Outside the card button, not inside it. A `<button>` inside a
@@ -167,21 +188,35 @@ function RailCard({
           match the tree React thinks it rendered. Positioned over the card by
           the stylesheet instead, which also keeps it from being announced as
           part of the card's own label. */}
-      {/* These photographs are not products on the printed menu, so there is
-          nothing in the catalogue to add; the control leads to the real pans. */}
-      <Link className="add-btn btn rail-add" href="/menu/cookies#cookie-pans">
-        <span className="add-btn-face" aria-hidden="true">
-          →
-        </span>
-        <span className="add-btn-label">{t.railOrder}</span>
-      </Link>
+      {quickAdd && !item.soldOut ? (
+        <AddToCart
+          className="rail-add"
+          label={t.addToCart}
+          item={{
+            productId: item.id,
+            name,
+            price: item.price,
+            ...(note ? { note } : {}),
+            ...(photo ? { image: photo } : {}),
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
 export default function MenuGrid() {
   const { t } = useLang();
-  const [active, setActive] = useState<Pan | null>(null);
+  const live = useLiveMenu();
+  // Nothing until the catalogue answers: a rail of printed prices would be the
+  // stale-data problem liveMenu.ts exists to prevent.
+  const rail = useMemo(() => {
+    const group = GROUP_BY_CATEGORY_ID.get(RAIL_CATEGORY);
+    if (live.status !== "ready" || !group) return null;
+    const category = withLiveCatalogue(group, live.menu).categories.find((entry) => entry.id === RAIL_CATEGORY);
+    return category ? { category, items: category.items.filter((item) => !item.soldOut) } : null;
+  }, [live]);
+  const [active, setActive] = useState<MenuSelection | null>(null);
   const everOpened = useOnceOpened(active !== null);
   const [heading, headingAnim] = useReveal<HTMLDivElement>(0);
   const railRef = useRef<HTMLDivElement>(null);
@@ -199,9 +234,9 @@ export default function MenuGrid() {
    */
   const trigger = useRef<HTMLElement | null>(null);
 
-  const open = useCallback((pan: Pan, element: HTMLElement) => {
+  const open = useCallback((item: MenuItem, category: MenuCategory, element: HTMLElement) => {
     trigger.current = element;
-    setActive(pan);
+    setActive({ item, category });
   }, []);
 
   const close = useCallback(() => setActive(null), []);
@@ -266,8 +301,8 @@ export default function MenuGrid() {
 
       <div className="rail-frame">
         <div className="rail" ref={railRef}>
-          {PANS.map((pan, index) => (
-            <RailCard key={pan.id} pan={pan} index={index} onOpen={open} />
+          {rail?.items.map((item, index) => (
+            <RailCard key={item.id} item={item} category={rail.category} index={index} onOpen={open} />
           ))}
         </div>
 
@@ -300,7 +335,7 @@ export default function MenuGrid() {
           spinner in its place would flash for one frame on a warm chunk. */}
       {everOpened && (
         <Suspense fallback={null}>
-          <PanDetail pan={active} onClose={close} />
+          <MenuItemDetail selection={active} onClose={close} />
         </Suspense>
       )}
     </section>

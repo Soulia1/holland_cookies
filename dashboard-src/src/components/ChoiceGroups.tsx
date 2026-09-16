@@ -70,8 +70,9 @@ function OptionRow({
   const taken = new Set(
     group.options.filter((_, i) => i !== index).map((other) => other.productId),
   );
+  // No bundles and no products with options: the server refuses both inside a bundle.
   const choosable = items.filter(
-    (item) => !item.isBundle && (item.id === option.productId || !taken.has(item.id)),
+    (item) => !item.isBundle && !item.choices?.length && (item.id === option.productId || !taken.has(item.id)),
   );
 
   return (
@@ -135,7 +136,8 @@ function GroupCard({
     if (!categoryId) return;
     const already = new Set(group.options.map((option) => option.productId));
     const additions = items
-      .filter((item) => item.category === categoryId && !item.isBundle && item.isAvailable !== false)
+      .filter((item) => item.category === categoryId && !item.isBundle && !item.choices?.length
+        && item.isAvailable !== false)
       .filter((item) => !already.has(item.id))
       .map((item) => ({ productId: item.id, surcharge: "" }));
     if (additions.length) onChange({ options: [...group.options, ...additions] });

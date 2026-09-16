@@ -8,6 +8,13 @@
  * order into "Invalid Date". The old shape is still read as UTC; a stamp that
  * carries its own zone is passed through untouched.
  */
+/**
+ * The shop's clock, for every date a customer reads. The browser's own zone made
+ * an order placed at 1:30am in Cairo read as another day or hour to a customer
+ * abroad, and disagree with the dashboard, which prints Cairo time.
+ */
+export const SHOP_TIME_ZONE = "Africa/Cairo";
+
 export function parseStamp(stamp: string): Date {
   const legacy = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}(?::\d{2})?)$/.exec(stamp.trim());
   return new Date(legacy ? `${legacy[1]}T${legacy[2]}Z` : stamp);

@@ -179,7 +179,12 @@ router.get('/users', requireAdmin, async (_req, res, next) => {
         guests: users.filter((user) => !user.hasAccount).length,
         repeatCustomers: users.filter((user) => user.orderCount > 1).length,
         neverOrdered: users.filter((user) => user.orderCount === 0).length,
-        orderValue: money(orderDocs.reduce((sum, order) => sum + (order.total ?? 0), 0)),
+        // Cancelled orders left out, like each customer's `totalSpent` and as
+        // the dashboard labels it. Summing them made the headline disagree with
+        // the rows beneath it.
+        orderValue: money(orderDocs
+          .filter((order) => order.status !== 'cancelled')
+          .reduce((sum, order) => sum + (order.total ?? 0), 0)),
         anonymousOrders,
       },
     });

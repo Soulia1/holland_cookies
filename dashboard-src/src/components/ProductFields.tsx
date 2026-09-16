@@ -13,8 +13,9 @@ function ComponentEditor({
   items: MenuItem[];
   selfId?: string;
 }) {
-  // A bundle cannot contain another bundle; the server refuses it too.
-  const choosable = items.filter((item) => !item.isBundle && item.id !== selfId);
+  // A bundle cannot contain another bundle, or a product with options (its line
+  // has nowhere to say which one); the server refuses both too.
+  const choosable = items.filter((item) => !item.isBundle && !item.choices?.length && item.id !== selfId);
   const chosen = new Set(components.map((component) => component.productId).filter(Boolean));
 
   const patch = (index: number, next: Partial<ComponentDraft>) =>

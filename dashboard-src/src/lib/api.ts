@@ -466,7 +466,27 @@ function isoOf(stamp: string): string {
   return stamp;
 }
 
-function toOrder(order: HollandOrder): OrderDetail {
+/**
+ * Delivery area names by id.
+ *
+ * Orders store the area's id (`nasr-city`), which is what the dashboard used to
+ * print. Read once from the settings the checkout offered them from; an id no
+ * longer in the list, or a failed read, still shows as the id.
+ */
+let areaNamesPending: Promise<Map<string, string>> | null = null;
+
+function areaNames(): Promise<Map<string, string>> {
+  areaNamesPending ??= settingsApi.get().then(
+    (settings) => new Map(settings.areas.map((area) => [area.id, area.name])),
+    () => {
+      areaNamesPending = null;
+      return new Map();
+    },
+  );
+  return areaNamesPending;
+}
+
+function toOrder(order: HollandOrder, areas: Map<string, string> = new Map()): OrderDetail {
   const name = `${order.customer.firstName} ${order.customer.lastName}`.trim();
   return {
     id: order.reference,
@@ -475,7 +495,7 @@ function toOrder(order: HollandOrder): OrderDetail {
     phone: order.customer.phone,
     email: order.customer.email || undefined,
     address: order.fulfilment === "delivery" ? addressOf(order) : undefined,
-    area: order.delivery.area || "",
+    area: areas.get(order.delivery.area) ?? (order.delivery.area || ""),
     fulfillmentType: order.fulfilment,
     deliveryFee: order.totals.delivery,
     paymentMethod: order.paymentMethod,
@@ -512,8 +532,9 @@ function toOrder(order: HollandOrder): OrderDetail {
 // -------------------------------------------------------------------- apis ---
 
 export const ordersApi = {
-  async stats(days = 30): Promise<OrderStats> {
-    return json(await apiFetch(`/api/orders/stats?days=${days}`), "load statistics");
+  /** `topDays`: how many of the latest `days` best sellers and areas cover. */
+  async stats(days = 30, topDays = days): Promise<OrderStats> {
+    return json(await apiFetch(`/api/orders/stats?days=${days}&topDays=${topDays}`), "load statistics");
   },
 
   /**
@@ -538,12 +559,15 @@ export const ordersApi = {
     // arrives would leave the page short and the total counting everything.
     if (filters.fulfillmentType) search.set("fulfilment", filters.fulfillmentType);
 
-    const body = await json<{
-      orders: HollandOrder[]; page: number; perPage: number; total: number; pages: number;
-    }>(await apiFetch(`/api/orders?${search}`, { signal }), "load orders");
+    const [body, areas] = await Promise.all([
+      json<{
+        orders: HollandOrder[]; page: number; perPage: number; total: number; pages: number;
+      }>(await apiFetch(`/api/orders?${search}`, { signal }), "load orders"),
+      areaNames(),
+    ]);
 
     return {
-      orders: body.orders.map(toOrder),
+      orders: body.orders.map((order) => toOrder(order, areas)),
       page: body.page,
       pageSize: body.perPage,
       total: body.total,
@@ -553,12 +577,15 @@ export const ordersApi = {
   },
 
   async get(reference: string): Promise<OrderDetail> {
-    const body = await json<{
-      order: HollandOrder;
-      history: { status: string; note: string; created_at: string }[];
-    }>(await apiFetch(`/api/orders/${encodeURIComponent(reference)}`), "load the order");
+    const [body, areas] = await Promise.all([
+      json<{
+        order: HollandOrder;
+        history: { status: string; note: string; created_at: string }[];
+      }>(await apiFetch(`/api/orders/${encodeURIComponent(reference)}`), "load the order"),
+      areaNames(),
+    ]);
 
-    const order = toOrder(body.order);
+    const order = toOrder(body.order, areas);
     // The history is a flat list of states; the view wants transitions, so the
     // previous state is the one before it in the same list.
     order.statusHistory = body.history.map((entry, index) => ({
@@ -740,10 +767,14 @@ export const promosApi = {
  */
 export const usersApi = {
   async list(refresh = false): Promise<UserDirectory> {
-    const directory = await json<UserDirectory>(
-      await apiFetch(`/api/admin/users${refresh ? "?refresh=1" : ""}`),
-      "load customers",
-    );
+    const [directory, areas] = await Promise.all([
+      json<UserDirectory>(
+        await apiFetch(`/api/admin/users${refresh ? "?refresh=1" : ""}`),
+        "load customers",
+      ),
+      areaNames(),
+    ]);
+    const areaName = (id: string) => areas.get(id) ?? id;
     // The backend stamps `YYYY-MM-DD HH:MM:SS` in UTC with no marker; the page
     // formats these with `new Date()`, which would read them as local time.
     const iso = (stamp: string | null) => (stamp ? isoOf(stamp) : null);
@@ -751,9 +782,12 @@ export const usersApi = {
       ...directory,
       users: directory.users.map((user) => ({
         ...user,
+        defaultArea: areaName(user.defaultArea),
         firstOrderAt: iso(user.firstOrderAt),
         lastOrderAt: iso(user.lastOrderAt),
-        orders: user.orders.map((order) => ({ ...order, createdAt: iso(order.createdAt) })),
+        orders: user.orders.map((order) => ({
+          ...order, area: areaName(order.area), createdAt: iso(order.createdAt),
+        })),
       })),
     };
   },

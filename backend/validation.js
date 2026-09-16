@@ -20,7 +20,10 @@ export function validateEnvelope(req, res, next) {
   if (listPaths.has(req.path) || /^\/admin\/customers\/[^/]+$/.test(req.path)) schema = pagination;
   if (req.path === '/orders') schema = pagination.extend({status: z.enum(['ordered','confirmed','baking','in_transit','completed','cancelled']).optional(), fulfilment: z.enum(['delivery','pickup']).optional()});
   if (req.path === '/admin/users') schema = pagination.extend({refresh:z.literal('1').optional()});
-  if (req.path === '/orders/stats') schema = z.strictObject({days:integer(365).optional()});
+  if (req.path === '/orders/stats') {
+    schema = z.strictObject({days:integer(365).optional(), topDays:integer(365).optional()})
+      .refine((query) => !query.topDays || query.topDays <= (query.days ?? 30), {message:'topDays cannot exceed days.'});
+  }
   if (/^\/orders\/track\//.test(req.path)) schema = z.strictObject({phone:z.string().min(6).max(24)});
   if (/^\/menu\/admin\/categories\/[^/]+$/.test(req.path)) schema = z.strictObject({withProducts:z.literal('1').optional()});
   const query = schema.safeParse(req.query);

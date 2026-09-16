@@ -41,12 +41,22 @@ test("the hero photograph is actually painted, not just present", async ({ page 
   expect(painted).toBeGreaterThan(0);
 });
 
-test("all three menu cards reveal on scroll", async ({ page }) => {
+/** The cookie pans the shop sells right now: what the home page rail shows. */
+async function railPans(page: Page): Promise<{ id: string; name: string }[]> {
+  const menu = await (await page.request.get("/api/menu")).json();
+  const pans = menu.categories.find((category: { id: string }) => category.id === "cookie-pans");
+  return (pans?.items ?? []).filter((item: { available: boolean }) => item.available);
+}
+
+test("the home page cards are the shop's cookie pans, and all reveal on scroll", async ({ page }) => {
+  const pans = await railPans(page);
+  expect(pans.length, "the seeded shop has cookie pans to show").toBeGreaterThan(2);
   await page.goto("/", { waitUntil: "load" });
   await ready(page);
 
   const cards = page.locator(".pan-card");
-  await expect(cards).toHaveCount(3);
+  await expect(cards).toHaveCount(pans.length);
+  await expect(cards.first()).toContainText(pans[0].name);
 
   // Each card is brought into view in turn, and `scrollIntoViewIfNeeded` is
   // load-bearing rather than convenience: the cards live in a horizontal rail,
@@ -55,7 +65,7 @@ test("all three menu cards reveal on scroll", async ({ page }) => {
   // a card outside the rail genuinely is not intersecting and correctly has not
   // revealed — scrolling the *page* to it would prove nothing. This moves both
   // axes, which is what a visitor reaching that card does too.
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < pans.length; i += 1) {
     await cards.nth(i).scrollIntoViewIfNeeded();
     await expect(cards.nth(i)).toBeVisible();
   }
@@ -296,6 +306,7 @@ test("content the viewport jumps clean past still reveals", async ({ page }) => 
 test("the detail dialog opens, traps focus, closes on Escape, and restores focus", async ({
   page,
 }) => {
+  const [firstPan] = await railPans(page);
   await page.goto("/", { waitUntil: "load" });
   await ready(page);
   await page.locator("#menu").scrollIntoViewIfNeeded();
@@ -305,7 +316,7 @@ test("the detail dialog opens, traps focus, closes on Escape, and restores focus
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("Classic Chocolate Chip Pan");
+  await expect(dialog).toContainText(firstPan.name);
 
   // Focus must be inside the dialog, not left on the page behind it.
   const focusInside = await page.evaluate(() => {

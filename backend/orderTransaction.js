@@ -118,8 +118,12 @@ export function evaluatePromo(promo, subtotal) {
  * @param {object} payload Validated by the route's zod schema before it gets
  *   here — this function assumes the shape is right and concerns itself only
  *   with whether the *contents* are still true against the catalogue.
+ * @param {{ profileId?: string | null }} [context] The signed-in account placing
+ *   it, from the session and never from the body. Without it an order placed
+ *   while signed in was left for a later sign-in to claim by email, and one
+ *   with no email typed at checkout never reached the account's history.
  */
-export async function createOrder(payload) {
+export async function createOrder(payload, { profileId = null } = {}) {
   const phone = normalizePhone(payload.phone);
   if (!phone) throw fail(400, 'INVALID_PHONE', 'That phone number does not look right.');
 
@@ -383,7 +387,7 @@ export async function createOrder(payload) {
       reference,
       seq,
       customerPhone: phone,
-      profileId: null,
+      profileId: profileId || null,
       firstName: payload.firstName,
       lastName: payload.lastName || '',
       phone,

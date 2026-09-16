@@ -35,6 +35,7 @@ import { AggregateField } from 'firebase-admin/firestore';
 import { money } from '../../shared/pricing.mjs';
 import { assertOrderUpdate } from '../invariants.js';
 import { validateStatusTransition } from '../../shared/orderStatus.mjs';
+import { shopDateOf, shopDays } from '../../shared/cairoTime.mjs';
 
 const now = () => FieldValue.serverTimestamp();
 const iso = (value) => (value?.toDate ? value.toDate().toISOString() : (value ?? null));
@@ -357,7 +358,7 @@ export async function setCashCollected(reference, collected, { actor = 'admin', 
  * month" beside "orders this month" is the more useful and more coherent
  * reading. `days` is already in the response so the window is not a secret.
  */
-export async function orderStats({ days = 30 } = {}) {
+export async function orderStats({ days = 30, topDays = days } = {}) {
   const orders = collections.orders();
 
   const sumOf = async (query) => {
@@ -394,29 +395,31 @@ export async function orderStats({ days = 30 } = {}) {
   const refundDueValue = money(Math.max(0, cancelledPaid.value));
 
   // --- the one document read -------------------------------------------------
-  const startOfWindow = new Date();
-  startOfWindow.setUTCHours(0, 0, 0, 0);
-  startOfWindow.setUTCDate(startOfWindow.getUTCDate() - (days - 1));
+  // Days are Cairo days. Bucketed by UTC, an order placed between midnight and
+  // 02:00/03:00 in Cairo was counted on the day before.
+  const span = shopDays(days);
+  // The dashboard asks for twice its range so it can compare with the period
+  // before; best sellers and areas cover only the range itself.
+  const topDates = new Set(span.dates.slice(-topDays));
 
   const windowed = await orders
-    .where('createdAt', '>=', Timestamp.fromDate(startOfWindow))
+    .where('createdAt', '>=', Timestamp.fromDate(new Date(span.start)))
     .get();
   const inWindow = windowed.docs.map(orderFromDoc);
-
-  const dayKey = (value) => (iso(value) ?? '').slice(0, 10);
 
   const byDate = new Map();
   const areaCounts = new Map();
   const productTotals = new Map();
 
   for (const order of inWindow) {
-    const key = dayKey(order.createdAt);
+    const key = shopDateOf(iso(order.createdAt));
     if (!byDate.has(key)) byDate.set(key, { orders: 0, orderValue: 0, paidRevenue: 0 });
     const day = byDate.get(key);
     day.orders += 1;
     day.orderValue += order.total ?? 0;
     if (order.paymentStatus === 'paid') day.paidRevenue += order.total ?? 0;
 
+    if (!topDates.has(key)) continue;
     if (order.fulfilment === 'delivery' && order.area) {
       areaCounts.set(order.area, (areaCounts.get(order.area) ?? 0) + 1);
     }
@@ -432,11 +435,7 @@ export async function orderStats({ days = 30 } = {}) {
   // the area chart draws a straight line across it and invents trade that never
   // happened.
   const daily = [];
-  for (let offset = days - 1; offset >= 0; offset -= 1) {
-    const date = new Date();
-    date.setUTCHours(0, 0, 0, 0);
-    date.setUTCDate(date.getUTCDate() - offset);
-    const key = date.toISOString().slice(0, 10);
+  for (const key of span.dates) {
     const row = byDate.get(key);
     daily.push({
       date: key,

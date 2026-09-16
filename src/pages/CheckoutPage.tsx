@@ -7,7 +7,7 @@ import { useCart } from "@/lib/cart";
 import { lineKey } from "@/lib/cart-core";
 import { choiceProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
 import { localized, useLang } from "@/lib/i18n";
-import { Link, navigate } from "@/lib/router";
+import { Link } from "@/lib/router";
 import ReceiptPrinter from "@/components/ReceiptPrinter";
 
 /**
@@ -35,7 +35,7 @@ const FULFILMENTS = ["delivery", "pickup"] as const;
 
 export default function CheckoutPage() {
   const { t, lang } = useLang();
-  const { items, clear } = useCart();
+  const { items, clear, remove, setOpen: openCart } = useCart();
 
   const [catalogue, setCatalogue] = useState<Map<string, ApiProduct> | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -300,7 +300,7 @@ export default function CheckoutPage() {
           </div>
         ) : (
           <>
-            <button type="button" className="ed-back" onClick={() => navigate("/menu")}>
+            <button type="button" className="ed-back" onClick={() => openCart(true)}>
               <span aria-hidden="true">←</span> {t.ckBackToCart}
             </button>
             <span className="ed-tag">{t.ckTitle}</span>
@@ -424,6 +424,10 @@ export default function CheckoutPage() {
                 </div>
 
                 {formError && <p className="ed-alert" role="alert">{formError}</p>}
+                {/* Why the button below is disabled. Without it a customer with
+                    a stale line — an option since removed, a sold-out cookie —
+                    faced a dead button and no reason. */}
+                {blocked.length > 0 && <p className="ed-alert" role="alert">{t.ckBlocked}</p>}
 
                 <button type="submit" className="ed-btn"
                   disabled={submitting || !catalogue || !!blocked.length
@@ -456,8 +460,21 @@ export default function CheckoutPage() {
                         {line.qty} × {t.price(line.unitPrice)}
                         {line.note ? ` · ${line.note}` : ""}
                       </small>
+                      {(line.gone || line.soldOut) && (
+                        <small className="ed-sum-blocked">
+                          {line.gone ? t.ckLineGone : t.ckLineSoldOut}
+                        </small>
+                      )}
                     </div>
-                    <span className="ed-sum-price">{t.price(line.lineTotal)}</span>
+                    {line.gone || line.soldOut ? (
+                      <button type="button" className="ed-sum-remove"
+                        aria-label={t.cartRemove(line.name)}
+                        onClick={() => remove(line.key)}>
+                        {t.ckLineRemove}
+                      </button>
+                    ) : (
+                      <span className="ed-sum-price">{t.price(line.lineTotal)}</span>
+                    )}
                   </div>
                 ))}
 

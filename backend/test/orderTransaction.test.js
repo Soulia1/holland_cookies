@@ -106,6 +106,15 @@ test('prices the order from the catalogue, not from the request', async () => {
   assert.equal(order.total, 130); // 100 + 30 delivery
 });
 
+test('an order placed while signed in belongs to that account straight away', async () => {
+  const signedIn = await createOrder(payload({ email: '' }), { profileId: 'noha@example.com' });
+  const stored = (await fsdb.collections.orders().doc(signedIn.order.reference).get()).data();
+  assert.equal(stored.profileId, 'noha@example.com', 'no email typed at checkout, still in their history');
+
+  const guest = await createOrder(payload());
+  assert.equal((await fsdb.collections.orders().doc(guest.order.reference).get()).data().profileId, null);
+});
+
 test('applies a discount configured on the product', async () => {
   const { order } = await createOrder(payload({ items: [{ productId: 'sale', qty: 1 }] }));
   assert.equal(order.items[0].unitPrice, 75);

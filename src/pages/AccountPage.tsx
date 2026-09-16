@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { localized, useLang, type Translations } from "@/lib/i18n";
 import { Link } from "@/lib/router";
 import SignInSheet from "@/components/SignInSheet";
-import { parseStamp } from "@/lib/dates";
+import { parseStamp, SHOP_TIME_ZONE } from "@/lib/dates";
 
 /**
  * Your account.
@@ -212,15 +212,15 @@ export default function AccountPage() {
                   <p className="ed-order-meta">
                     {parseStamp(order.createdAt).toLocaleDateString(
                       lang === "ar" ? "ar-EG" : "en-GB",
-                      { day: "numeric", month: "short", year: "numeric" },
+                      { day: "numeric", month: "short", year: "numeric", timeZone: SHOP_TIME_ZONE },
                     )}
                     {" · "}
                     {t.cartPieces(pieces)}
                   </p>
                   <p className="ed-order-items">
                     {order.items
-                      .map((item) => `${item.qty}× ${
-                        lang === "ar" && item.nameAr ? item.nameAr : item.name
+                      .map((item) => `${item.qty}× ${localized(lang, item.name, item.nameAr)}${
+                        item.choice ? ` — ${localized(lang, item.choice.name, item.choice.nameAr)}` : ""
                       }`)
                       .join(lang === "ar" ? "، " : ", ")}
                   </p>

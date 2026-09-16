@@ -8,8 +8,12 @@ import { GROUP_BY_CATEGORY_ID, MENU_GROUPS, type MenuCategory, type MenuGroup, t
  * The printed menu in `data/menu.ts` stays the page's structure — groups,
  * order, bundled photos — and this lays the database over it, so a price,
  * name, photo, options, availability or visibility change made in the
- * dashboard reaches the page. If the request fails the printed menu is shown
- * as it is.
+ * dashboard reaches the page.
+ *
+ * The printed products themselves are never shown on their own. They were,
+ * while the request was in flight or after it failed, and that put the sheet's
+ * old names, prices and flavor options in front of customers — options the
+ * dashboard did not have and the server refuses at checkout.
  */
 export interface LiveMenu {
   products: ReadonlyMap<string, ApiProduct>;
@@ -17,34 +21,54 @@ export interface LiveMenu {
   categories: ReadonlyMap<string, { name: string; nameAr?: string; group?: string }>;
 }
 
-let pending: Promise<LiveMenu | null> | null = null;
+export type LiveMenuState =
+  | { status: "loading" }
+  | { status: "ready"; menu: LiveMenu }
+  | { status: "error"; retry: () => void };
 
-function load(): Promise<LiveMenu | null> {
+// Shared by every page that asks, so moving between menu pages is one request.
+// A failure is not kept: the next ask tries again.
+let pending: Promise<LiveMenu> | null = null;
+
+function load(): Promise<LiveMenu> {
   pending ??= api.menu().then(
     ({ categories }) => ({
       products: new Map(categories.flatMap((c) => c.items.map((p) => [p.id, p] as const))),
       categories: new Map(categories.map((c) => [c.id, { name: c.name, nameAr: c.nameAr, group: c.group }])),
     }),
-    () => {
+    (error: unknown) => {
       pending = null;
-      return null;
+      throw error;
     },
   );
   return pending;
 }
 
-export function useLiveMenu(): LiveMenu | null {
-  const [live, setLive] = useState<LiveMenu | null>(null);
+export function useLiveMenu(): LiveMenuState {
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<LiveMenuState>({ status: "loading" });
   useEffect(() => {
     let active = true;
-    void load().then((result) => {
-      if (active) setLive(result);
-    });
+    load().then(
+      (menu) => {
+        if (active) setState({ status: "ready", menu });
+      },
+      () => {
+        if (!active) return;
+        setState({
+          status: "error",
+          retry: () => {
+            setState({ status: "loading" });
+            setAttempt((count) => count + 1);
+          },
+        });
+      },
+    );
     return () => {
       active = false;
     };
-  }, []);
-  return live;
+  }, [attempt]);
+  return state;
 }
 
 function overlay(item: MenuItem, product: ApiProduct): MenuItem {
@@ -91,8 +115,7 @@ function homeGroup(group: string | undefined): string {
   return MENU_GROUPS.some((entry) => entry.id === group) ? group! : MENU_GROUPS[0].id;
 }
 
-export function withLiveCatalogue(group: MenuGroup, live: LiveMenu | null): MenuGroup {
-  if (!live) return group;
+export function withLiveCatalogue(group: MenuGroup, live: LiveMenu): MenuGroup {
   const categories: MenuCategory[] = [];
   for (const category of group.categories) {
     const stored = live.categories.get(category.id);

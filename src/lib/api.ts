@@ -193,7 +193,10 @@ export interface AccountOrder {
   fulfilment: "delivery" | "pickup";
   createdAt: string;
   totals: OrderTotals;
-  items: { name: string; nameAr?: string; qty: number; unitPrice: number; lineTotal: number }[];
+  items: {
+    name: string; nameAr?: string; qty: number; unitPrice: number; lineTotal: number;
+    choice?: { name: string; nameAr?: string };
+  }[];
 }
 
 export interface CheckoutBody {

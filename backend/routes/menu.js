@@ -175,16 +175,27 @@ async function bundleProblem(bundle, selfId) {
     if (missing.length) return `No such product: ${missing.join(', ')}.`;
     const nested = rows.filter((row) => row.isBundle).map((row) => row.name);
     if (nested.length) return `A bundle cannot contain another bundle: ${listed(nested)}.`;
+    // A bundle line has nowhere to say which option of a product inside it the
+    // customer wants, so the kitchen would get no flavor.
+    const optioned = rows.filter((row) => Array.isArray(row.choices) && row.choices.length).map((row) => row.name);
+    if (optioned.length) {
+      return `A bundle cannot hold a product that has options: ${listed(optioned)} has options. Remove them from it first.`;
+    }
   }
   return null;
 }
 
 /** Why a product's options cannot be saved, or null. Checked against the merged document. */
-function choicesProblem(choices, isBundle) {
+async function choicesProblem(choices, isBundle, selfId) {
   if (!choices.length) return null;
   if (isBundle) return 'A bundle cannot also have options.';
   const names = choices.map((choice) => choice.name.trim().toLowerCase());
   if (new Set(names).size !== names.length) return 'Each option must have a different name.';
+  const holders = (await catalogue.bundlesReferencing(new Set([selfId])))
+    .filter((row) => row.id !== selfId);
+  if (holders.length) {
+    return `This product is inside ${listed(holders.map((row) => row.name))}, so it cannot have options. Remove it from there first.`;
+  }
   return null;
 }
 
@@ -228,7 +239,7 @@ router.post('/admin/products', requireAdmin, async (req, res, next) => {
     if (bundleIssue) return badRequest(res, bundleIssue);
 
     const choices = body.choices ?? [];
-    const choiceIssue = choicesProblem(choices, bundle.isBundle);
+    const choiceIssue = await choicesProblem(choices, bundle.isBundle, body.id);
     if (choiceIssue) return badRequest(res, choiceIssue);
 
     const created = await catalogue.createProduct({
@@ -271,7 +282,7 @@ router.patch('/admin/products/:id', requireAdmin, async (req, res, next) => {
     if (bundleIssue) return badRequest(res, bundleIssue);
 
     const choices = patch.choices ?? existing.choices ?? [];
-    const choiceIssue = choicesProblem(choices, bundle.isBundle);
+    const choiceIssue = await choicesProblem(choices, bundle.isBundle, req.params.id);
     if (choiceIssue) return badRequest(res, choiceIssue);
 
     const product = await catalogue.updateProduct(req.params.id, {

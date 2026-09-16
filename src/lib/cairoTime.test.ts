@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { endOfShopDay, shopDateOf } from "../../shared/cairoTime.mjs";
+import { endOfShopDay, shopDateOf, shopDays } from "../../shared/cairoTime.mjs";
 
 /**
  * Promo expiry is a day in Cairo. These pin the rule to real instants on both
@@ -27,5 +27,22 @@ describe("the shop's calendar", () => {
     // 23:30 UTC on the 30th is already the 1st in Cairo.
     expect(shopDateOf("2026-09-30T23:30:00.000Z")).toBe("2026-10-01");
     expect(shopDateOf("nonsense")).toBe("");
+  });
+
+  it("counts the dashboard's days in Cairo, not UTC", () => {
+    // 22:30 UTC on the 15th is 01:30 on the 16th in Cairo (summer, UTC+3).
+    const now = Date.parse("2026-09-15T22:30:00.000Z");
+    expect(shopDays(2, now)).toEqual({
+      dates: ["2026-09-15", "2026-09-16"],
+      start: "2026-09-14T21:00:00.000Z",
+    });
+  });
+
+  it("starts a window that spans the clock change at the right offset", () => {
+    // Egypt leaves summer time on the last Thursday of October (2026-10-29).
+    const now = Date.parse("2026-11-01T12:00:00.000Z");
+    const { dates, start } = shopDays(5, now);
+    expect(dates).toEqual(["2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"]);
+    expect(start).toBe("2026-10-27T21:00:00.000Z");
   });
 });
