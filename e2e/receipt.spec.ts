@@ -33,8 +33,13 @@ async function toCheckout(page: Page) {
   // Centred first: scrolled only "into view" on a phone, the row lands under the
   // sticky category bar, which moves as the header condenses and takes the tap.
   await add.evaluate((el) => el.scrollIntoView({ block: "center" }));
-  await add.click();
-  await expect(page.locator(".cart-badge")).toHaveText("1");
+  // Tapped again if nothing landed — see the note in commerce.spec. The count
+  // is checked first so a click that did land is never doubled.
+  const badge = page.locator(".cart-badge");
+  await expect(async () => {
+    if (await badge.count() === 0) await add.click();
+    await expect(badge).toHaveText("1", { timeout: 1_500 });
+  }).toPass({ timeout: 15_000 });
 
   await page.evaluate(() => {
     const root = document.documentElement;
