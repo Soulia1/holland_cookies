@@ -34,8 +34,15 @@ async function startCheckout(page: Page, product = "Vanilla, Lotus filling") {
   // Centred first: scrolled only "into view" on a phone, the row lands under the
   // sticky category bar, which moves as the header condenses and takes the tap.
   await add.evaluate((el) => el.scrollIntoView({ block: "center" }));
-  await add.click();
-  await expect(page.locator(".cart-badge")).toHaveText("1");
+  // Tapped again if nothing landed. On WebKit a click can arrive while the row
+  // is re-rendering and be swallowed, and the next line then waits for a badge
+  // that will never appear — a person taps again, and the count is checked
+  // first so a click that did land is never doubled.
+  const badge = page.locator(".cart-badge");
+  await expect(async () => {
+    if (await badge.count() === 0) await add.click();
+    await expect(badge).toHaveText("1", { timeout: 1_500 });
+  }).toPass({ timeout: 15_000 });
   await settle(page);
   await page.getByRole("button", { name: "Open cart" }).click();
   await page.getByRole("button", { name: "Checkout" }).click();
@@ -83,8 +90,16 @@ test.describe("placing an order", () => {
     await ready(page);
     // 450 EGP each; two clears the 600 threshold.
     const add = page.getByRole("button", { name: "Add Vanilla to cart" }).first();
+    // Centred, and the badge counted between the two taps. Clicking twice in
+    // the same frame relies on the button not moving between the hit test and
+    // the click, and on desktop WebKit it does move — the face swaps to a tick
+    // — so CI recorded one scoop and a 490 total. A person's second tap comes
+    // after they have seen the first one land; this waits for the same thing.
+    await add.evaluate((el) => el.scrollIntoView({ block: "center" }));
     await add.click();
+    await expect(page.locator(".cart-badge")).toHaveText("1");
     await add.click();
+    await expect(page.locator(".cart-badge")).toHaveText("2");
     await settle(page);
     await page.getByRole("button", { name: "Open cart" }).click();
     await page.getByRole("button", { name: "Checkout" }).click();

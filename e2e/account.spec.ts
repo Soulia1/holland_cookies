@@ -67,8 +67,16 @@ async function orderAsGuest(page: Page, email: string): Promise<string> {
   // Centred first: scrolled only "into view" on a phone, the row lands under the
   // sticky category bar, which moves as the header condenses and takes the tap.
   await add.evaluate((el) => el.scrollIntoView({ block: "center" }));
-  await add.click();
-  await expect(page.locator(".cart-badge")).toHaveText("1");
+  // Tapped again if nothing landed. On WebKit a click can arrive while the row
+  // is re-rendering and be swallowed, and the next line then waits for a badge
+  // that will never appear — a person taps again, and the count is checked
+  // first so a click that did land is never doubled.
+  const badge = page.locator(".cart-badge");
+  await expect(async () => {
+    if (await badge.count() === 0) await add.click();
+    await expect(badge).toHaveText("1", { timeout: 1_500 });
+  }).toPass({ timeout: 15_000 });
+
 
   await page.evaluate(() => {
     const root = document.documentElement;
@@ -193,7 +201,16 @@ test.describe("the account", () => {
     await orderAsGuest(page, email);
     await signIn(page, email);
 
-    await page.locator("#ac-name").fill("Noha I.");
+    // Typed until it sticks. The field is a controlled input, and a render
+    // triggered between the keystrokes and React's own handling of them puts
+    // the stored value back — measured on WebKit, where filling it once left
+    // the old name in the box and the save then sent that. A person retypes
+    // when they see that happen; so does this.
+    const name = page.locator("#ac-name");
+    await expect(async () => {
+      await name.fill("Noha I.");
+      await expect(name).toHaveValue("Noha I.", { timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
     await page.getByRole("button", { name: "Save details" }).click();
     await expect(page.getByText("Saved.")).toBeVisible();
 

@@ -334,9 +334,17 @@ export default function MenuPage({
    *     changes height when they do. The same hazard the indicator above
    *     re-measures for, for the same reason.
    *
-   * So: land now, land again on `load` (which does wait for stylesheets), and
-   * land again after `fonts.ready`. All three are the same call; the page is
-   * simply asked where the section is at three moments when the answer differs.
+   *  3. **The bar itself changes height after the landing.** Its own measuring
+   *     pass runs on fonts, on resize and when the catalogue arrives, and the
+   *     section's `scroll-margin-top` is built from that height — so a bar that
+   *     grows by a row after the jump leaves the heading behind it, which is
+   *     exactly what CI caught on both phone projects. Watched rather than
+   *     guessed at: a ResizeObserver lands again whenever the bar's box moves.
+   *
+   * So: land now, land again on `load` (which does wait for stylesheets), land
+   * again after `fonts.ready`, and land again whenever the bar resizes. They
+   * are all the same call; the page is simply asked where the section is at
+   * every moment when the answer differs.
    *
    * Any real input from the reader ends it. From the first wheel, touch, key or
    * pointer the scroll position is theirs, and a correction that arrives after
@@ -374,8 +382,18 @@ export default function MenuPage({
     // not merely scheduled.
     void document.fonts?.ready.then(() => requestAnimationFrame(land));
 
+    // The first delivery reports the size the bar already has, which is the
+    // landing that just happened — harmless, and cheaper than remembering the
+    // height to compare against.
+    const bar = navRef.current;
+    const observer = bar && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => land())
+      : null;
+    if (bar && observer) observer.observe(bar);
+
     return () => {
       live = false;
+      observer?.disconnect();
       window.removeEventListener("load", land);
       for (const gesture of gestures) window.removeEventListener(gesture, surrender);
     };

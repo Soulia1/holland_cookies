@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type AccountOrder, type Settings } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { localized, useLang, type Translations } from "@/lib/i18n";
@@ -56,11 +56,37 @@ export default function AccountPage() {
     return () => { active = false; };
   }, []);
 
-  // Seeded from the account whenever it changes — including the backfill the
-  // server does from the most recent order on a first sign-in, so the form
-  // arrives filled in rather than blank.
+  /**
+   * Seeded from the account — including the backfill the server does from the
+   * most recent order on a first sign-in, so the form arrives filled in rather
+   * than blank.
+   *
+   * **Never over something the customer is typing.** This used to run on every
+   * change of the `customer` object, and the session is re-read in the
+   * background: a refresh landing between the first keystroke and the Save
+   * button put the stored values back into the fields, and the save then sent
+   * the old name and reported "Saved." — the edit was gone and the page said it
+   * had worked. Caught by the account e2e on WebKit, where that refresh happens
+   * to land in the gap; it was luck rather than correctness that it did not on
+   * Chromium.
+   *
+   * So the form is seeded once per signed-in account, and again only after a
+   * save has been stored — never while there are unsaved edits in it.
+   */
+  const seededFor = useRef<string | null>(null);
+  const edited = useRef(false);
   useEffect(() => {
-    if (!customer) return;
+    if (!customer) {
+      seededFor.current = null;
+      edited.current = false;
+      return;
+    }
+    // A different account is a different form; whatever was half-typed in the
+    // last one is not theirs to inherit.
+    const sameAccount = seededFor.current === customer.email;
+    if (sameAccount && edited.current) return;
+    seededFor.current = customer.email;
+    edited.current = false;
     setForm({
       fullName: customer.fullName,
       phone: customer.phone,
@@ -68,6 +94,12 @@ export default function AccountPage() {
       defaultAddress: customer.defaultAddress,
     });
   }, [customer]);
+
+  /** Every field goes through this, so "has this been touched" cannot go stale. */
+  const editField = (patch: Partial<typeof form>) => {
+    edited.current = true;
+    setForm((current) => ({ ...current, ...patch }));
+  };
 
   useEffect(() => {
     if (!customer) { setOrders(null); return; }
@@ -88,6 +120,9 @@ export default function AccountPage() {
     setError(null);
     try {
       const result = await api.updateProfile(form);
+      // Saved, so there is nothing unsaved left to protect and the account may
+      // seed the form again.
+      edited.current = false;
       update(result.customer);
       setProfileSaved(true);
     } catch (caught) {
@@ -150,13 +185,13 @@ export default function AccountPage() {
             <div className="ed-field">
               <label className="ed-label" htmlFor="ac-name">{t.acFullName}</label>
               <input id="ac-name" className="ed-input" autoComplete="name" value={form.fullName}
-                onChange={(event) => setForm({ ...form, fullName: event.target.value })} />
+                onChange={(event) => editField({ fullName: event.target.value })} />
             </div>
             <div className="ed-field">
               <label className="ed-label" htmlFor="ac-phone">{t.acProfilePhone}</label>
               <input id="ac-phone" className="ed-input" type="tel" inputMode="tel" dir="ltr"
                 autoComplete="tel" value={form.phone}
-                onChange={(event) => setForm({ ...form, phone: event.target.value })} />
+                onChange={(event) => editField({ phone: event.target.value })} />
             </div>
           </div>
 
@@ -164,7 +199,7 @@ export default function AccountPage() {
             <label className="ed-label" htmlFor="ac-area">{t.acProfileArea}</label>
             {settings ? (
               <select id="ac-area" className="ed-select" value={form.defaultArea}
-                onChange={(event) => setForm({ ...form, defaultArea: event.target.value })}>
+                onChange={(event) => editField({ defaultArea: event.target.value })}>
                 <option value="">{t.ckAreaPlaceholder}</option>
                 {settings.areas.map((area) => (
                   <option key={area.id} value={area.id}>
@@ -176,14 +211,14 @@ export default function AccountPage() {
               // Until the list loads — or if it fails — the stored value stays
               // editable rather than the field disappearing.
               <input id="ac-area" className="ed-input" value={form.defaultArea}
-                onChange={(event) => setForm({ ...form, defaultArea: event.target.value })} />
+                onChange={(event) => editField({ defaultArea: event.target.value })} />
             )}
           </div>
           <div className="ed-field">
             <label className="ed-label" htmlFor="ac-address">{t.acProfileAddress}</label>
             <input id="ac-address" className="ed-input" autoComplete="street-address"
               value={form.defaultAddress}
-              onChange={(event) => setForm({ ...form, defaultAddress: event.target.value })} />
+              onChange={(event) => editField({ defaultAddress: event.target.value })} />
           </div>
 
           {profileSaved && <p className="ed-promo-msg ok" role="status">{t.acProfileSaved}</p>}
