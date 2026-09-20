@@ -128,6 +128,30 @@ test('--add-new adds the rows the shop does not have and changes nothing it does
   assert.equal(untouched.price, 999);
 });
 
+test('--only writes one category and leaves everything else, deleted rows included, alone', async () => {
+  await seed();
+  const [first] = await readMenu();
+  const deleted = first.items[0].id;
+  await fsdb.collections.products().doc(deleted).delete();
+  await fsdb.collections.products().doc('special-dubai-chocolate-cookie').delete();
+
+  const result = await seed({ addNew: true, only: 'special-edition-cookies' });
+  assert.equal(result.categories, 1);
+
+  assert.equal(
+    (await fsdb.collections.products().doc('special-dubai-chocolate-cookie').get()).exists,
+    true,
+    'the named category is written',
+  );
+  assert.equal(
+    (await fsdb.collections.products().doc(deleted).get()).exists,
+    false,
+    'a row deleted from another category is not resurrected',
+  );
+
+  await assert.rejects(seed({ only: 'no-such-category' }), /not a category/);
+});
+
 test('--force puts the printed menu back, deleted products included', async () => {
   await seed();
   const [first] = await readMenu();

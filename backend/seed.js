@@ -18,6 +18,11 @@
  *              a printed product that is missing from a shop with a catalogue
  *              was usually deleted on purpose; with it, adding them back is the
  *              admin's explicit decision.
+ *   --only=id  Restrict everything the run writes to one category. `--add-new`
+ *              on its own creates every printed row the shop is missing, and on
+ *              a shop that has been running that includes the ones an admin
+ *              deleted on purpose — this is how a new category is added without
+ *              bringing those back with it.
  *   --force    Put the printed menu back: names, prices, categories, and
  *              anything deleted since (it still never deletes). This overwrites
  *              edits made in the dashboard, so it is rarely what is wanted on a
@@ -73,9 +78,12 @@ async function readMenuGroupIds() {
 }
 
 
-async function seed({ force = false, addNew = false } = {}) {
+async function seed({ force = false, addNew = false, only = null } = {}) {
   const menuModule = await loadMenuModule();
   const categories = menuModule.MENU;
+  if (only && !categories.some((category) => category.id === only)) {
+    throw new Error(`--only names "${only}", which is not a category in src/data/menu.ts.`);
+  }
   if (!categories.length) {
     throw new Error('Parsed no categories out of src/data/menu.ts — has its shape changed?');
   }
@@ -121,6 +129,9 @@ async function seed({ force = false, addNew = false } = {}) {
   let productCount = 0;
 
   for (const [index, category] of categories.entries()) {
+    // Filtered here rather than by narrowing the list above, so `sort` stays the
+    // position the category has in the whole menu and not in the selection.
+    if (only && category.id !== only) continue;
     const exists = haveCategory.has(category.id);
     if (!exists && !create) {
       skipped.push(category.id);
@@ -187,6 +198,10 @@ async function seed({ force = false, addNew = false } = {}) {
   }
   await flush();
 
+  // Settings and the counter belong to the shop, not to a category, so a scoped
+  // run leaves both alone.
+  if (only) return { categories: 1, products: productCount, skipped };
+
   // Starting settings, written only if the shop has never been configured. A
   // delivery fee of 0 is a configuration — free delivery — and was being
   // overwritten, along with the areas and a closed shop's `acceptingOrders`.
@@ -215,9 +230,11 @@ const invokedDirectly = process.argv[1]
 if (invokedDirectly) {
   const force = process.argv.includes('--force');
   const addNew = process.argv.includes('--add-new');
-  const result = await seed({ force, addNew });
+  const only = (process.argv.find((arg) => arg.startsWith('--only=')) ?? '').slice('--only='.length) || null;
+  const result = await seed({ force, addNew, only });
   console.log(
     `[holland] seeded ${result.products} products across ${result.categories} categories`
+    + `${only ? ` (only ${only})` : ''}`
     + `${force ? ' (forced)' : ''}${addNew && !force ? ' (new rows added)' : ''}`,
   );
   if (result.skipped.length) {
