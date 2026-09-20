@@ -49,9 +49,26 @@ export function hasDiscount(product: DiscountableProduct): boolean;
 export function discountAmount(product: DiscountableProduct): number;
 export function discountPercentOff(product: DiscountableProduct): number;
 
-/** Delivery for a subtotal under the shop settings: 0 for pickup, and free from the threshold up. */
+export interface DeliverySettings {
+  deliveryFee?: number;
+  freeDeliveryOver?: number;
+  /** Per-area prices. An area with no `fee` is delivered at `deliveryFee`. */
+  areas?: readonly { id: string; fee?: number | null }[];
+}
+
+/**
+ * Delivery for a subtotal under the shop settings: 0 for pickup, the area's own
+ * price where it has one, and free from the threshold up.
+ */
 export declare function deliveryFee(
   subtotal: number,
-  settings: { deliveryFee?: number; freeDeliveryOver?: number } | null | undefined,
+  settings: DeliverySettings | null | undefined,
   fulfilment: string,
+  area?: string,
+): number;
+
+/** What delivery to this area costs before the free-delivery threshold. */
+export declare function areaFee(
+  settings: DeliverySettings | null | undefined,
+  area?: string,
 ): number;

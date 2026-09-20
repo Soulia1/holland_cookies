@@ -234,13 +234,40 @@ export function subtotalOf(items, catalogue) {
 }
 
 /**
+ * What delivery to this area costs, before the free-delivery threshold.
+ *
+ * An area may carry its own `fee` — Giza is not the same drive as Zamalek — and
+ * an area with none is delivered at the shop's default. `null` and `""` are
+ * "not set" and fall back; **0 is a price**, and a free area must stay free
+ * rather than quietly reverting to the default, which is why this is an
+ * explicit `Number.isFinite` check and not `area.fee || settings.deliveryFee`.
+ *
+ * An unknown area id also falls back, and is not an error here: the order
+ * transaction is what refuses an area the shop does not deliver to, and pricing
+ * it at the default in the meantime is what lets that refusal be the thing the
+ * customer is told.
+ */
+export function areaFee(settings, area) {
+  const areas = Array.isArray(settings?.areas) ? settings.areas : [];
+  const found = area ? areas.find((entry) => entry?.id === area) : null;
+  const own = Number(found?.fee);
+  if (found && found.fee !== null && found.fee !== "" && found.fee !== undefined
+    && Number.isFinite(own) && own >= 0) {
+    return money(own);
+  }
+  const fallback = Number(settings?.deliveryFee);
+  return Number.isFinite(fallback) && fallback > 0 ? money(fallback) : 0;
+}
+
+/**
  * Delivery, from the settings document.
  *
- * A threshold of 0 means "never free"; a null or absent fee means pickup only.
+ * A threshold of 0 means "never free"; a fee of zero — the shop's, or the one
+ * this area carries — means delivery there is free.
  */
-export function deliveryFee(subtotal, settings, fulfilment) {
+export function deliveryFee(subtotal, settings, fulfilment, area) {
   if (fulfilment === "pickup") return 0;
-  const fee = Number(settings?.deliveryFee);
+  const fee = areaFee(settings, area);
   if (!Number.isFinite(fee) || fee <= 0) return 0;
   const threshold = Number(settings?.freeDeliveryOver);
   if (Number.isFinite(threshold) && threshold > 0 && subtotal >= threshold) return 0;
@@ -254,12 +281,12 @@ export function deliveryFee(subtotal, settings, fulfilment) {
  * as the total, so the confirmation email, the dashboard and the customer's
  * receipt all break the figure down the same way.
  */
-export function priceOrder({ items, catalogue, settings, fulfilment, promoDiscount = 0 }) {
+export function priceOrder({ items, catalogue, settings, fulfilment, area, promoDiscount = 0 }) {
   const subtotal = subtotalOf(items, catalogue);
   // Clamped so a promotion can never make an order negative, whatever is in the
   // promo document.
   const discount = money(Math.min(Math.max(0, Number(promoDiscount) || 0), subtotal));
-  const delivery = deliveryFee(subtotal, settings, fulfilment);
+  const delivery = deliveryFee(subtotal, settings, fulfilment, area);
   return {
     subtotal,
     discount,

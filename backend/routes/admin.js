@@ -340,6 +340,11 @@ router.patch('/settings', requireAdmin, async (req, res, next) => {
         // unlabelled group.
         city: z.string().max(60).optional(),
         cityAr: z.string().max(60).optional(),
+        // What delivery to this area costs. Nullable rather than merely
+        // optional: `null` is how the dashboard says "back to the shop's
+        // default", and leaving the key out of a whole-array write could only
+        // ever mean the same thing as sending nothing at all.
+        fee: amount.nullable().optional(),
       })).max(80).optional(),
     }).safeParse(req.body);
     if (!parsed.success) {

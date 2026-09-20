@@ -23,18 +23,31 @@ const label = "text-xs font-medium text-muted-foreground mb-1 block";
  * and nothing read them. They are gone rather than faked.
  */
 
+/**
+ * The areas as the form holds them: every price is the text that was typed.
+ *
+ * A fee cannot be a number in the draft. Empty means "use the shop's default",
+ * `0` means free, and a numeric field cannot tell those apart while somebody is
+ * halfway through clearing one — it would read a half-deleted "4" as a price of
+ * four pounds and save it on the next click.
+ */
+type AreaDraft = Omit<DeliveryArea, "fee"> & { fee: string };
+
 type Draft = {
   deliveryFee: string;
   freeDeliveryOver: string;
   acceptingOrders: boolean;
-  areas: DeliveryArea[];
+  areas: AreaDraft[];
 };
 
 const draftOf = (settings: ShopSettings): Draft => ({
   deliveryFee: String(settings.deliveryFee ?? 0),
   freeDeliveryOver: String(settings.freeDeliveryOver ?? 0),
   acceptingOrders: settings.acceptingOrders !== false,
-  areas: (settings.areas ?? []).map((area) => ({ ...area })),
+  areas: (settings.areas ?? []).map((area) => ({
+    ...area,
+    fee: area.fee === null || area.fee === undefined ? "" : String(area.fee),
+  })),
 });
 
 /**
@@ -61,9 +74,16 @@ function areaId(name: string, taken: readonly string[]): string {
 }
 
 /** Why the area list cannot be saved, or null. */
-function areasProblem(areas: readonly DeliveryArea[]): string | null {
+function areasProblem(areas: readonly AreaDraft[]): string | null {
   for (const area of areas) {
     if (!area.name.trim()) return "Every delivery area needs a name.";
+    const fee = area.fee.trim();
+    if (!fee) continue;
+    const value = Number(fee);
+    if (!Number.isFinite(value) || value < 0) {
+      return `The delivery price for “${area.name.trim()}” must be a number, zero or more.`;
+    }
+    if (value > 1_000_000) return `The delivery price for “${area.name.trim()}” is too large.`;
   }
   const ids = areas.map((area) => area.id).filter(Boolean);
   if (new Set(ids).size !== ids.length) return "Two areas have the same id.";
@@ -72,7 +92,7 @@ function areasProblem(areas: readonly DeliveryArea[]): string | null {
 }
 
 /** The list with an id filled in for every row that was just added. */
-function withIds(areas: readonly DeliveryArea[]): DeliveryArea[] {
+function withIds(areas: readonly AreaDraft[]): AreaDraft[] {
   const taken = areas.map((area) => area.id).filter(Boolean);
   return areas.map((area) => {
     if (area.id) return area;
@@ -82,8 +102,8 @@ function withIds(areas: readonly DeliveryArea[]): DeliveryArea[] {
   });
 }
 
-/** The same two lists in the same order, ids included. */
-function sameAreas(a: readonly DeliveryArea[], b: readonly DeliveryArea[]): boolean {
+/** The same two lists in the same order, ids and prices included. */
+function sameAreas(a: readonly AreaDraft[], b: readonly AreaDraft[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((area, index) => {
     const other = b[index];
@@ -91,7 +111,8 @@ function sameAreas(a: readonly DeliveryArea[], b: readonly DeliveryArea[]): bool
       && area.name === other.name
       && (area.nameAr ?? "") === (other.nameAr ?? "")
       && (area.city ?? "") === (other.city ?? "")
-      && (area.cityAr ?? "") === (other.cityAr ?? "");
+      && (area.cityAr ?? "") === (other.cityAr ?? "")
+      && area.fee.trim() === other.fee.trim();
   });
 }
 
@@ -148,6 +169,9 @@ export default function Settings() {
           nameAr: (area.nameAr ?? "").trim(),
           city: (area.city ?? "").trim(),
           cityAr: (area.cityAr ?? "").trim(),
+          // Blank is "use the shop's default", which the server stores as null.
+          // Not 0: that is a price, and it means this area is delivered free.
+          fee: area.fee.trim() === "" ? null : Number(area.fee),
         })),
       });
       setSaved(next);
@@ -180,9 +204,10 @@ export default function Settings() {
   const dirty = draft.deliveryFee !== String(saved.deliveryFee)
     || draft.freeDeliveryOver !== String(saved.freeDeliveryOver)
     || draft.acceptingOrders !== saved.acceptingOrders
-    || !sameAreas(draft.areas, saved.areas ?? []);
+    // Compared in draft shape, so a stored fee of null and an empty box match.
+    || !sameAreas(draft.areas, draftOf(saved).areas);
 
-  const editArea = (index: number, patch: Partial<DeliveryArea>) =>
+  const editArea = (index: number, patch: Partial<AreaDraft>) =>
     edit({ areas: draft.areas.map((area, at) => (at === index ? { ...area, ...patch } : area)) });
 
   return (
@@ -249,7 +274,9 @@ export default function Settings() {
           <CardDescription>
             Checkout offers exactly these areas and the server refuses any other. The
             governorate is what checkout groups the list under, so a customer can tell which
-            side of the river an unfamiliar name is on. Save with the button above.
+            side of the river an unfamiliar name is on. The price is what delivery to that area
+            costs — leave it empty to charge the delivery fee above, or type 0 to deliver there
+            free. Save with the button above.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -299,6 +326,15 @@ export default function Settings() {
                   value={area.cityAr ?? ""}
                   onChange={(e) => editArea(index, { cityAr: e.target.value })}
                 />
+                <input
+                  className={narrowInput}
+                  aria-label={`Area ${index + 1} delivery price (EGP)`}
+                  inputMode="decimal"
+                  placeholder={draft.deliveryFee || "Fee"}
+                  maxLength={9}
+                  value={area.fee}
+                  onChange={(e) => editArea(index, { fee: e.target.value })}
+                />
                 <Button
                   variant="ghost"
                   size="icon"
@@ -317,7 +353,7 @@ export default function Settings() {
               onClick={() => edit({
                 areas: [
                   ...draft.areas,
-                  { id: "", name: "", nameAr: "", city: "", cityAr: "" },
+                  { id: "", name: "", nameAr: "", city: "", cityAr: "", fee: "" },
                 ],
               })}
             >
@@ -330,12 +366,17 @@ export default function Settings() {
               variant="outline"
               onClick={() => {
                 const have = new Set(draft.areas.map((area) => area.id));
-                const missing = DEFAULT_AREAS.filter((area) => !have.has(area.id));
+                const missing = DEFAULT_AREAS
+                  .filter((area) => !have.has(area.id))
+                  // No price: a new area is delivered at the shop's default
+                  // until somebody types what it actually costs. Inventing a
+                  // figure per neighbourhood would be inventing his prices.
+                  .map((area) => ({ ...area, fee: "" }));
                 if (!missing.length) {
                   setMsg({ text: "Every Cairo and Giza area is already in the list.", ok: true });
                   return;
                 }
-                edit({ areas: [...draft.areas, ...missing.map((area) => ({ ...area }))] });
+                edit({ areas: [...draft.areas, ...missing] });
               }}
             >
               <Plus className="w-4 h-4" /> Add all Cairo &amp; Giza areas
@@ -344,7 +385,8 @@ export default function Settings() {
 
           <p className="text-xs text-muted-foreground">
             Renaming an area is safe — orders store its id, not its name. Removing one stops
-            checkout offering it; orders already placed to it keep their address.
+            checkout offering it; orders already placed to it keep their address. A free-delivery
+            threshold still applies over every area's own price.
           </p>
         </CardContent>
       </Card>

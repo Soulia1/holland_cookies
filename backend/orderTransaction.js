@@ -299,12 +299,15 @@ export async function createOrder(payload, { profileId = null } = {}) {
     const settings = {
       deliveryFee: shop.deliveryFee ?? 0,
       freeDeliveryOver: shop.freeDeliveryOver ?? 0,
+      // The areas as stored, because each may carry its own price. Read from
+      // the shop document inside the transaction, never from the request.
+      areas,
     };
 
     // --- Price it -----------------------------------------------------------
     const priced = priceOrder({
       items: payload.items, catalogue, settings,
-      fulfilment: payload.fulfilment, promoDiscount: 0,
+      fulfilment: payload.fulfilment, area: payload.area, promoDiscount: 0,
     });
 
     let discount = 0;
@@ -320,7 +323,7 @@ export async function createOrder(payload, { profileId = null } = {}) {
 
     const totals = priceOrder({
       items: payload.items, catalogue, settings,
-      fulfilment: payload.fulfilment, promoDiscount: discount,
+      fulfilment: payload.fulfilment, area: payload.area, promoDiscount: discount,
     });
 
     // --- The only number from the client that is read ----------------------

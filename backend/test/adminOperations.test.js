@@ -341,11 +341,68 @@ test('removing an area does not disturb the orders already placed to it', async 
   assert.equal(order.data.order.delivery.area, 'nasr-city');
 });
 
+test('the server charges the area its own delivery price', async () => {
+  const saved = await request('/api/admin/settings', {
+    method: 'PATCH',
+    body: {
+      deliveryFee: 40,
+      freeDeliveryOver: 0,
+      areas: [
+        { id: 'nasr-city', name: 'Nasr City', city: 'Cairo' },
+        { id: 'haram', name: 'Haram', city: 'Giza', fee: 70 },
+        { id: 'downtown', name: 'Downtown', city: 'Cairo', fee: 0 },
+      ],
+    },
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+
+  const address = { fulfilment: 'delivery', address: '1 Street' };
+  const far = await place({ ...address, area: 'haram' });
+  assert.equal(far.status, 201, JSON.stringify(far.data));
+  assert.equal(far.data.order.totals.delivery, 70, "the area's own price");
+
+  const near = await place({ ...address, area: 'nasr-city' });
+  assert.equal(near.data.order.totals.delivery, 40, "the shop's default where the area names none");
+
+  // Zero is a price, not "unset": this area is delivered free and must not
+  // quietly fall back to the 40.
+  const free = await place({ ...address, area: 'downtown' });
+  assert.equal(free.data.order.totals.delivery, 0);
+
+  // And the figure is the shop's, whatever the browser expected.
+  const stale = await request('/api/orders', {
+    method: 'POST',
+    admin: false,
+    body: { ...order({ ...address, area: 'haram' }), expectedTotal: 140 },
+  });
+  assert.equal(stale.status, 409, JSON.stringify(stale.data));
+  assert.equal(stale.data.error, 'PRICE_CHANGED');
+});
+
+test('a free-delivery threshold still waives an area with its own price', async () => {
+  await request('/api/admin/settings', {
+    method: 'PATCH',
+    body: {
+      deliveryFee: 40,
+      freeDeliveryOver: 100,
+      areas: [{ id: 'haram', name: 'Haram', city: 'Giza', fee: 70 }],
+    },
+  });
+  const over = await place({
+    fulfilment: 'delivery', area: 'haram', address: '1 Street',
+    items: [{ productId: 'plain', qty: 3 }],
+  });
+  assert.equal(over.status, 201, JSON.stringify(over.data));
+  assert.equal(over.data.order.totals.delivery, 0);
+});
+
 test('an area list the server cannot enforce is refused', async () => {
   for (const areas of [
     [{ id: '', name: 'Nowhere' }],
     [{ id: 'x', name: '' }],
     [{ id: 'x', name: 'X', governorate: 'Cairo' }],
+    [{ id: 'x', name: 'X', fee: -1 }],
+    [{ id: 'x', name: 'X', fee: '40' }],
     Array.from({ length: 81 }, (_, index) => ({ id: `a${index}`, name: `A${index}` })),
   ]) {
     const refused = await request('/api/admin/settings', { method: 'PATCH', body: { areas } });
@@ -396,11 +453,68 @@ test('removing an area does not disturb the orders already placed to it', async 
   assert.equal(order.data.order.delivery.area, 'nasr-city');
 });
 
+test('the server charges the area its own delivery price', async () => {
+  const saved = await request('/api/admin/settings', {
+    method: 'PATCH',
+    body: {
+      deliveryFee: 40,
+      freeDeliveryOver: 0,
+      areas: [
+        { id: 'nasr-city', name: 'Nasr City', city: 'Cairo' },
+        { id: 'haram', name: 'Haram', city: 'Giza', fee: 70 },
+        { id: 'downtown', name: 'Downtown', city: 'Cairo', fee: 0 },
+      ],
+    },
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+
+  const address = { fulfilment: 'delivery', address: '1 Street' };
+  const far = await place({ ...address, area: 'haram' });
+  assert.equal(far.status, 201, JSON.stringify(far.data));
+  assert.equal(far.data.order.totals.delivery, 70, "the area's own price");
+
+  const near = await place({ ...address, area: 'nasr-city' });
+  assert.equal(near.data.order.totals.delivery, 40, "the shop's default where the area names none");
+
+  // Zero is a price, not "unset": this area is delivered free and must not
+  // quietly fall back to the 40.
+  const free = await place({ ...address, area: 'downtown' });
+  assert.equal(free.data.order.totals.delivery, 0);
+
+  // And the figure is the shop's, whatever the browser expected.
+  const stale = await request('/api/orders', {
+    method: 'POST',
+    admin: false,
+    body: { ...order({ ...address, area: 'haram' }), expectedTotal: 140 },
+  });
+  assert.equal(stale.status, 409, JSON.stringify(stale.data));
+  assert.equal(stale.data.error, 'PRICE_CHANGED');
+});
+
+test('a free-delivery threshold still waives an area with its own price', async () => {
+  await request('/api/admin/settings', {
+    method: 'PATCH',
+    body: {
+      deliveryFee: 40,
+      freeDeliveryOver: 100,
+      areas: [{ id: 'haram', name: 'Haram', city: 'Giza', fee: 70 }],
+    },
+  });
+  const over = await place({
+    fulfilment: 'delivery', area: 'haram', address: '1 Street',
+    items: [{ productId: 'plain', qty: 3 }],
+  });
+  assert.equal(over.status, 201, JSON.stringify(over.data));
+  assert.equal(over.data.order.totals.delivery, 0);
+});
+
 test('an area list the server cannot enforce is refused', async () => {
   for (const areas of [
     [{ id: '', name: 'Nowhere' }],
     [{ id: 'x', name: '' }],
     [{ id: 'x', name: 'X', governorate: 'Cairo' }],
+    [{ id: 'x', name: 'X', fee: -1 }],
+    [{ id: 'x', name: 'X', fee: '40' }],
     Array.from({ length: 81 }, (_, index) => ({ id: `a${index}`, name: `A${index}` })),
   ]) {
     const refused = await request('/api/admin/settings', { method: 'PATCH', body: { areas } });

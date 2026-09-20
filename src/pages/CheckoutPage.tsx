@@ -5,7 +5,7 @@ import {
 } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { lineKey } from "@/lib/cart-core";
-import { choiceProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
+import { areaFee, choiceProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
 import { areasByCity } from "../../shared/deliveryAreas.mjs";
 import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
@@ -139,12 +139,12 @@ export default function CheckoutPage() {
     // The server's own function rather than a copy of it: free delivery starts
     // at exactly the threshold on both sides, or an order at that figure would
     // be refused as a price change.
-    const delivery = deliveryFee(subtotal, settings, form.fulfilment);
+    const delivery = deliveryFee(subtotal, settings, form.fulfilment, form.area);
     return {
       subtotal, discount, delivery,
       total: Math.round((subtotal - discount + delivery) * 100) / 100,
     };
-  }, [lines, promo, form.fulfilment, settings]);
+  }, [lines, promo, form.fulfilment, form.area, settings]);
 
   // A code's discount was worked out against the subtotal it was checked with.
   // When the subtotal moves afterwards (the catalogue re-priced after a refusal,
@@ -374,7 +374,16 @@ export default function CheckoutPage() {
                         {areaGroups.map((group) => {
                           const options = group.areas.map((area) => (
                             <option key={area.id} value={area.id}>
-                              {localized(lang, area.name, area.nameAr)}
+                              {/* The area's own delivery price, in the option
+                                  itself: the fee changes when the area does,
+                                  and a customer should see that before they
+                                  pick rather than in the summary afterwards.
+                                  Priced by the same function the server uses,
+                                  the shop's default included. */}
+                              {t.ckAreaOption(
+                                localized(lang, area.name, area.nameAr),
+                                t.price(areaFee(settings, area.id)),
+                              )}
                             </option>
                           ));
                           // An unlabelled group is rendered bare: an

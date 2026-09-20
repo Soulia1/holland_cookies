@@ -22,6 +22,7 @@ export {
   choiceSurcharge,
   lineSignature,
   deliveryFee,
+  areaFee,
 } from './pricing.mjs';
 
 import { effectivePrice, money, discountPercent, isDiscounted } from './pricing.mjs';

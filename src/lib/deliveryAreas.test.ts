@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CAIRO, CAIRO_AREAS, DEFAULT_AREAS, GIZA, GIZA_AREAS, areasByCity,
 } from "../../shared/deliveryAreas.mjs";
+import { areaFee, deliveryFee } from "../../shared/productPricing.mjs";
 
 /*
  * The delivery areas the shop starts with, and the grouping checkout renders
@@ -64,5 +65,52 @@ describe("areasByCity", () => {
   it("answers with nothing for a shop that has configured no areas", () => {
     expect(areasByCity([])).toEqual([]);
     expect(areasByCity(undefined)).toEqual([]);
+  });
+});
+
+/*
+ * What delivery to an area costs.
+ *
+ * The distinction this is really about is between "no price set" and "free".
+ * `area.fee || settings.deliveryFee` reads them as the same thing, and the area
+ * the shop delivers to free would quietly start charging 40 again.
+ */
+const shop = {
+  deliveryFee: 40,
+  freeDeliveryOver: 600,
+  areas: [
+    { id: "nasr-city", name: "Nasr City" },
+    { id: "haram", name: "Haram", fee: 70 },
+    { id: "downtown", name: "Downtown", fee: 0 },
+    { id: "zamalek", name: "Zamalek", fee: null },
+  ],
+};
+
+describe("an area's own delivery price", () => {
+  it("charges the area's price where it has one", () => {
+    expect(areaFee(shop, "haram")).toBe(70);
+  });
+
+  it("falls back to the shop's fee where the area names none", () => {
+    expect(areaFee(shop, "nasr-city")).toBe(40);
+    expect(areaFee(shop, "zamalek")).toBe(40);
+    expect(areaFee(shop, undefined)).toBe(40);
+    // An area the shop no longer offers: priced at the default here, and
+    // refused by the order transaction, which is what the customer is told.
+    expect(areaFee(shop, "no-such-area")).toBe(40);
+  });
+
+  it("keeps a free area free", () => {
+    expect(areaFee(shop, "downtown")).toBe(0);
+    expect(deliveryFee(100, shop, "delivery", "downtown")).toBe(0);
+  });
+
+  it("is waived over the free-delivery threshold, whatever the area charges", () => {
+    expect(deliveryFee(599.99, shop, "delivery", "haram")).toBe(70);
+    expect(deliveryFee(600, shop, "delivery", "haram")).toBe(0);
+  });
+
+  it("is nothing on pickup", () => {
+    expect(deliveryFee(100, shop, "pickup", "haram")).toBe(0);
   });
 });

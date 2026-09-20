@@ -283,6 +283,12 @@ test("delivery areas are edited in the dashboard and are exactly what checkout o
     const last = rows.last();
     await last.getByLabel(`Area ${DEFAULT_AREAS.length} name`).fill(TYPED);
     await last.getByLabel(`Area ${DEFAULT_AREAS.length} governorate`, { exact: true }).fill("Cairo");
+    await last.getByLabel(`Area ${DEFAULT_AREAS.length} delivery price (EGP)`).fill("15");
+    // Giza is a longer drive, and one area is delivered free. Zero has to be
+    // stored as a price rather than read as "nothing typed".
+    const rowFor = (name: string) => rows.filter({ has: page.locator(`input[value="${name}"]`) });
+    await rowFor("Haram").getByLabel(/delivery price/).fill("70");
+    await rowFor("Maadi").getByLabel(/delivery price/).fill("0");
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
 
@@ -293,6 +299,13 @@ test("delivery areas are edited in the dashboard and are exactly what checkout o
     const ids = saved.settings.areas.map((area: { id: string }) => area.id);
     expect(ids).toContain("test-area-e2e");
     expect(ids).not.toContain(removed.id);
+    const feeOf = (id: string) =>
+      saved.settings.areas.find((area: { id: string }) => area.id === id)?.fee;
+    expect(feeOf("test-area-e2e")).toBe(15);
+    expect(feeOf("haram")).toBe(70);
+    expect(feeOf("maadi")).toBe(0);
+    // An area nobody priced is stored as "no price", not as zero.
+    expect(feeOf("zamalek")).toBe(null);
 
     // Checkout offers exactly that list, grouped by governorate. With a line in
     // the cart: an empty checkout is a "nothing to check out" page with no form
@@ -310,6 +323,18 @@ test("delivery areas are edited in the dashboard and are exactly what checkout o
     expect(await area.locator("optgroup").evaluateAll(
       (groups) => groups.map((group) => (group as HTMLOptGroupElement).label),
     )).toEqual(["Cairo", "Giza"]);
+
+    // Each area names its own price in the select, and the summary charges it.
+    await expect(area.locator('option[value="haram"]')).toHaveText("Haram — 70.00 EGP");
+    await expect(area.locator('option[value="maadi"]')).toHaveText("Maadi — 0.00 EGP");
+    await expect(area.locator('option[value="zamalek"]')).toHaveText("Zamalek — 40.00 EGP");
+
+    await area.selectOption("haram");
+    await expect(summaryRow(page, "Delivery")).toHaveText("70.00 EGP");
+    await area.selectOption("maadi");
+    await expect(summaryRow(page, "Delivery")).toHaveText("0.00 EGP");
+    await area.selectOption("zamalek");
+    await expect(summaryRow(page, "Delivery")).toHaveText("40.00 EGP");
 
     // And the server refuses the one that was removed, whatever a client sends.
     const refused = await page.request.post("/api/orders", {

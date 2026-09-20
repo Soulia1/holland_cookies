@@ -201,6 +201,8 @@ const translations = {
     ckPickup: "Pickup",
     ckPickupNote: "Collect from Nasr City. Nothing to pay for delivery.",
     ckArea: "Area",
+    /** An area in the select, with what delivery there costs. */
+    ckAreaOption: (area: string, fee: string) => `${area} — ${fee}`,
     ckAreaPlaceholder: "Choose your area",
     ckAddress: "Street address",
     ckBuilding: "Building",
@@ -458,6 +460,7 @@ const translations = {
     ckPickup: "استلام من المحل",
     ckPickupNote: "هتستلم من مدينة نصر. مفيش رسوم توصيل.",
     ckArea: "المنطقة",
+    ckAreaOption: (area: string, fee: string) => `${area} — ${fee}`,
     ckAreaPlaceholder: "اختار منطقتك",
     ckAddress: "العنوان",
     ckBuilding: "رقم العمارة",

@@ -327,6 +327,11 @@ export interface DeliveryArea {
   /** The governorate, which checkout groups the select by. */
   city?: string;
   cityAr?: string;
+  /**
+   * What delivery to this area costs. `null` means the shop's default fee, and
+   * 0 means free — they are different things, so this is never coerced.
+   */
+  fee?: number | null;
 }
 
 export interface ShopSettings {

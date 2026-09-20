@@ -28,6 +28,11 @@ const SHARED_BY_DESIGN = new Set([
   // issued as `HC-1001` in both languages, so translating the placeholder
   // would be showing the customer a format that does not exist.
   "trReferencePlaceholder",
+  // An area beside its delivery price — a name, a dash and a figure, both of
+  // which are already localized by the time they arrive here. There is no word
+  // in it to translate, and inventing a different separator for Arabic would be
+  // a difference for this test's benefit rather than a reader's.
+  "ckAreaOption",
 ]);
 
 function dictionaries() {
