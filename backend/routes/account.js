@@ -174,7 +174,13 @@ router.get('/orders', requireCustomer, async (req, res, next) => {
           unitPrice: item.unitPrice,
           lineTotal: item.lineTotal,
           ...(item.choice?.name
-            ? { choice: { name: item.choice.name, nameAr: item.choice.nameAr || undefined } }
+            ? {
+              choice: {
+                name: item.choice.name,
+                nameAr: item.choice.nameAr || undefined,
+                priceDelta: Number(item.choice.priceDelta) || 0,
+              },
+            }
             : {}),
         })),
       })),

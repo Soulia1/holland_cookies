@@ -98,7 +98,13 @@ export default function MenuItemDetail({
   const pricing = item && bundle
     ? { price: item.price, isBundle: true, bundleType: bundle.type, groups: bundle.groups }
     : null;
-  const shownPrice = item ? (pricing ? unitPrice(pricing, selections) : item.price) : 0;
+  // The price shown follows the option picked, because an option can carry an
+  // extra (`priceDelta`). Computed by the same function the server prices the
+  // order with rather than by adding it here, so the figure on the button and
+  // the figure the order is refused against cannot drift apart.
+  const shownPrice = item
+    ? unitPrice(pricing ?? { price: item.price, choices }, selections, chosen?.name)
+    : 0;
   const choicesIncomplete = pricing && bundle?.type === "choice"
     ? selectionProblem(pricing, selections) !== null
     : false;
@@ -253,6 +259,13 @@ export default function MenuItemDetail({
                                 onClick={() => setFlavorPick({ itemId: item.id, flavor: choice.name })}
                               >
                                 {localized(lang, choice.name, choice.nameAr)}
+                                {/* What this option adds, where it adds
+                                    anything — the same "+50" a delivery app
+                                    prints, so the jump in the price above the
+                                    button is never a surprise. */}
+                                {choice.priceDelta ? (
+                                  <span className="ms-1.5 opacity-80">{t.optionExtra(choice.priceDelta)}</span>
+                                ) : null}
                               </button>
                             );
                           })}

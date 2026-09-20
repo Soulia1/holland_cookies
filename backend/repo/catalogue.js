@@ -120,6 +120,10 @@ export function publicProduct(product, names) {
     choices: (Array.isArray(product.choices) ? product.choices : []).map((choice) => ({
       name: choice.name,
       nameAr: choice.nameAr || undefined,
+      // Always a number, even when zero: the storefront adds it to the price it
+      // shows, and an absent field there would read as "no extra" only by luck
+      // of `undefined + n` being NaN-shaped rather than by anything saying so.
+      priceDelta: money(Number(choice.priceDelta) || 0),
     })),
     ...(product.isBundle ? bundleView(product, names) : {}),
   };

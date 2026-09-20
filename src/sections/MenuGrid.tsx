@@ -10,7 +10,10 @@ import {
 } from "react";
 import AddToCart from "@/components/AddToCart";
 import type { MenuSelection } from "@/components/MenuItemDetail";
-import { GROUP_BY_CATEGORY_ID, type MenuCategory, type MenuItem } from "@/data/menu";
+import {
+  GROUP_BY_CATEGORY_ID, itemPriceFrom, itemPriceVaries,
+  type MenuCategory, type MenuItem,
+} from "@/data/menu";
 import { describeItem } from "@/data/menuCopy";
 import { itemImage } from "@/data/menuImages";
 import { localized, useLang } from "@/lib/i18n";
@@ -176,7 +179,12 @@ function RailCard({
         </div>
         <h3 className="rail-name">{name}</h3>
         <p className="rail-price">
-          {t.price(item.price)}
+          {/* The cheapest way to buy it. A card quoting the bare price of an
+              item whose every option costs extra advertises a price the shop
+              will not take — see itemPriceFrom. */}
+          {itemPriceVaries(item)
+            ? t.menuPriceFrom(t.price(itemPriceFrom(item)))
+            : t.price(itemPriceFrom(item))}
           {item.soldOut ? <> · {t.soldOut}</> : null}
         </p>
         <p className="rail-blurb">{blurb}</p>

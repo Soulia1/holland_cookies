@@ -68,6 +68,66 @@ test('seeding again leaves deletions, moves and the shop settings as the admin l
   );
 });
 
+/*
+ * The Special Edition rows are the one part of the menu file that is not a
+ * transcription, and the only one carrying options that change the price. A
+ * seed that dropped either — the Arabic name or the extra — would put a shop
+ * live with a size that costs the same as the small one.
+ */
+test('the Special Edition rows arrive with their Arabic names and their option prices', async () => {
+  await seed();
+  const large = (await fsdb.collections.products().doc('special-dubai-chocolate-cookie').get()).data();
+  assert.equal(large.categoryId, 'special-edition-cookies');
+  assert.equal(large.nameAr, 'كوكي شوكولاتة دبي');
+  assert.deepEqual(large.choices, [
+    { name: 'Regular', nameAr: 'عادي', priceDelta: 0 },
+    { name: 'Large', nameAr: 'كبير', priceDelta: 60 },
+  ]);
+
+  const category = (await fsdb.collections.categories().doc('special-edition-cookies').get()).data();
+  assert.equal(category.name, 'Special Edition Cookies');
+  assert.equal(category.visible, true);
+});
+
+test('a new shop starts with the Cairo and Giza delivery areas', async () => {
+  await seed();
+  const { areas } = (await fsdb.settingsDoc().get()).data();
+  const ids = areas.map((area) => area.id);
+  assert.ok(ids.includes('nasr-city') && ids.includes('haram'), 'both governorates are offered');
+  assert.deepEqual(
+    [...new Set(areas.map((area) => area.city))],
+    ['Cairo', 'Giza'],
+    'every area names the governorate checkout groups it under',
+  );
+});
+
+/*
+ * The flag that puts a new category onto a shop that is already live, which is
+ * the only safe way Special Edition reaches production: --force would drag
+ * every dashboard-edited name and price back to the menu file's version with
+ * it.
+ */
+test('--add-new adds the rows the shop does not have and changes nothing it does', async () => {
+  await seed();
+  const [first] = await readMenu();
+  const kept = first.items[0].id;
+  await fsdb.collections.products().doc(kept).update({ name: 'Renamed in the dashboard', price: 999 });
+  await fsdb.collections.products().doc('special-dubai-chocolate-cookie').delete();
+  await fsdb.collections.categories().doc('special-edition-cookies').delete();
+
+  const result = await seed({ addNew: true });
+  assert.equal(result.skipped.length, 0);
+
+  const restored = await fsdb.collections.products().doc('special-dubai-chocolate-cookie').get();
+  assert.equal(restored.exists, true, 'the missing row is created');
+  assert.equal(restored.data().choices.at(-1).priceDelta, 60);
+  assert.equal((await fsdb.collections.categories().doc('special-edition-cookies').get()).exists, true);
+
+  const untouched = (await fsdb.collections.products().doc(kept).get()).data();
+  assert.equal(untouched.name, 'Renamed in the dashboard', 'an edited row is left alone');
+  assert.equal(untouched.price, 999);
+});
+
 test('--force puts the printed menu back, deleted products included', async () => {
   await seed();
   const [first] = await readMenu();

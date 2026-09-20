@@ -8,6 +8,8 @@ import {
   MENU_GROUPS,
   groupItemCount,
   groupPriceFrom,
+  itemPriceFrom,
+  itemPriceVaries,
   priceFrom,
 } from "./menu";
 
@@ -88,5 +90,46 @@ describe("menu groups", () => {
       // And it is a real price, not the Infinity an empty group would give.
       expect(Number.isFinite(groupPriceFrom(group))).toBe(true);
     }
+  });
+});
+
+/*
+ * A price on a row has to be a price the shop will actually take. An item whose
+ * options all cost extra cannot be bought at the figure in its own `price`
+ * field, and printing that figure is advertising a price that does not exist.
+ */
+describe("the price on a row", () => {
+  it("is the item's own price when it has no options", () => {
+    expect(itemPriceFrom({ id: "x", name: "X", price: 150 })).toBe(150);
+    expect(itemPriceVaries({ id: "x", name: "X", price: 150 })).toBe(false);
+  });
+
+  it("is the item plus its cheapest option", () => {
+    const item = {
+      id: "x",
+      name: "X",
+      price: 180,
+      choices: [{ name: "Large", priceDelta: 60 }, { name: "Huge", priceDelta: 120 }],
+    };
+    expect(itemPriceFrom(item)).toBe(240);
+    // Two different extras, so the row says "from".
+    expect(itemPriceVaries(item)).toBe(true);
+  });
+
+  it("does not say “from” when every option costs the same", () => {
+    const item = {
+      id: "x",
+      name: "X",
+      price: 180,
+      choices: [{ name: "Vanilla" }, { name: "Chocolate" }],
+    };
+    expect(itemPriceFrom(item)).toBe(180);
+    expect(itemPriceVaries(item)).toBe(false);
+  });
+
+  it("prices a category from the cheapest row as a customer could order it", () => {
+    const specials = CATEGORY_BY_ID.get("special-edition-cookies");
+    expect(specials).toBeDefined();
+    expect(priceFrom(specials!)).toBe(Math.min(...specials!.items.map(itemPriceFrom)));
   });
 });

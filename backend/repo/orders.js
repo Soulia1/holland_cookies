@@ -89,7 +89,15 @@ export function orderPayload(order) {
       unitPrice: item.unitPrice,
       qty: item.qty,
       lineTotal: item.lineTotal,
-      ...(item.choice?.name ? { choice: { name: item.choice.name, nameAr: item.choice.nameAr || undefined } } : {}),
+      ...(item.choice?.name
+        ? {
+          choice: {
+            name: item.choice.name,
+            nameAr: item.choice.nameAr || undefined,
+            priceDelta: Number(item.choice.priceDelta) || 0,
+          },
+        }
+        : {}),
       ...(item.selections?.length ? {
         selections: item.selections.map((pick) => ({
           group: pick.group,

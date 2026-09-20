@@ -16,7 +16,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdmin } from '../adminSession.js';
 import { validateParams, amount, imagePath, identifier } from '../validation.js';
-import { discountProblem } from '../../shared/pricing.mjs';
+import { discountProblem, money } from '../../shared/pricing.mjs';
 import * as catalogue from '../repo/catalogue.js';
 
 const router = Router();
@@ -63,11 +63,21 @@ const bundleFields = {
   })).max(8).optional(),
 };
 
-/** Options the customer picks exactly one of, such as a flavor. Stored on the product. */
+/**
+ * Options the customer picks exactly one of, such as a flavor or a size.
+ * Stored on the product.
+ *
+ * `priceDelta` is what picking that option adds to the product's price, so a
+ * product keeps one price and its options say what they cost on top of it — the
+ * same arrangement a choice bundle's `surcharge` uses. An absolute price per
+ * option would have to be re-typed on every option at every repricing, and the
+ * one missed would go on selling at the old figure.
+ */
 const choiceFields = {
   choices: z.array(z.strictObject({
     name: z.string().trim().min(1, 'Every option needs a name.').max(80),
     nameAr: z.string().trim().max(80).optional(),
+    priceDelta: amount.optional(),
   })).max(20, 'A product can have at most 20 options.').optional(),
 };
 
@@ -199,9 +209,10 @@ async function choicesProblem(choices, isBundle, selfId) {
   return null;
 }
 
-const storedChoices = (choices) => choices.map(({ name, nameAr }) => ({
+const storedChoices = (choices) => choices.map(({ name, nameAr, priceDelta }) => ({
   name: name.trim(),
   nameAr: (nameAr ?? '').trim(),
+  priceDelta: Number.isFinite(priceDelta) ? money(priceDelta) : 0,
 }));
 
 async function adminView(product) {
@@ -319,7 +330,7 @@ router.delete('/admin/products/:id', requireAdmin, async (req, res, next) => {
  * category created in the dashboard is not in that plan, so without this it
  * had nowhere to appear and everything filed under it was invisible.
  */
-export const MENU_GROUP_IDS = ['cookies', 'desserts', 'drinks'];
+export const MENU_GROUP_IDS = ['cookies', 'desserts', 'drinks', 'special-edition'];
 
 const categoryBody = z.strictObject({
   id: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/),

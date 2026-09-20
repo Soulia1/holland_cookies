@@ -29,6 +29,16 @@
 export interface MenuChoice {
   name: string;
   nameAr?: string;
+  /**
+   * What picking this option adds to the item's price, in pounds.
+   *
+   * The item keeps one price and each option says what it costs on top of it,
+   * so a repricing is one edit rather than one per option. Absent or zero means
+   * the option costs no more than the item. Edited in the dashboard; the
+   * arithmetic is in `shared/pricing.mjs` and the server applies it again when
+   * the order is placed.
+   */
+  priceDelta?: number;
 }
 
 export interface MenuItem {
@@ -368,6 +378,51 @@ export const MENU: MenuCategory[] = [
       { id: "shake-chocolate", name: "Chocolate Shake", price: 110 },
     ],
   },
+  /*
+   * Special Edition — the one category here that is NOT a transcription.
+   *
+   * The rule at the top of this file still holds for the three printed sheets:
+   * nothing on them was invented. This category was asked for by the shop on
+   * 2026-09-20, after those sheets were printed, and its two items are starting
+   * rows rather than a record of anything printed. They exist so the category
+   * is a real, orderable page from the first deploy instead of an empty
+   * heading, and every word and figure in them is editable in the dashboard —
+   * which is where the shop's own special editions will be typed.
+   *
+   * They are also this file's only worked example of options that change the
+   * price: each carries two sizes, one at the item's own price and one dearer.
+   */
+  {
+    // Not "special-edition": that id belongs to the *group* below, and the two
+    // share a path segment — `/menu/special-edition` can only resolve to one of
+    // them. `menu.test.ts` fails on the collision.
+    id: "special-edition-cookies",
+    name: "Special Edition Cookies",
+    nameAr: "كوكيز الإصدار الخاص",
+    original: "Special Edition",
+    items: [
+      {
+        id: "special-dubai-chocolate-cookie",
+        name: "Dubai Chocolate Cookie",
+        nameAr: "كوكي شوكولاتة دبي",
+        price: 180,
+        choices: [
+          { name: "Regular", nameAr: "عادي", priceDelta: 0 },
+          { name: "Large", nameAr: "كبير", priceDelta: 60 },
+        ],
+      },
+      {
+        id: "special-pistachio-kunafa-pan",
+        name: "Pistachio Kunafa Cookie Pan",
+        nameAr: "كوكي بان كنافة بالفستق",
+        price: 220,
+        choices: [
+          { name: "Tray for two", nameAr: "صينية لشخصين", priceDelta: 0 },
+          { name: "Family tray", nameAr: "صينية عائلية", priceDelta: 120 },
+        ],
+      },
+    ],
+  },
 ];
 
 /** Every id on the page, for the router and the category nav to agree on. */
@@ -387,9 +442,32 @@ export const CATEGORY_BY_ID: ReadonlyMap<string, MenuCategory> = new Map(
   MENU.map((category) => [category.id, category]),
 );
 
+/**
+ * The least this item can cost: its price plus the cheapest of its options.
+ *
+ * An item whose every option carries an extra can never be bought at its bare
+ * price, so printing that figure on the row would advertise a price the shop
+ * does not sell at. The cheapest option is always orderable, so this one is.
+ */
+export function itemPriceFrom(item: MenuItem): number {
+  const choices = item.choices ?? [];
+  if (!choices.length) return item.price;
+  const least = choices.reduce(
+    (low, choice) => Math.min(low, Math.max(0, choice.priceDelta ?? 0)),
+    Infinity,
+  );
+  return item.price + (Number.isFinite(least) ? least : 0);
+}
+
+/** Whether the options price this item differently, so its row reads "from …". */
+export function itemPriceVaries(item: MenuItem): boolean {
+  const extras = (item.choices ?? []).map((choice) => Math.max(0, choice.priceDelta ?? 0));
+  return new Set(extras).size > 1;
+}
+
 /** The cheapest item in a category, for the "from …" line under its heading. */
 export function priceFrom(category: MenuCategory): number {
-  return category.items.reduce((low, item) => Math.min(low, item.price), Infinity);
+  return category.items.reduce((low, item) => Math.min(low, itemPriceFrom(item)), Infinity);
 }
 
 
@@ -456,6 +534,16 @@ const GROUP_PLAN = [
     name: "Drinks",
     nameAr: "مشروبات",
     categoryIds: ["coffee", "iced-coffee", "frappes", "milkshakes"],
+  },
+  // Last in the bar rather than first, deliberately: a group's position is read
+  // off this list by index in several places, and the three printed groups
+  // keeping theirs is what stops an unrelated link or test meaning something
+  // else after this edit.
+  {
+    id: "special-edition",
+    name: "Special Edition",
+    nameAr: "إصدار خاص",
+    categoryIds: ["special-edition-cookies"],
   },
 ] as const;
 

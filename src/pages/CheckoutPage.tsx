@@ -1,4 +1,4 @@
-import { cloneElement, useEffect, useMemo, useRef, useState } from "react";
+import { cloneElement, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, api, newIdempotencyKey,
   type ApiProduct, type Order, type Settings,
@@ -6,6 +6,7 @@ import {
 import { useCart } from "@/lib/cart";
 import { lineKey } from "@/lib/cart-core";
 import { choiceProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
+import { areasByCity } from "../../shared/deliveryAreas.mjs";
 import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
 import { itemImage } from "@/data/menuImages";
@@ -89,6 +90,9 @@ export default function CheckoutPage() {
     return () => { cancelled = true; };
   }, []);
 
+  /** The delivery areas as the select renders them: one group per governorate. */
+  const areaGroups = useMemo(() => areasByCity(settings?.areas), [settings]);
+
   /**
    * The cart, re-priced. A line whose product has vanished or sold out is
    * surfaced rather than silently dropped — the customer put it there and is
@@ -98,7 +102,7 @@ export default function CheckoutPage() {
     if (!catalogue) return [];
     return items.map((item) => {
       const product = catalogue.get(item.productId);
-      const unit = product ? unitPrice(product, item.selections) : item.price;
+      const unit = product ? unitPrice(product, item.selections, item.choice) : item.price;
       const pickSoldOut = (item.selections ?? []).some((pick) =>
         product?.groups?.[pick.group]?.options
           .find((option) => option.productId === pick.productId)?.available === false);
@@ -363,11 +367,26 @@ export default function CheckoutPage() {
                       <select id="area" className="ed-select" value={form.area}
                         onChange={(e) => set("area", e.target.value)}>
                         <option value="">{t.ckAreaPlaceholder}</option>
-                        {settings?.areas.map((area) => (
-                          <option key={area.id} value={area.id}>
-                            {localized(lang, area.name, area.nameAr)}
-                          </option>
-                        ))}
+                        {/* Grouped by governorate. Cairo and Giza together run
+                            to nearly forty neighbourhoods, and a flat list of
+                            forty gives a customer no way to tell which side of
+                            the river an unfamiliar name is on. */}
+                        {areaGroups.map((group) => {
+                          const options = group.areas.map((area) => (
+                            <option key={area.id} value={area.id}>
+                              {localized(lang, area.name, area.nameAr)}
+                            </option>
+                          ));
+                          // An unlabelled group is rendered bare: an
+                          // `<optgroup>` with no label draws an empty heading.
+                          return group.city ? (
+                            <optgroup key={group.city} label={localized(lang, group.city, group.cityAr)}>
+                              {options}
+                            </optgroup>
+                          ) : (
+                            <Fragment key="ungrouped">{options}</Fragment>
+                          );
+                        })}
                       </select>
                     </Field>
                     <Field id="address" label={t.ckAddress} error={fieldErrors.address} required>

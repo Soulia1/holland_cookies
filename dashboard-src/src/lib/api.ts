@@ -140,8 +140,15 @@ export interface MenuItem {
   bundleCategory?: string;
   components?: { productId: string; name?: string; quantity: number }[];
   groups?: BundleGroup[];
-  /** Options the customer picks exactly one of before adding it. */
-  choices?: { name: string; nameAr?: string }[];
+  /** Options the customer picks exactly one of before adding it, and what each adds to the price. */
+  choices?: ProductOption[];
+}
+
+/** One option of a product, and what picking it adds to the product's price. */
+export interface ProductOption {
+  name: string;
+  nameAr?: string;
+  priceDelta?: number;
 }
 
 export interface BundleGroup {
@@ -175,7 +182,7 @@ interface HollandProduct {
   bundleType: "fixed" | "choice";
   components: { productId: string; name: string; quantity: number }[];
   groups: BundleGroup[];
-  choices?: { name: string; nameAr?: string }[];
+  choices?: ProductOption[];
 }
 
 function toMenuItem(product: HollandProduct): MenuItem {
@@ -221,7 +228,9 @@ function fromMenuItem(item: Partial<MenuItem>): Record<string, unknown> {
   if (item.isAvailable !== undefined) body.available = item.isAvailable;
   copy("isBundle"); copy("bundleType");
   if (item.choices !== undefined) {
-    body.choices = item.choices.map(({ name, nameAr }) => ({ name, nameAr: nameAr ?? "" }));
+    body.choices = item.choices.map(({ name, nameAr, priceDelta }) => ({
+      name, nameAr: nameAr ?? "", priceDelta: Number(priceDelta) || 0,
+    }));
   }
   if (item.components !== undefined) {
     body.components = item.components.map(({ productId, quantity }) => ({ productId, quantity }));
@@ -310,12 +319,22 @@ export interface UserDirectory {
  * The shop settings the server actually stores and enforces. Nothing else is
  * editable: a field the server would discard has no place on the page.
  */
+/** One delivery area. `id` is what orders store, so renaming is safe and re-iding is not. */
+export interface DeliveryArea {
+  id: string;
+  name: string;
+  nameAr?: string;
+  /** The governorate, which checkout groups the select by. */
+  city?: string;
+  cityAr?: string;
+}
+
 export interface ShopSettings {
   deliveryFee: number;
   /** 0 means delivery is never free. */
   freeDeliveryOver: number;
   acceptingOrders: boolean;
-  areas: { id: string; name: string; nameAr?: string }[];
+  areas: DeliveryArea[];
   /** Read-only: whether the server has an email provider switched on. */
   emailEnabled?: boolean;
 }
@@ -803,11 +822,15 @@ export const settingsApi = {
 
   /** Saves, then reads back — so what the page shows is what was stored. */
   async update(
-    patch: Partial<Pick<ShopSettings, "deliveryFee" | "freeDeliveryOver" | "acceptingOrders">>,
+    patch: Partial<Pick<ShopSettings, "deliveryFee" | "freeDeliveryOver" | "acceptingOrders" | "areas">>,
   ): Promise<ShopSettings> {
     await json(await apiFetch("/api/admin/settings", {
       method: "PATCH", body: JSON.stringify(patch),
     }), "save settings");
+    // The id → name map for orders was read from the settings this just
+    // replaced. Left cached, an area renamed here would keep printing its old
+    // name on every order detail until the page was reloaded.
+    areaNamesPending = null;
     return settingsApi.get();
   },
 };

@@ -9,14 +9,26 @@
  * were deleted, and the shop settings all stay as the admin left them. Only
  * positions (`sort`) and options a product has never had are filled in.
  *
- * Run with `npm run seed`. Pass `--force` to put the printed menu back: names,
- * prices, categories, and anything deleted since (it still never deletes).
+ * Run with `npm run seed`. Two flags change what it is allowed to write:
+ *
+ *   --add-new  Create the rows the menu file has and the shop does not, and
+ *              change nothing that is already there. This is how a category
+ *              added to the menu file — Special Edition, say — reaches a shop
+ *              that is already live. Without it those rows are skipped, because
+ *              a printed product that is missing from a shop with a catalogue
+ *              was usually deleted on purpose; with it, adding them back is the
+ *              admin's explicit decision.
+ *   --force    Put the printed menu back: names, prices, categories, and
+ *              anything deleted since (it still never deletes). This overwrites
+ *              edits made in the dashboard, so it is rarely what is wanted on a
+ *              live shop.
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { collections, settingsDoc, orderCounterDoc, FieldValue, get as firestore } from './firestore.js';
+import { DEFAULT_AREAS } from '../shared/deliveryAreas.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,20 +61,19 @@ async function readMenu() {
   return (await loadMenuModule()).MENU;
 }
 
-/** The delivery model the footer describes. */
-const DEFAULT_AREAS = [
-  { id: 'nasr-city', name: 'Nasr City', nameAr: 'مدينة نصر' },
-  { id: 'heliopolis', name: 'Heliopolis', nameAr: 'مصر الجديدة' },
-  { id: 'maadi', name: 'Maadi', nameAr: 'المعادي' },
-  { id: 'new-cairo', name: 'New Cairo', nameAr: 'القاهرة الجديدة' },
-  { id: 'downtown', name: 'Downtown', nameAr: 'وسط البلد' },
-  { id: 'zamalek', name: 'Zamalek', nameAr: 'الزمالك' },
-  { id: 'mohandessin', name: 'Mohandessin', nameAr: 'المهندسين' },
-  { id: 'sheikh-zayed', name: 'Sheikh Zayed', nameAr: 'الشيخ زايد' },
-  { id: '6-october', name: '6th of October', nameAr: 'السادس من أكتوبر' },
-];
+/**
+ * The storefront's menu pages, by id.
+ *
+ * Read out of the same module the menu is, so the list the catalogue route
+ * accepts as a category's `group` can be checked against the pages that
+ * actually exist rather than against a second hand-kept copy of them.
+ */
+async function readMenuGroupIds() {
+  return (await loadMenuModule()).MENU_GROUPS.map((group) => group.id);
+}
 
-async function seed({ force = false } = {}) {
+
+async function seed({ force = false, addNew = false } = {}) {
   const menuModule = await loadMenuModule();
   const categories = menuModule.MENU;
   if (!categories.length) {
@@ -84,8 +95,9 @@ async function seed({ force = false } = {}) {
   const storedChoices = new Map(existingProducts.docs.map((doc) => [doc.id, doc.data().choices]));
   // A shop that already has a catalogue has been through the dashboard, where
   // a printed product that is missing was deleted on purpose. Only an empty
-  // shop, or --force, gets missing rows created.
+  // shop, --add-new or --force, gets missing rows created.
   const fresh = existingCategories.empty && existingProducts.empty;
+  const create = fresh || addNew || force;
   const skipped = [];
 
   // Firestore batches are capped at 500 writes; the menu is ~105 products plus
@@ -110,7 +122,7 @@ async function seed({ force = false } = {}) {
 
   for (const [index, category] of categories.entries()) {
     const exists = haveCategory.has(category.id);
-    if (!exists && !fresh && !force) {
+    if (!exists && !create) {
       skipped.push(category.id);
       continue;
     }
@@ -127,7 +139,7 @@ async function seed({ force = false } = {}) {
 
     for (const [itemIndex, item] of category.items.entries()) {
       const productExists = haveProduct.has(item.id);
-      if (!productExists && !fresh && !force) {
+      if (!productExists && !create) {
         skipped.push(item.id);
         continue;
       }
@@ -137,10 +149,12 @@ async function seed({ force = false } = {}) {
           // it back is an edit nobody made.
           categoryId: category.id,
           name: item.name,
-          // Left empty: the Arabic item names are on the printed sheets and
-          // have not been transcribed. `localized()` falls back to English
-          // until they are, which is a blemish rather than a blank.
-          nameAr: '',
+          // Blank unless the menu file carries one. The Arabic names of the
+          // printed items are on the sheets and have not been transcribed, and
+          // `localized()` falls back to English until they are — a blemish
+          // rather than a blank. An item that does have its Arabic, like the
+          // Special Edition rows, must not have it thrown away here.
+          nameAr: item.nameAr ?? '',
           note: item.note ?? '',
           price: item.price,
         }),
@@ -159,7 +173,11 @@ async function seed({ force = false } = {}) {
         // product that has never had a list. Once the dashboard has saved one,
         // even an empty one, a plain re-seed leaves it alone.
         ...(item.choices && (!productExists || force || !Array.isArray(storedChoices.get(item.id)))
-          ? { choices: item.choices.map(({ name, nameAr }) => ({ name, nameAr: nameAr ?? '' })) }
+          ? {
+            choices: item.choices.map(({ name, nameAr, priceDelta }) => ({
+              name, nameAr: nameAr ?? '', priceDelta: Number(priceDelta) || 0,
+            })),
+          }
           : {}),
         sort: itemIndex,
         updatedAt: now(),
@@ -196,10 +214,11 @@ const invokedDirectly = process.argv[1]
 
 if (invokedDirectly) {
   const force = process.argv.includes('--force');
-  const result = await seed({ force });
+  const addNew = process.argv.includes('--add-new');
+  const result = await seed({ force, addNew });
   console.log(
     `[holland] seeded ${result.products} products across ${result.categories} categories`
-    + `${force ? ' (forced)' : ''}`,
+    + `${force ? ' (forced)' : ''}${addNew && !force ? ' (new rows added)' : ''}`,
   );
   if (result.skipped.length) {
     console.log(`[holland] left out ${result.skipped.length} printed row(s) no longer in the shop `
@@ -209,4 +228,4 @@ if (invokedDirectly) {
 }
 
 export default seed;
-export { seed, readMenu, DEFAULT_AREAS };
+export { seed, readMenu, readMenuGroupIds, DEFAULT_AREAS };

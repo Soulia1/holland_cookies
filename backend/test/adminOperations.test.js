@@ -300,6 +300,116 @@ test('the delivery fee is set in the dashboard and charged by the server', async
   assert.equal((await request('/api/admin/settings', { admin: false })).data.settings.deliveryFee, 55);
 });
 
+/*
+ * Delivery areas are edited in the dashboard and enforced by the server. The
+ * trap this covers is the one that makes the whole feature pointless: an order
+ * stores the area's *id*, so a shop that re-ids an area while editing the list
+ * orphans every order already placed to it.
+ */
+test('the dashboard edits the delivery areas, and checkout offers exactly them', async () => {
+  const areas = [
+    { id: 'nasr-city', name: 'Nasr City', nameAr: 'مدينة نصر', city: 'Cairo', cityAr: 'القاهرة' },
+    { id: 'haram', name: 'Haram', nameAr: 'الهرم', city: 'Giza', cityAr: 'الجيزة' },
+  ];
+  const saved = await request('/api/admin/settings', { method: 'PATCH', body: { areas } });
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+
+  // The public settings the checkout select is drawn from.
+  const offered = (await request('/api/admin/settings', { admin: false })).data.settings.areas;
+  assert.deepEqual(offered, areas);
+
+  const giza = await place({ fulfilment: 'delivery', area: 'haram', address: '1 Street' });
+  assert.equal(giza.status, 201, JSON.stringify(giza.data));
+  assert.equal(giza.data.order.delivery.area, 'haram');
+
+  // An area that was in the list before this edit is no longer deliverable.
+  const gone = await place({ fulfilment: 'delivery', area: 'maadi', address: '1 Street' });
+  assert.equal(gone.status, 400);
+  assert.equal(gone.data.error, 'INVALID_AREA');
+});
+
+test('removing an area does not disturb the orders already placed to it', async () => {
+  const placed = await place({ fulfilment: 'delivery', area: 'nasr-city', address: '1 Street' });
+  assert.equal(placed.status, 201, JSON.stringify(placed.data));
+
+  await request('/api/admin/settings', {
+    method: 'PATCH',
+    body: { areas: [{ id: 'haram', name: 'Haram', city: 'Giza' }] },
+  });
+  const order = await request(`/api/orders/${placed.data.order.reference}`);
+  assert.equal(order.status, 200, JSON.stringify(order.data));
+  assert.equal(order.data.order.delivery.area, 'nasr-city');
+});
+
+test('an area list the server cannot enforce is refused', async () => {
+  for (const areas of [
+    [{ id: '', name: 'Nowhere' }],
+    [{ id: 'x', name: '' }],
+    [{ id: 'x', name: 'X', governorate: 'Cairo' }],
+    Array.from({ length: 81 }, (_, index) => ({ id: `a${index}`, name: `A${index}` })),
+  ]) {
+    const refused = await request('/api/admin/settings', { method: 'PATCH', body: { areas } });
+    assert.equal(refused.status, 400, `areas ${JSON.stringify(areas).slice(0, 60)} must be refused`);
+  }
+  const kept = (await request('/api/admin/settings', { admin: false })).data.settings.areas;
+  assert.deepEqual(kept.map((area) => area.id), ['nasr-city']);
+});
+
+/*
+ * Delivery areas are edited in the dashboard and enforced by the server. The
+ * trap this covers is the one that makes the whole feature pointless: an order
+ * stores the area's *id*, so a shop that re-ids an area while editing the list
+ * orphans every order already placed to it.
+ */
+test('the dashboard edits the delivery areas, and checkout offers exactly them', async () => {
+  const areas = [
+    { id: 'nasr-city', name: 'Nasr City', nameAr: 'مدينة نصر', city: 'Cairo', cityAr: 'القاهرة' },
+    { id: 'haram', name: 'Haram', nameAr: 'الهرم', city: 'Giza', cityAr: 'الجيزة' },
+  ];
+  const saved = await request('/api/admin/settings', { method: 'PATCH', body: { areas } });
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+
+  // The public settings the checkout select is drawn from.
+  const offered = (await request('/api/admin/settings', { admin: false })).data.settings.areas;
+  assert.deepEqual(offered, areas);
+
+  const giza = await place({ fulfilment: 'delivery', area: 'haram', address: '1 Street' });
+  assert.equal(giza.status, 201, JSON.stringify(giza.data));
+  assert.equal(giza.data.order.delivery.area, 'haram');
+
+  // An area that was in the list before this edit is no longer deliverable.
+  const gone = await place({ fulfilment: 'delivery', area: 'maadi', address: '1 Street' });
+  assert.equal(gone.status, 400);
+  assert.equal(gone.data.error, 'INVALID_AREA');
+});
+
+test('removing an area does not disturb the orders already placed to it', async () => {
+  const placed = await place({ fulfilment: 'delivery', area: 'nasr-city', address: '1 Street' });
+  assert.equal(placed.status, 201, JSON.stringify(placed.data));
+
+  await request('/api/admin/settings', {
+    method: 'PATCH',
+    body: { areas: [{ id: 'haram', name: 'Haram', city: 'Giza' }] },
+  });
+  const order = await request(`/api/orders/${placed.data.order.reference}`);
+  assert.equal(order.status, 200, JSON.stringify(order.data));
+  assert.equal(order.data.order.delivery.area, 'nasr-city');
+});
+
+test('an area list the server cannot enforce is refused', async () => {
+  for (const areas of [
+    [{ id: '', name: 'Nowhere' }],
+    [{ id: 'x', name: '' }],
+    [{ id: 'x', name: 'X', governorate: 'Cairo' }],
+    Array.from({ length: 81 }, (_, index) => ({ id: `a${index}`, name: `A${index}` })),
+  ]) {
+    const refused = await request('/api/admin/settings', { method: 'PATCH', body: { areas } });
+    assert.equal(refused.status, 400, `areas ${JSON.stringify(areas).slice(0, 60)} must be refused`);
+  }
+  const kept = (await request('/api/admin/settings', { admin: false })).data.settings.areas;
+  assert.deepEqual(kept.map((area) => area.id), ['nasr-city']);
+});
+
 test('turning off accepting orders closes checkout on the server', async () => {
   assert.equal((await request('/api/admin/settings', { method: 'PATCH', body: { acceptingOrders: false } })).status, 200);
   assert.equal((await request('/api/admin/settings', { admin: false })).data.settings.acceptingOrders, false);

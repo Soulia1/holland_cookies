@@ -15,9 +15,18 @@ export interface Selection {
   quantity: number;
 }
 
+/** An option the customer picks one of, and what picking it adds to the price. */
+export interface ProductChoice {
+  name: string;
+  nameAr?: string;
+  /** Added to the product's selling price when this option is picked. */
+  priceDelta?: number;
+}
+
 export interface BundleProduct extends DiscountableProduct {
   isBundle?: boolean;
   bundleType?: 'fixed' | 'choice';
+  choices?: readonly ProductChoice[];
   groups?: readonly {
     label: string;
     choose: number;
@@ -26,8 +35,13 @@ export interface BundleProduct extends DiscountableProduct {
   }[];
 }
 
-export function lineTotal(product: BundleProduct, qty: number, selections?: readonly Selection[]): number;
-export function unitPrice(product: BundleProduct, selections?: readonly Selection[]): number;
+export function lineTotal(
+  product: BundleProduct, qty: number, selections?: readonly Selection[], choice?: string,
+): number;
+export function unitPrice(
+  product: BundleProduct, selections?: readonly Selection[], choice?: string,
+): number;
+export function choiceSurcharge(product: { choices?: readonly ProductChoice[] }, choice?: string): number;
 export function selectionProblem(product: BundleProduct, selections?: readonly Selection[]): string | null;
 export function choiceProblem(product: { choices?: readonly { name: string }[] }, choice?: string): string | null;
 export function lineSignature(item: { productId: string; choice?: string; selections?: readonly Selection[] }): string;

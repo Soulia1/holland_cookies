@@ -177,6 +177,8 @@ const translations = {
     // Always two decimals, the house style. Appending ".00" to the number only
     // worked for whole pounds: a percentage discount printed "76.5.00 EGP".
     price: (amount: number) => `${formatAmount(amount)} EGP`,
+    /** What an option adds to the price, beside the option's own name. */
+    optionExtra: (amount: number) => `+${formatAmount(amount)} EGP`,
 
 
     // — Checkout ———————————————————————————————————————————————
@@ -433,6 +435,7 @@ const translations = {
     cartAdded: (name: string) => `${name} اتضافت لسلّتك`,
     currency: "ج.م",
     price: (amount: number) => `${formatAmount(amount)} ج.م`,
+    optionExtra: (amount: number) => `+${formatAmount(amount)} ج.م`,
 
 
     // — Checkout ———————————————————————————————————————————————

@@ -340,7 +340,7 @@ export async function createOrder(payload, { profileId = null } = {}) {
 
     const items = payload.items.map((item) => {
       const product = catalogue.get(item.productId);
-      const unit = unitPrice(product, item.selections);
+      const unit = unitPrice(product, item.selections, item.choice);
       const line = {
         productId: product.id,
         name: product.name,
@@ -352,7 +352,13 @@ export async function createOrder(payload, { profileId = null } = {}) {
       };
       if (item.choice) {
         const picked = product.choices.find((entry) => entry.name === item.choice);
-        line.choice = { name: picked.name, nameAr: picked.nameAr ?? '' };
+        // The extra is copied onto the line like the name and the price are, so
+        // the order still reads correctly after the option is repriced.
+        line.choice = {
+          name: picked.name,
+          nameAr: picked.nameAr ?? '',
+          priceDelta: money(Number(picked.priceDelta) || 0),
+        };
       }
       // What is actually inside, copied onto the line like the name and price
       // are, so the order still reads correctly after the bundle is edited.

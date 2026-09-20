@@ -10,7 +10,10 @@ import {
 } from "react";
 import AddToCart from "@/components/AddToCart";
 import type { MenuSelection } from "@/components/MenuItemDetail";
-import { MENU_GROUPS, priceFrom, type MenuCategory, type MenuGroup } from "@/data/menu";
+import {
+  MENU_GROUPS, itemPriceFrom, itemPriceVaries, priceFrom,
+  type MenuCategory, type MenuGroup,
+} from "@/data/menu";
 import { itemImage } from "@/data/menuImages";
 import type { MenuItem } from "@/data/menu";
 import { useOnceOpened } from "@/lib/useOnceOpened";
@@ -681,7 +684,12 @@ function Section({
                   {note ? <span className="menu-item-note">{note}</span> : null}
                 </span>
                 <span className="menu-item-price">
-                  {t.price(item.price)}
+                  {/* "from" only where the options actually price it
+                      differently; an item whose options all cost the same has
+                      one price and saying otherwise would be noise. */}
+                  {itemPriceVaries(item)
+                    ? t.menuPriceFrom(t.price(itemPriceFrom(item)))
+                    : t.price(itemPriceFrom(item))}
                   {item.soldOut ? <> · {t.soldOut}</> : null}
                 </span>
               </span>

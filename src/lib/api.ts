@@ -98,8 +98,8 @@ export interface ApiProduct {
   regularPrice: number;
   discounted: boolean;
   available: boolean;
-  /** Options the customer picks exactly one of. */
-  choices?: { name: string; nameAr?: string }[];
+  /** Options the customer picks exactly one of, each with what it adds to the price. */
+  choices?: { name: string; nameAr?: string; priceDelta?: number }[];
   isBundle?: boolean;
   bundleType?: "fixed" | "choice";
   components?: { productId: string; name: string; nameAr?: string; quantity: number }[];
@@ -139,7 +139,7 @@ export interface Settings {
   deliveryFee: number;
   freeDeliveryOver: number;
   acceptingOrders: boolean;
-  areas: { id: string; name: string; nameAr?: string }[];
+  areas: { id: string; name: string; nameAr?: string; city?: string; cityAr?: string }[];
 }
 
 export interface OrderTotals {

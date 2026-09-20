@@ -106,7 +106,13 @@ after(async () => {
 test('options saved in the dashboard reach the public menu, and can be emptied', async () => {
   const saved = await saveOptions([{ name: ` ${VANILLA} `, nameAr: 'فانيليا' }, { name: CHOCOLATE }]);
   assert.equal(saved.status, 200, JSON.stringify(saved.data));
-  const expected = [{ name: VANILLA, nameAr: 'فانيليا' }, { name: CHOCOLATE }];
+  // `priceDelta` comes back on every option, including the ones saved without
+  // one: the storefront adds it to the price it prints, and a field that is
+  // sometimes absent is a sum that is sometimes NaN.
+  const expected = [
+    { name: VANILLA, nameAr: 'فانيليا', priceDelta: 0 },
+    { name: CHOCOLATE, priceDelta: 0 },
+  ];
   assert.deepEqual(saved.data.product.choices, expected);
   assert.deepEqual((await menuProduct('scoop')).choices, expected);
 
@@ -119,7 +125,7 @@ test('an unrelated edit leaves the options alone', async () => {
   await saveOptions([{ name: VANILLA }]);
   const renamed = await request('/api/menu/admin/products/scoop', { method: 'PATCH', body: { price: 320 } });
   assert.equal(renamed.status, 200, JSON.stringify(renamed.data));
-  assert.deepEqual((await menuProduct('scoop')).choices, [{ name: VANILLA }]);
+  assert.deepEqual((await menuProduct('scoop')).choices, [{ name: VANILLA, priceDelta: 0 }]);
 });
 
 test('the dashboard cannot save blank or duplicate options, or options on a bundle', async () => {
@@ -176,10 +182,16 @@ test('a product inside a bundle cannot be given options', async () => {
 test('a new product can be created with options', async () => {
   const created = await request('/api/menu/admin/products', {
     method: 'POST',
-    body: { id: 'shake', categoryId: 'scoops', name: 'Shake', price: 80, choices: [{ name: 'Small' }, { name: 'Large' }] },
+    body: {
+      id: 'shake', categoryId: 'scoops', name: 'Shake', price: 80,
+      choices: [{ name: 'Small' }, { name: 'Large', priceDelta: 25 }],
+    },
   });
   assert.equal(created.status, 201, JSON.stringify(created.data));
-  assert.deepEqual((await menuProduct('shake')).choices, [{ name: 'Small' }, { name: 'Large' }]);
+  assert.deepEqual(
+    (await menuProduct('shake')).choices,
+    [{ name: 'Small', priceDelta: 0 }, { name: 'Large', priceDelta: 25 }],
+  );
 });
 
 test('checkout records the option picked, and each option is its own line', async () => {
@@ -210,4 +222,92 @@ test('checkout refuses a missing, unknown or unexpected option, and writes nothi
     assert.equal(refused.data.error, 'INVALID_CHOICE');
   }
   assert.equal((await fsdb.collections.orders().count().get()).data().count, 0);
+});
+
+/*
+ * Options that change the price.
+ *
+ * The extra is stored on the product and applied by the server, so the numbers
+ * asserted below are the ones the shop is actually paid. A browser sending its
+ * own figure is covered by the last test here: the price it claims is compared,
+ * never used.
+ */
+const SIZED = [
+  { name: 'Regular', nameAr: 'عادي', priceDelta: 0 },
+  { name: 'Large', nameAr: 'كبير', priceDelta: 60 },
+];
+
+test('an option carries its extra from the dashboard to the public menu', async () => {
+  const saved = await saveOptions(SIZED);
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+  assert.deepEqual((await menuProduct('scoop')).choices, SIZED);
+
+  // And the extra can be taken off again without touching anything else.
+  await saveOptions([{ name: 'Regular', nameAr: 'عادي' }, { name: 'Large', nameAr: 'كبير' }]);
+  assert.deepEqual(
+    (await menuProduct('scoop')).choices.map((choice) => choice.priceDelta),
+    [0, 0],
+  );
+});
+
+test('the server charges the option the customer picked', async () => {
+  await saveOptions(SIZED);
+  const placed = await place([
+    { productId: 'scoop', qty: 1, choice: 'Regular' },
+    { productId: 'scoop', qty: 2, choice: 'Large' },
+  ]);
+  assert.equal(placed.status, 201, JSON.stringify(placed.data));
+  const lines = placed.data.order.items;
+  assert.deepEqual(
+    lines.map((line) => [line.choice.name, line.unitPrice, line.qty, line.lineTotal]),
+    [['Regular', 300, 1, 300], ['Large', 360, 2, 720]],
+  );
+  // What the option added, copied onto the line so the order still reads
+  // correctly after the option is repriced.
+  assert.equal(lines[1].choice.priceDelta, 60);
+  assert.equal(placed.data.order.totals.total, 1020);
+});
+
+test('an option is priced at the shop\u2019s figure, never at the browser\u2019s', async () => {
+  await saveOptions(SIZED);
+  // The expected total is the one the customer was shown. A cart that thinks
+  // the large costs nothing extra is a stale page, and the order is refused
+  // rather than taken at either price.
+  const stale = await request('/api/orders', {
+    method: 'POST',
+    admin: false,
+    body: {
+      idempotencyKey: randomUUID(),
+      items: [{ productId: 'scoop', qty: 1, choice: 'Large' }],
+      expectedTotal: 300,
+      firstName: 'Fixture', phone: '01012345678', fulfilment: 'pickup',
+    },
+  });
+  assert.equal(stale.status, 409, JSON.stringify(stale.data));
+  assert.equal(stale.data.error, 'PRICE_CHANGED');
+  assert.equal(stale.data.details.currentTotal, 360);
+  assert.equal((await fsdb.collections.orders().count().get()).data().count, 0);
+});
+
+test('a discount comes off the product, not off the option\u2019s extra', async () => {
+  await saveOptions(SIZED);
+  const discounted = await request('/api/menu/admin/products/scoop', {
+    method: 'PATCH',
+    body: { discountEnabled: true, discountType: 'percent', discountValue: 50 },
+  });
+  assert.equal(discounted.status, 200, JSON.stringify(discounted.data));
+
+  const placed = await place([{ productId: 'scoop', qty: 1, choice: 'Large' }]);
+  assert.equal(placed.status, 201, JSON.stringify(placed.data));
+  assert.equal(placed.data.order.items[0].unitPrice, 210);
+});
+
+test('the dashboard cannot save a negative or absurd extra', async () => {
+  const negative = await saveOptions([{ name: 'Large', priceDelta: -10 }]);
+  assert.equal(negative.status, 400, JSON.stringify(negative.data));
+  assert.match(negative.data.message, /Check the fields/);
+
+  const absurd = await saveOptions([{ name: 'Large', priceDelta: 2_000_000 }]);
+  assert.equal(absurd.status, 400, JSON.stringify(absurd.data));
+  assert.equal((await menuProduct('scoop')).choices.length, 0, 'neither attempt was stored');
 });

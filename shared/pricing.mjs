@@ -103,21 +103,48 @@ export function discountProblem(product) {
 }
 
 /**
- * What one unit of a line costs: the selling price, plus the surcharge of every
- * option picked when the product is a choice bundle.
+ * What the option named on a line adds to its price, in pounds.
  *
- * Only `group`, `productId` and `quantity` are read from a selection. The
- * surcharge always comes from the stored product, never from the cart.
+ * An option's extra is stored on the product as `priceDelta`, exactly like a
+ * choice bundle's `surcharge`, and for the same reason: the product keeps one
+ * price and each option says what it adds to it. Storing an absolute price per
+ * option instead would mean a repricing had to be repeated on every option, and
+ * the one that was missed would keep selling at the old figure.
+ *
+ * Read from the stored product only. A cart that names an option that no longer
+ * exists adds nothing here — `choiceProblem` is what refuses that order, and it
+ * is not this function's job to guess a price for a choice that is gone.
  */
-export function unitPrice(product, selections) {
+export function choiceSurcharge(product, choice) {
+  const choices = Array.isArray(product?.choices) ? product.choices : [];
+  if (!choices.length || typeof choice !== "string" || !choice) return 0;
+  const picked = choices.find((entry) => entry?.name === choice);
+  const extra = Number(picked?.priceDelta);
+  return Number.isFinite(extra) && extra > 0 ? money(extra) : 0;
+}
+
+/**
+ * What one unit of a line costs: the selling price, plus what the option picked
+ * adds, plus the surcharge of every option picked when the product is a choice
+ * bundle.
+ *
+ * Only `group`, `productId` and `quantity` are read from a selection, and only
+ * the option's name from `choice`. Every figure of money comes from the stored
+ * product, never from the cart.
+ *
+ * A product can have options or be a bundle, never both — the catalogue route
+ * refuses the combination — so the two extras below cannot both be non-zero.
+ */
+export function unitPrice(product, selections, choice) {
   const base = effectivePrice(product);
-  if (!product?.isBundle || product.bundleType !== "choice" || !Array.isArray(selections)) return base;
-  let extra = 0;
-  for (const pick of selections) {
-    const option = product.groups?.[pick?.group]?.options?.find((o) => o.productId === pick.productId);
-    if (option) extra += (Number(option.surcharge) || 0) * Math.max(0, Math.floor(Number(pick.quantity) || 0));
+  let extra = choiceSurcharge(product, choice);
+  if (product?.isBundle && product.bundleType === "choice" && Array.isArray(selections)) {
+    for (const pick of selections) {
+      const option = product.groups?.[pick?.group]?.options?.find((o) => o.productId === pick.productId);
+      if (option) extra += (Number(option.surcharge) || 0) * Math.max(0, Math.floor(Number(pick.quantity) || 0));
+    }
   }
-  return money(base + extra);
+  return extra ? money(base + extra) : base;
 }
 
 /**
@@ -183,9 +210,9 @@ export function lineSignature(item) {
 }
 
 /** One cart line's total, at the price the product sells for now. */
-export function lineTotal(product, qty, selections) {
+export function lineTotal(product, qty, selections, choice) {
   const n = Math.max(0, Math.floor(Number(qty) || 0));
-  return money(unitPrice(product, selections) * n);
+  return money(unitPrice(product, selections, choice) * n);
 }
 
 /**
@@ -201,7 +228,7 @@ export function subtotalOf(items, catalogue) {
   for (const item of items) {
     const product = catalogue.get(item.productId);
     if (!product) continue;
-    total += lineTotal(product, item.qty, item.selections);
+    total += lineTotal(product, item.qty, item.selections, item.choice);
   }
   return money(total);
 }

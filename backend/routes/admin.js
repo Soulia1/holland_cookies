@@ -335,6 +335,11 @@ router.patch('/settings', requireAdmin, async (req, res, next) => {
         id: z.string().min(1).max(60),
         name: z.string().min(1).max(120),
         nameAr: z.string().max(120).optional(),
+        // The governorate, which checkout groups the select by. Optional: areas
+        // saved before this field existed keep working and simply show in an
+        // unlabelled group.
+        city: z.string().max(60).optional(),
+        cityAr: z.string().max(60).optional(),
       })).max(80).optional(),
     }).safeParse(req.body);
     if (!parsed.success) {

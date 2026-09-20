@@ -32,8 +32,12 @@ async function wipe() {
 beforeEach(wipe);
 after(wipe);
 
-test('the menu sections match the storefront pages', () => {
-  assert.deepEqual(MENU_GROUP_IDS, ['cookies', 'desserts', 'drinks']);
+// Read out of the storefront's own menu module rather than repeated here: the
+// two lists exist to be the same, and a literal in this file would only ever
+// catch the edit that remembered to update it.
+test('the menu sections match the storefront pages', async () => {
+  const { readMenuGroupIds } = await import('../seed.js');
+  assert.deepEqual([...MENU_GROUP_IDS], await readMenuGroupIds());
 });
 
 test('a new category keeps its section, and the public menu carries it with its products', async () => {

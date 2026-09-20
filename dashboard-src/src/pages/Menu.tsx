@@ -32,6 +32,7 @@ const MENU_SECTIONS = [
   { id: "cookies", name: "Cookies" },
   { id: "desserts", name: "Desserts" },
   { id: "drinks", name: "Drinks" },
+  { id: "special-edition", name: "Special Edition" },
 ] as const;
 
 type NewCategory = { name: string; nameAr: string; group: string };
@@ -52,7 +53,7 @@ type Draft = {
   bundleType: "fixed" | "choice";
   components: ComponentDraft[];
   groups: ChoiceGroupDraft[];
-  choices: { name: string; nameAr: string }[];
+  choices: { name: string; nameAr: string; priceDelta: string }[];
 };
 
 function draftFrom(item: MenuItem): Draft {
@@ -89,7 +90,14 @@ function draftFrom(item: MenuItem): Draft {
         surcharge: option.surcharge ? String(option.surcharge) : "",
       })),
     })),
-    choices: (item.choices ?? []).map((choice) => ({ name: choice.name, nameAr: choice.nameAr ?? "" })),
+    choices: (item.choices ?? []).map((choice) => ({
+      name: choice.name,
+      nameAr: choice.nameAr ?? "",
+      // Kept as typed text, like every other number in this form: a draft held
+      // as a number cannot represent a half-typed "1" that is about to be "15",
+      // and clears itself to 0 while the admin is still typing.
+      priceDelta: choice.priceDelta ? String(choice.priceDelta) : "",
+    })),
   };
 }
 
@@ -126,6 +134,15 @@ export function draftProblem(draft: Draft, categoryIds: string[]): string | null
   if (options.some((choice) => !choice.name.trim())) return "Every option needs an English name.";
   const optionNames = options.map((choice) => choice.name.trim().toLowerCase());
   if (new Set(optionNames).size !== optionNames.length) return "Each option must have a different name.";
+  for (const choice of options) {
+    const extra = choice.priceDelta.trim();
+    if (!extra) continue;
+    const value = Number(extra);
+    if (!Number.isFinite(value) || value < 0) {
+      return `“${choice.name.trim()}” has an extra price that is not a number, zero or more.`;
+    }
+    if (price + value > 1_000_000) return `“${choice.name.trim()}” prices the item too high.`;
+  }
   if (options.length && draft.isBundle) return "A bundle cannot also have options. Remove them, or make it a plain product.";
   if (!draft.isBundle) return null;
   if (draft.bundleType === "fixed") {
@@ -190,7 +207,11 @@ function bodyFrom(draft: Draft): Partial<MenuItem> {
     // A blank row is "Add option" pressed and left empty, not an option.
     choices: draft.choices
       .filter((choice) => choice.name.trim())
-      .map((choice) => ({ name: choice.name.trim(), nameAr: choice.nameAr.trim() })),
+      .map((choice) => ({
+        name: choice.name.trim(),
+        nameAr: choice.nameAr.trim(),
+        priceDelta: Number(choice.priceDelta) || 0,
+      })),
   };
 }
 
@@ -810,6 +831,7 @@ function ProductForm({
 
         <OptionFields
           choices={draft.choices}
+          price={draft.price}
           onChange={(choices) => set("choices", choices)}
         />
 
@@ -854,27 +876,46 @@ function ProductForm({
  * dialog, and the order line records which one was picked.
  */
 function OptionFields({
-  choices, onChange,
+  choices, price, onChange,
 }: {
   choices: Draft["choices"];
+  /** The product's own price, so each row can show what the option actually sells for. */
+  price: string;
   onChange: (choices: Draft["choices"]) => void;
 }) {
   const update = (index: number, patch: Partial<Draft["choices"][number]>) =>
     onChange(choices.map((choice, at) => (at === index ? { ...choice, ...patch } : choice)));
 
+  const base = Number(price);
+
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-3">
       <div>
         <p className="text-sm font-medium">Options</p>
         <p className="text-xs text-muted-foreground">
-          The customer must pick one before adding it to the cart — for example a flavor.
-          Leave the list empty for a product with no options.
+          The customer must pick one before adding it to the cart — for example a flavor or a
+          size. “Extra” is what that option adds to the price above, so leave it at 0 for an
+          option that costs the same. Leave the list empty for a product with no options.
         </p>
       </div>
-      {choices.map((choice, index) => (
-        <div key={index} className="flex items-center gap-2">
+      {choices.map((choice, index) => {
+        const extra = Number(choice.priceDelta || 0);
+        // What this option sells for, shown while it is being typed. The whole
+        // point of the field is the price the customer ends up paying, and
+        // making the admin add two numbers in their head is how a size ends up
+        // on the menu at the wrong money.
+        const sells = Number.isFinite(base) && Number.isFinite(extra) && base >= 0 && extra >= 0
+          ? Math.round((base + extra) * 100) / 100
+          : null;
+        return (
+        // Wraps rather than squashing. Five controls on one line is fine on a
+        // laptop and is four characters of each name on a phone — which is how
+        // the bundle editor's rows shipped unreadable once before. The minimum
+        // widths are what force the wrap instead of the shrink.
+        <div key={index} className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <TextInput
             aria-label={`Option ${index + 1} (English)`}
+            className="min-w-36 flex-1"
             placeholder="Vanilla, Nutella filling"
             maxLength={80}
             value={choice.name}
@@ -882,12 +923,27 @@ function OptionFields({
           />
           <TextInput
             aria-label={`Option ${index + 1} (Arabic)`}
+            className="min-w-32 flex-1"
             dir="rtl"
             placeholder="Arabic (optional)"
             maxLength={80}
             value={choice.nameAr}
             onChange={(event) => update(index, { nameAr: event.target.value })}
           />
+          <TextInput
+            aria-label={`Option ${index + 1} extra price (EGP)`}
+            className="w-24 shrink-0"
+            inputMode="decimal"
+            placeholder="Extra"
+            value={choice.priceDelta}
+            onChange={(event) => update(index, { priceDelta: event.target.value })}
+          />
+          <span
+            className="w-24 shrink-0 text-xs text-muted-foreground tabular-nums"
+            aria-label={`Option ${index + 1} sells for`}
+          >
+            {sells === null ? "—" : `= ${sells.toFixed(2)} EGP`}
+          </span>
           <Btn
             type="button"
             variant="ghost"
@@ -897,9 +953,14 @@ function OptionFields({
             <Trash2 className="size-4" />
           </Btn>
         </div>
-      ))}
+        );
+      })}
       {choices.length < 20 && (
-        <Btn type="button" variant="secondary" onClick={() => onChange([...choices, { name: "", nameAr: "" }])}>
+        <Btn
+          type="button"
+          variant="secondary"
+          onClick={() => onChange([...choices, { name: "", nameAr: "", priceDelta: "" }])}
+        >
           <Plus className="size-4" /> Add option
         </Btn>
       )}

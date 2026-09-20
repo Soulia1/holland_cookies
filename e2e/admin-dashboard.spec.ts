@@ -1,4 +1,5 @@
 import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
+import { DEFAULT_AREAS } from "../shared/deliveryAreas.mjs";
 
 /**
  * The admin dashboard, all the way round.
@@ -249,6 +250,94 @@ test("settings are stored, survive a reload, and checkout and the server obey th
     await expect(page.locator(".rcpt-meta")).toContainText("Cash on pickup");
   } finally {
     await api.patch("/api/admin/settings", { data: DEFAULT_SETTINGS });
+    await api.dispose();
+  }
+});
+
+/*
+ * Delivery areas: typed in the dashboard, offered by checkout, enforced by the
+ * server.
+ *
+ * The seeded list is Cairo and Giza, which is nearly forty neighbourhoods, so
+ * the button that fills them in is part of the feature rather than a
+ * convenience — nobody types forty rows correctly. What this walk is really
+ * guarding is the id: an order stores the area's id, so a list that is edited
+ * must keep the ids of the areas that stay.
+ */
+test("delivery areas are edited in the dashboard and are exactly what checkout offers", async ({ page, baseURL }) => {
+  test.setTimeout(150_000);
+  const api = await adminApi(baseURL!);
+  const TYPED = "Test Area E2E";
+  try {
+    await signIn(page, "settings");
+    const rows = page.getByRole("list", { name: "Delivery areas" }).getByRole("listitem");
+    await expect(rows).toHaveCount(DEFAULT_AREAS.length);
+
+    // Remove the first seeded area and type one of our own.
+    const removed = DEFAULT_AREAS[0];
+    await expect(rows.first().getByLabel("Area 1 name")).toHaveValue(removed.name);
+    await rows.first().getByRole("button", { name: "Remove area 1" }).click();
+    await expect(rows).toHaveCount(DEFAULT_AREAS.length - 1);
+
+    await page.getByRole("button", { name: "Add area", exact: true }).click();
+    const last = rows.last();
+    await last.getByLabel(`Area ${DEFAULT_AREAS.length} name`).fill(TYPED);
+    await last.getByLabel(`Area ${DEFAULT_AREAS.length} governorate`, { exact: true }).fill("Cairo");
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
+
+    // What the server stored, not what was typed: the id was made from the
+    // name, because a hand-typed one with a capital in it is refused.
+    await page.reload({ waitUntil: "load" });
+    const saved = await (await page.request.get("/api/admin/settings")).json();
+    const ids = saved.settings.areas.map((area: { id: string }) => area.id);
+    expect(ids).toContain("test-area-e2e");
+    expect(ids).not.toContain(removed.id);
+
+    // Checkout offers exactly that list, grouped by governorate. With a line in
+    // the cart: an empty checkout is a "nothing to check out" page with no form
+    // on it at all, and asserting about a select that is not there passes for
+    // the wrong reason as readily as it fails.
+    const menu = await publicMenu(page);
+    const sellable = menu.flatMap((c) => c.items)
+      .find((item) => item.available && !item.isBundle && !item.choices?.length)!;
+    await checkoutWith(page, [
+      { productId: sellable.id, name: sellable.name, price: sellable.price, qty: 1 },
+    ]);
+    const area = page.locator("#area");
+    await expect(area.locator(`option[value="${removed.id}"]`)).toHaveCount(0);
+    await expect(area.locator('option[value="test-area-e2e"]')).toHaveCount(1);
+    expect(await area.locator("optgroup").evaluateAll(
+      (groups) => groups.map((group) => (group as HTMLOptGroupElement).label),
+    )).toEqual(["Cairo", "Giza"]);
+
+    // And the server refuses the one that was removed, whatever a client sends.
+    const refused = await page.request.post("/api/orders", {
+      headers: headers(baseURL!),
+      data: {
+        idempotencyKey: crypto.randomUUID(), firstName: "Gone", phone: "01012345678",
+        fulfilment: "delivery", area: removed.id, address: "1 Street",
+        items: [{ productId: "special-dubai-chocolate-cookie", qty: 1, choice: "Regular" }],
+      },
+    });
+    expect(refused.status()).toBe(400);
+    expect((await refused.json()).error).toBe("INVALID_AREA");
+
+    // One button puts the whole of Cairo and Giza back, without disturbing the
+    // row that was typed by hand.
+    await signIn(page, "settings");
+    await page.getByRole("button", { name: "Add all Cairo & Giza areas" }).click();
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
+
+    const restored = await (await page.request.get("/api/admin/settings")).json();
+    const back = restored.settings.areas.map((entry: { id: string }) => entry.id);
+    for (const entry of DEFAULT_AREAS) expect(back).toContain(entry.id);
+    expect(back).toContain("test-area-e2e");
+    // Nothing was added twice.
+    expect(new Set(back).size).toBe(back.length);
+  } finally {
+    await api.patch("/api/admin/settings", { data: { areas: DEFAULT_AREAS } });
     await api.dispose();
   }
 });
