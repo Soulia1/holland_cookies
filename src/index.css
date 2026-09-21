@@ -1095,6 +1095,83 @@ html[dir="rtl"] .rail-arrow > span { display: inline-block; transform: scaleX(-1
   color: var(--color-primary);
 }
 
+/* ─── The made-to-order notice ───
+   Under the page title, where it is read before anything is chosen rather than
+   sprung at checkout.
+
+   Deliberately not the site's error styling, and not a yellow warning strip.
+   Nothing is wrong: this page is *baked to order*, which is a promise about
+   care rather than a caution, so it is set in the brand's own burgundy on the
+   oat ground the page already uses, with a rule down the leading edge to mark
+   it as an aside rather than a paragraph of the menu. A warning colour here
+   would tell a customer that the thing they are about to choose is a problem.
+
+   `align-items: flex-start` with the clock optically nudged down a hair: the
+   glyph's visual centre sits above its box's centre at this size, so centring
+   the box leaves it floating above the first line of text. */
+.menu-lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 24px;
+  max-width: 52ch;
+  padding: 14px 18px;
+  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid var(--color-deep-burgundy);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-deep-burgundy) 7%, transparent), transparent 70%),
+    var(--color-soft-oat);
+  font-family: var(--font-body);
+}
+
+.menu-lead-mark {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--color-deep-burgundy);
+}
+
+.menu-lead-mark svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.menu-lead-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-deep-burgundy);
+}
+
+.menu-lead-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
+  line-height: 23px;
+  color: var(--color-on-surface-variant);
+}
+
+/* The same promise inside the item dialog, where the decision is actually made
+   and where the page's notice is not on screen. Quieter: by this point the
+   customer is reading one item, not being introduced to a page. */
+.menu-detail-lead {
+  margin-top: 14px;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--color-deep-burgundy) 45%, transparent);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--color-deep-burgundy);
+}
+
 .menu-lede {
   margin-top: 20px;
   max-width: 46ch;
@@ -2654,6 +2731,68 @@ html[dir="rtl"] .cart-panel { animation-name: cart-slide-rtl; }
 }
 
 .cart-line-note { text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Not styled like the notes above it. Those are what the customer chose — a
+   flavour, a size; this is a condition on when they get it, and a line that
+   reads the same as the option beside it is a line nobody notices. Sentence
+   case and the brand burgundy, with the same clock the page notice uses drawn
+   as a leading bullet. */
+.cart-line-lead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-block-start: 5px;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  line-height: 16px;
+  font-weight: 600;
+  color: var(--color-deep-burgundy);
+}
+
+.cart-line-lead::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateY(-1px);
+}
+
+/* Checkout's summary is denser than the drawer, so the note borrows the size of
+   the lines around it and keeps only the colour and the weight to stand apart. */
+.ed-sum-lead {
+  color: var(--color-deep-burgundy);
+  font-weight: 600;
+}
+
+/* The named sentence, over the total in the drawer and again in the checkout
+   summary. Same shape as the notice on the menu page — a burgundy rule down the
+   leading edge on the oat ground — so a customer who read it there recognises
+   it here rather than reading it as something new that has gone wrong. */
+.cart-lead,
+.ed-lead {
+  margin-block-end: 14px;
+  padding: 10px 12px;
+  border-inline-start: 3px solid var(--color-deep-burgundy);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-deep-burgundy) 6%, var(--color-soft-oat));
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--color-deep-burgundy);
+}
+
+.cart-lead p + p,
+.ed-lead p + p {
+  margin-block-start: 6px;
+}
+
+.ed-lead {
+  margin-block-start: 18px;
+  margin-block-end: 0;
+}
 
 .cart-qty {
   grid-column: 3;

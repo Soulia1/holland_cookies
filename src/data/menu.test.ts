@@ -10,6 +10,8 @@ import {
   groupPriceFrom,
   itemPriceFrom,
   itemPriceVaries,
+  leadDaysForCategory,
+  leadDaysForGroup,
   priceFrom,
 } from "./menu";
 
@@ -131,5 +133,49 @@ describe("the price on a row", () => {
     const specials = CATEGORY_BY_ID.get("special-edition-cookies");
     expect(specials).toBeDefined();
     expect(priceFrom(specials!)).toBe(Math.min(...specials!.items.map(itemPriceFrom)));
+  });
+});
+
+/*
+ * The lead time is a fact about a menu *page*, not about a cookie.
+ *
+ * Which is the point: a category the shop adds to the Special Edition page
+ * tomorrow is made to order too, without anybody remembering to set a field on
+ * it — and that is precisely the case a per-item flag gets wrong.
+ */
+describe("how many working days a page needs", () => {
+  it("is two for Special Edition and none for the everyday pages", () => {
+    expect(leadDaysForGroup("special-edition")).toBe(2);
+    for (const id of ["cookies", "desserts", "drinks"]) expect(leadDaysForGroup(id)).toBe(0);
+  });
+
+  it("answers nothing for a page that does not exist, or none at all", () => {
+    expect(leadDaysForGroup("no-such-page")).toBe(0);
+    expect(leadDaysForGroup(undefined)).toBe(0);
+    expect(leadDaysForGroup(null)).toBe(0);
+  });
+
+  it("follows a printed category to the page it is planned onto", () => {
+    expect(leadDaysForCategory("special-edition-cookies")).toBe(2);
+    expect(leadDaysForCategory("cookie-pans")).toBe(0);
+  });
+
+  it("follows a dashboard-made category to the page it names", () => {
+    // In no group's plan, so the stored `group` is the only thing to go on.
+    expect(leadDaysForCategory("a-category-made-today", "special-edition")).toBe(2);
+    expect(leadDaysForCategory("a-category-made-today", "cookies")).toBe(0);
+    expect(leadDaysForCategory("a-category-made-today", undefined)).toBe(0);
+  });
+
+  it("does not let a stored group override the page a printed category is on", () => {
+    // The plan wins: a category the storefront lays out itself is where the
+    // storefront put it, whatever a row in the database says.
+    expect(leadDaysForCategory("cookie-pans", "special-edition")).toBe(0);
+  });
+
+  it("puts its page on every category, so the cart can ask", () => {
+    for (const group of MENU_GROUPS) {
+      for (const category of group.categories) expect(category.group).toBe(group.id);
+    }
   });
 });

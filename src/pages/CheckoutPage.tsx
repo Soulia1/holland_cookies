@@ -10,6 +10,7 @@ import { areasByCity } from "../../shared/deliveryAreas.mjs";
 import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
 import { itemImage } from "@/data/menuImages";
+import { leadDaysForCategory } from "@/data/menu";
 import ReceiptPrinter from "@/components/ReceiptPrinter";
 
 /**
@@ -40,6 +41,8 @@ export default function CheckoutPage() {
   const { items, clear, remove, setOpen: openCart } = useCart();
 
   const [catalogue, setCatalogue] = useState<Map<string, ApiProduct> | null>(null);
+  /** Category id → the menu page it is shown on, which is where a lead time lives. */
+  const [categoryPages, setCategoryPages] = useState<Map<string, string | undefined>>(new Map());
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loadError, setLoadError] = useState(false);
 
@@ -80,15 +83,22 @@ export default function CheckoutPage() {
       .then(([menu, config]) => {
         if (cancelled) return;
         const map = new Map<string, ApiProduct>();
+        const pages = new Map<string, string | undefined>();
         for (const category of menu.categories) {
+          pages.set(category.id, category.group);
           for (const product of category.items) map.set(product.id, product);
         }
         setCatalogue(map);
+        setCategoryPages(pages);
         setSettings(config.settings);
       })
       .catch(() => { if (!cancelled) setLoadError(true); });
     return () => { cancelled = true; };
   }, []);
+
+  /** How many working days each line needs, by the page its category is on. */
+  const leadDaysOf = (product: ApiProduct | undefined) =>
+    (product ? leadDaysForCategory(product.categoryId, categoryPages.get(product.categoryId)) : 0);
 
   /** The delivery areas as the select renders them: one group per governorate. */
   const areaGroups = useMemo(() => areasByCity(settings?.areas), [settings]);
@@ -117,6 +127,7 @@ export default function CheckoutPage() {
         // bundled menu photo, else what the cart kept. Only the upload was read,
         // so every product still on its bundled photo showed a placeholder here.
         image: product?.image || itemImage(item.productId) || item.image,
+        leadDays: leadDaysOf(product),
         unitPrice: unit,
         lineTotal: unit * item.qty,
         // An option since removed, or options added since, leave a line the
@@ -125,7 +136,14 @@ export default function CheckoutPage() {
         soldOut: !!product && (!product.available || pickSoldOut),
       };
     });
-  }, [items, catalogue, lang]);
+  }, [items, catalogue, categoryPages, lang]);
+
+  /** The lines that hold the order up, each name said once. See CartDrawer. */
+  const leadLines = Object.values(Object.fromEntries(
+    lines
+      .filter((line) => line.leadDays > 0 && !line.gone && !line.soldOut)
+      .map((line) => [line.name, { key: line.key, name: line.name, days: line.leadDays }] as const),
+  ));
 
   const blocked = lines.filter((line) => line.gone || line.soldOut);
   const count = lines.reduce((sum, line) => sum + line.qty, 0);
@@ -482,6 +500,11 @@ export default function CheckoutPage() {
                     </div>
                     <div className="ed-sum-info">
                       <span>{line.name}</span>
+                      {/* Short on the line, which already names the item; the
+                          named sentence is over the totals below. */}
+                      {line.leadDays ? (
+                        <small className="ed-sum-lead">{t.cartLeadShort(line.leadDays)}</small>
+                      ) : null}
                       {line.choiceLabel ? <small>{line.choiceLabel}</small> : null}
                       {line.selections?.length ? (
                         <small>
@@ -529,6 +552,16 @@ export default function CheckoutPage() {
                 </div>
                 {promoMsg && (
                   <p className={`ed-promo-msg ${promoMsg.ok ? "ok" : "bad"}`}>{promoMsg.text}</p>
+                )}
+
+                {/* The same named sentence the cart carries, kept in front of
+                    the customer at the last screen before they pay. */}
+                {leadLines.length > 0 && (
+                  <div className="ed-lead" role="note">
+                    {leadLines.map(({ key, name, days }) => (
+                      <p key={key}>{t.cartLeadNote(name, days)}</p>
+                    ))}
+                  </div>
                 )}
 
                 <div style={{ marginBlockStart: 20 }}>

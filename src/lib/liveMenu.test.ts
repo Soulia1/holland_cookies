@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MENU_GROUPS } from "../data/menu";
 import type { ApiProduct } from "./api";
-import { withLiveCatalogue, type LiveMenu } from "./liveMenu";
+import { leadDaysForProduct, withLiveCatalogue, type LiveMenu } from "./liveMenu";
 
 const cookies = MENU_GROUPS.find((group) => group.id === "cookies")!;
 const [pans] = cookies.categories;
@@ -117,5 +117,45 @@ describe("options", () => {
   it("shows none when the database never had a list, whatever the printed sheet says", () => {
     expect(scoop.choices?.length).toBeGreaterThan(0);
     expect(shown({}).choices).toBeUndefined();
+  });
+});
+
+/*
+ * What the cart is able to say about a line.
+ *
+ * The cart knows a product id and nothing else, so this is the whole path from
+ * that id to "two working days": product → its category → the page that
+ * category is on → the page's lead time. Read live rather than snapshotted when
+ * the line was added, so a cart that has sat in storage since before the shop
+ * set a lead time does not promise the old answer.
+ */
+describe("leadDaysForProduct", () => {
+  const specials = MENU_GROUPS.find((group) => group.id === "special-edition")!;
+  const [specialCategory] = specials.categories;
+
+  it("answers two working days for something on the Special Edition page", () => {
+    const catalogue = live([product("p1", specialCategory.id)], [specialCategory.id]);
+    expect(leadDaysForProduct(catalogue, "p1")).toBe(2);
+  });
+
+  it("answers nothing for an everyday item", () => {
+    const catalogue = live([product("p2", pans.id)], [pans.id]);
+    expect(leadDaysForProduct(catalogue, "p2")).toBe(0);
+  });
+
+  it("follows a dashboard-made category to the page it names", () => {
+    const catalogue: LiveMenu = {
+      products: new Map([["p3", product("p3", "limited-drop")]]),
+      categories: new Map([["limited-drop", { name: "Limited Drop", group: "special-edition" }]]),
+    };
+    expect(leadDaysForProduct(catalogue, "p3")).toBe(2);
+  });
+
+  it("says nothing it cannot know", () => {
+    const catalogue = live([product("p4", pans.id)], [pans.id]);
+    // A line for a product the catalogue no longer has: the checkout tells the
+    // customer it is gone, and inventing a lead time for it helps nobody.
+    expect(leadDaysForProduct(catalogue, "vanished")).toBe(0);
+    expect(leadDaysForProduct(null, "p4")).toBe(0);
   });
 });

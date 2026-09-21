@@ -331,3 +331,72 @@ test("the seeded Special Edition page sells its two items with their sizes", asy
   await detail.getByRole("radio", { name: "Family tray" }).click();
   await expect(detail.getByText("340.00 EGP").first()).toBeVisible();
 });
+
+/*
+ * The made-to-order promise, from the page to the checkout.
+ *
+ * Its whole job is to reach the customer *before* they pay, so this walks the
+ * four places it has to appear and the one place it must not: an everyday item
+ * in the same cart, which the shop bakes today and which a blanket notice would
+ * wrongly hold up for two days.
+ */
+test("a made-to-order page says so on the page, in the item, in the cart and at checkout", async ({ page }) => {
+  await page.goto("/menu/special-edition", { waitUntil: "load" });
+  await ready(page);
+
+  // 1. Under the page title, where it is read before anything is chosen.
+  const notice = page.locator(".menu-lead");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("Made to order");
+  await expect(notice).toContainText("Order 2 working days ahead");
+
+  // 2. In the item, where the decision is actually made.
+  const row = page.locator(".menu-item-open", { hasText: "Dubai Chocolate Cookie" }).first();
+  await row.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await row.click();
+  const detail = page.getByRole("dialog");
+  await expect(detail.locator(".menu-detail-lead")).toHaveText("Made to order — allow 2 working days.");
+  await detail.getByRole("radio").first().click();
+  await detail.locator(".menu-detail-add").click();
+  await expect(page.locator(".cart-badge")).toHaveText("1");
+  await page.keyboard.press("Escape");
+
+  // An everyday cookie in the same basket, which must not be held up by it.
+  await page.goto("/menu/cookies", { waitUntil: "load" });
+  await ready(page);
+  const everyday = page.getByRole("button", { name: "Add Vanilla, Lotus filling to cart" }).first();
+  await everyday.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await expect(async () => {
+    if (await page.locator(".cart-badge").textContent() === "1") await everyday.click();
+    await expect(page.locator(".cart-badge")).toHaveText("2", { timeout: 1_500 });
+  }).toPass({ timeout: 15_000 });
+
+  // 3. In the cart: short on the line it belongs to, named over the total, and
+  //    nothing at all on the line the shop bakes today.
+  await settle(page);
+  await page.getByRole("button", { name: "Open cart" }).click();
+  const made = page.locator(".cart-line", { hasText: "Dubai Chocolate Cookie" });
+  const today = page.locator(".cart-line", { hasText: "Vanilla, Lotus filling" });
+  await expect(made.locator(".cart-line-lead")).toHaveText("Takes 2 working days");
+  await expect(today.locator(".cart-line-lead")).toHaveCount(0);
+  await expect(page.locator(".cart-lead")).toHaveText(
+    "Dubai Chocolate Cookie will take 2 working days until delivery",
+  );
+
+  // 4. At checkout, the last screen before paying.
+  await page.getByRole("button", { name: "Checkout" }).click();
+  await expect(page).toHaveURL(/\/checkout$/);
+  await expect(page.locator(".ed-lead")).toHaveText(
+    "Dubai Chocolate Cookie will take 2 working days until delivery",
+  );
+  await expect(page.locator(".ed-sum-item", { hasText: "Dubai Chocolate Cookie" }).locator(".ed-sum-lead"))
+    .toHaveText("Takes 2 working days");
+  await expect(page.locator(".ed-sum-item", { hasText: "Vanilla, Lotus filling" }).locator(".ed-sum-lead"))
+    .toHaveCount(0);
+});
+
+test("an everyday page carries no made-to-order notice", async ({ page }) => {
+  await page.goto("/menu/cookies", { waitUntil: "load" });
+  await ready(page);
+  await expect(page.locator(".menu-lead")).toHaveCount(0);
+});

@@ -5,6 +5,7 @@ import { useCart } from "@/lib/cart";
 import { lineKey, type CartItem } from "@/lib/cart-core";
 import { itemImage } from "@/data/menuImages";
 import { useLang } from "@/lib/i18n";
+import { leadDaysForProduct, useLiveMenu } from "@/lib/liveMenu";
 import { Link, navigate } from "@/lib/router";
 
 /**
@@ -33,6 +34,25 @@ function lineImage(line: CartItem): string | undefined {
 
 export default function CartDrawer() {
   const { items, count, subtotal, open, setOpen, setQty, remove, clear } = useCart();
+  // Read live rather than snapshotted onto the line when it was added: a lead
+  // time is a fact about the shop, and a cart that has sat in storage since
+  // before the shop set one must not promise what the kitchen no longer does.
+  const live = useLiveMenu();
+  const menu = live.status === "ready" ? live.menu : null;
+
+  /**
+   * The lines that hold the order up, each named once.
+   *
+   * By name rather than by line, so two sizes of the same made-to-order cookie
+   * say it once: the customer is being told when their order can arrive, and
+   * hearing it twice does not make it arrive sooner.
+   */
+  const leadLines = Object.values(Object.fromEntries(
+    items
+      .map((line) => ({ key: lineKey(line), name: line.name, days: leadDaysForProduct(menu, line.productId) }))
+      .filter((line) => line.days > 0)
+      .map((line) => [line.name, line] as const),
+  ));
   const { t, lang } = useLang();
   // Asked each time the cart opens, so a customer learns ordering is paused here
   // rather than after filling in the whole checkout form. The server refuses the
@@ -108,6 +128,15 @@ export default function CartDrawer() {
                       <p className="cart-line-name">{line.name}</p>
                       {line.note ? <p className="cart-line-note">{line.note}</p> : null}
                       {line.choiceLabel ? <p className="cart-line-note">{line.choiceLabel}</p> : null}
+                      {/* Short here, because the name is already the line
+                          above it. The named sentence is over the total, where
+                          a basket of same-day items with one made-to-order one
+                          among them needs to say which. */}
+                      {leadDaysForProduct(menu, line.productId) ? (
+                        <p className="cart-line-lead">
+                          {t.cartLeadShort(leadDaysForProduct(menu, line.productId))}
+                        </p>
+                      ) : null}
                       {line.selections?.length ? (
                         <p className="cart-line-note">
                           {line.selections.map((pick) => `${pick.quantity}× ${pick.name}`).join(", ")}
@@ -160,6 +189,18 @@ export default function CartDrawer() {
               </ul>
 
               <footer className="cart-foot">
+                {/* Named, and above the total rather than beside a line: this
+                    is the sentence a customer has to have read before they pay,
+                    and in a basket with one made-to-order item among five it is
+                    the only place that says *which* one holds the order up. */}
+                {leadLines.length > 0 && (
+                  <div className="cart-lead" role="note">
+                    {leadLines.map(({ key, name, days }) => (
+                      <p key={key}>{t.cartLeadNote(name, days)}</p>
+                    ))}
+                  </div>
+                )}
+
                 <div className="cart-subtotal">
                   <span>{t.cartSubtotal}</span>
                   <strong>{t.price(subtotal)}</strong>

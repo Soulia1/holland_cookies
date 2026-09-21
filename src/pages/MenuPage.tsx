@@ -478,6 +478,24 @@ export default function MenuPage({
         <header className="menu-intro" ref={introRef}>
           <span className="menu-eyebrow">{t.menuTitle}</span>
           <h1 className="menu-title">{name}</h1>
+          {/* Under the title, where somebody reads it before they have chosen
+              anything — not at checkout, where it would be news. `role="note"`
+              rather than an alert: it is a condition of the page, not something
+              that has just gone wrong. */}
+          {group.leadDays ? (
+            <p className="menu-lead" role="note">
+              <span className="menu-lead-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7.5V12l3 1.75" />
+                </svg>
+              </span>
+              <span>
+                <strong className="menu-lead-title">{t.menuLeadTitle}</strong>
+                <span className="menu-lead-text">{t.menuLeadNotice(group.leadDays)}</span>
+              </span>
+            </p>
+          ) : null}
         </header>
 
         {/* One sticky element holding both rows, rather than two stickies at two

@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, type ApiProduct } from "@/lib/api";
-import { GROUP_BY_CATEGORY_ID, MENU_GROUPS, type MenuCategory, type MenuGroup, type MenuItem } from "@/data/menu";
+import {
+  GROUP_BY_CATEGORY_ID, MENU_GROUPS, leadDaysForCategory,
+  type MenuCategory, type MenuGroup, type MenuItem,
+} from "@/data/menu";
 
 /**
  * The catalogue as the dashboard last left it.
@@ -110,6 +113,20 @@ function liveItems(live: LiveMenu, categoryId: string, printed: readonly MenuIte
   return items;
 }
 
+/**
+ * The working days a product in the cart needs, or 0.
+ *
+ * Resolved from the live catalogue rather than from a snapshot taken when the
+ * line was added: a lead time is a fact about the shop, and a cart that has been
+ * sitting in storage since before the shop set one would otherwise promise the
+ * customer something the kitchen no longer does.
+ */
+export function leadDaysForProduct(live: LiveMenu | null, productId: string): number {
+  const categoryId = live?.products.get(productId)?.categoryId;
+  if (!categoryId) return 0;
+  return leadDaysForCategory(categoryId, live?.categories.get(categoryId)?.group);
+}
+
 /** The menu page a dashboard-created category belongs on; the first page when it names none. */
 function homeGroup(group: string | undefined): string {
   return MENU_GROUPS.some((entry) => entry.id === group) ? group! : MENU_GROUPS[0].id;
@@ -127,6 +144,7 @@ export function withLiveCatalogue(group: MenuGroup, live: LiveMenu): MenuGroup {
         ...category,
         name: stored.name || category.name,
         nameAr: stored.nameAr || category.nameAr,
+        group: group.id,
         items,
       });
     }
@@ -139,7 +157,9 @@ export function withLiveCatalogue(group: MenuGroup, live: LiveMenu): MenuGroup {
     if (GROUP_BY_CATEGORY_ID.has(id) || homeGroup(stored.group) !== group.id) continue;
     const items = liveItems(live, id, []);
     if (items.length) {
-      categories.push({ id, name: stored.name, nameAr: stored.nameAr ?? "", original: stored.name, items });
+      categories.push({
+        id, name: stored.name, nameAr: stored.nameAr ?? "", original: stored.name, group: group.id, items,
+      });
     }
   }
   return { ...group, categories };

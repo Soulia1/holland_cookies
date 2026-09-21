@@ -20,6 +20,7 @@ import type { MenuCategory, MenuItem } from "@/data/menu";
 import { selectionProblem, unitPrice } from "../../shared/productPricing.mjs";
 import { describeItem } from "@/data/menuCopy";
 import { itemImage } from "@/data/menuImages";
+import { leadDaysForCategory } from "@/data/menu";
 import { localized, useLang } from "@/lib/i18n";
 import {
   duration,
@@ -81,6 +82,10 @@ export default function MenuItemDetail({
   const name = item ? localized(lang, item.name, item.nameAr) : "";
   const note = item?.note ? localized(lang, item.note, item.noteAr) : undefined;
   const photo = item ? (item.image ?? itemImage(item.id)) : undefined;
+
+  // From the category the row was opened in: a printed one is planned onto its
+  // page, and one made in the dashboard carries the page it names.
+  const leadDays = category ? leadDaysForCategory(category.id, category.group) : 0;
 
   const choices = item?.choices?.length ? item.choices : undefined;
   const chosen = choices && flavorPick?.itemId === item?.id
@@ -234,6 +239,15 @@ export default function MenuItemDetail({
                         ? localized(lang, item.description, item.descriptionAr)
                         : describeItem(item, category)}
                     </DialogPrimitive.Description>
+
+                    {/* The same promise the page carries, repeated where the
+                        decision is actually made. A dialog opened from a rail
+                        on the home page never saw the page's notice at all. */}
+                    {leadDays ? (
+                      <p className="menu-detail-lead" role="note">
+                        {t.menuLeadItem(leadDays)}
+                      </p>
+                    ) : null}
 
                     {/* A choice, not a bare list, so the cart line it
                         produces names the one option the kitchen makes. */}

@@ -142,6 +142,38 @@ const translations = {
     menuDetailClose: "Close",
     menuDetailOpen: (name: string) => `${name} — see details`,
     menuDetailChooseFlavor: "Choose one",
+    /**
+     * The notice under a page that is made to order.
+     *
+     * "working days" rather than "days", and "order two days ahead" rather than
+     * "takes two days", because the customer's question is when to order by,
+     * not how long a kitchen takes.
+     */
+    menuLeadTitle: "Made to order",
+    menuLeadNotice: (days: number) =>
+      days === 1
+        ? "Order one working day ahead — everything on this page is baked for you."
+        : `Order ${days} working days ahead — everything on this page is baked for you.`,
+    /**
+     * The same fact inside one item's dialog, where "this page" would be the
+     * wrong voice — the customer is reading a cookie, not a section.
+     */
+    menuLeadItem: (days: number) =>
+      days === 1
+        ? "Made to order — allow 1 working day."
+        : `Made to order — allow ${days} working days.`,
+    /**
+     * On the cart line itself, which already carries the item's name a few
+     * pixels above. Repeating the name there wrapped the note over four lines
+     * and told the reader nothing the line did not already say.
+     */
+    cartLeadShort: (days: number) =>
+      days === 1 ? "Takes 1 working day" : `Takes ${days} working days`,
+    /** Named, where the name is the information: the notice over the total. */
+    cartLeadNote: (name: string, days: number) =>
+      days === 1
+        ? `${name} will take 1 working day until delivery`
+        : `${name} will take ${days} working days until delivery`,
     menuLoading: "Loading the menu…",
     menuLoadFailed: "The menu could not be loaded. Check your connection and try again.",
     menuRetry: "Try again",
@@ -403,6 +435,21 @@ const translations = {
     menuDetailClose: "إقفل",
     menuDetailOpen: (name: string) => `${name} — شوف التفاصيل`,
     menuDetailChooseFlavor: "اختار واحد",
+    menuLeadTitle: "بيتعمل بالطلب",
+    menuLeadNotice: (days: number) =>
+      days === 1
+        ? "اطلب قبلها بيوم عمل — كل اللي في الصفحة دي بيتخبز لك."
+        : `اطلب قبلها بـ${days} يوم عمل — كل اللي في الصفحة دي بيتخبز لك.`,
+    menuLeadItem: (days: number) =>
+      days === 1
+        ? "بيتعمل بالطلب — سيب يوم عمل واحد."
+        : `بيتعمل بالطلب — سيب ${days} يوم عمل.`,
+    cartLeadShort: (days: number) =>
+      days === 1 ? "بياخد يوم عمل واحد" : `بياخد ${days} يوم عمل`,
+    cartLeadNote: (name: string, days: number) =>
+      days === 1
+        ? `${name} هياخد يوم عمل واحد لحد ما يوصل`
+        : `${name} هياخد ${days} يوم عمل لحد ما يوصل`,
     menuLoading: "بنحمّل المنيو…",
     menuLoadFailed: "مقدرناش نحمّل المنيو. اتأكد من النت وجرّب تاني.",
     menuRetry: "جرّب تاني",

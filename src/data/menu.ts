@@ -101,6 +101,15 @@ export interface MenuBundle {
 export interface MenuCategory {
   /** Stable, and the anchor target: `/menu#cookie-pans`. */
   id: string;
+  /**
+   * The menu page this category is shown on, where it is known.
+   *
+   * Carried on the category rather than looked up, because a category created
+   * in the dashboard is in no group's plan — it names its page in the database
+   * instead — and everything downstream of the page (the lead-time notice, the
+   * cart) needs one answer that works for both kinds.
+   */
+  group?: string;
   /** English display name. */
   name: string;
   /**
@@ -431,14 +440,14 @@ export const CATEGORY_IDS = MENU.map((category) => category.id);
 export const ITEM_COUNT = MENU.reduce((total, category) => total + category.items.length, 0);
 
 /**
- * Categories by id, for the router.
+ * The printed categories by id, before a group has been put on them.
  *
- * `/menu/cookie-pans` has to resolve to a category before anything can be
- * rendered, and doing that with `MENU.find` inside a component means a linear
- * scan of seventeen entries on every render of the page *and* of the category
- * bar's seventeen links. Built once, here, beside the data it indexes.
+ * Private: everything outside this file wants `CATEGORY_BY_ID` below, whose
+ * entries are the *same objects* the groups hold, so a category found through
+ * the router and one found through its group are one thing and not two copies
+ * that can disagree.
  */
-export const CATEGORY_BY_ID: ReadonlyMap<string, MenuCategory> = new Map(
+const PRINTED_BY_ID: ReadonlyMap<string, MenuCategory> = new Map(
   MENU.map((category) => [category.id, category]),
 );
 
@@ -498,6 +507,16 @@ export interface MenuGroup {
   id: string;
   name: string;
   nameAr: string;
+  /**
+   * Working days between the order and the handover, where this page needs
+   * them. Absent means the shop bakes it the same way it bakes everything else.
+   *
+   * On the group rather than on each item, because it is a fact about how that
+   * part of the menu is made rather than about one cookie — and because it then
+   * covers a category the shop adds to that page tomorrow without anybody
+   * remembering to set a field on it.
+   */
+  leadDays?: number;
   categories: MenuCategory[];
 }
 
@@ -543,6 +562,10 @@ const GROUP_PLAN = [
     id: "special-edition",
     name: "Special Edition",
     nameAr: "إصدار خاص",
+    // Made to order: the shop asked for two working days' notice on this page,
+    // and the customer is told so before they add it, in the cart and at
+    // checkout rather than after the order is placed.
+    leadDays: 2,
     categoryIds: ["special-edition-cookies"],
   },
 ] as const;
@@ -561,12 +584,29 @@ export const MENU_GROUPS: MenuGroup[] = GROUP_PLAN.map((plan) => ({
   id: plan.id,
   name: plan.name,
   nameAr: plan.nameAr,
+  ...("leadDays" in plan ? { leadDays: plan.leadDays } : {}),
   categories: plan.categoryIds.map((id) => {
-    const category = CATEGORY_BY_ID.get(id);
+    const category = PRINTED_BY_ID.get(id);
     if (!category) throw new Error(`Menu group "${plan.id}" names unknown category "${id}"`);
-    return category;
+    // The page it is on, put on the category itself: the cart and the item
+    // dialog are handed a category and nothing else, and a lookup back to the
+    // plan from there is a second description of the same fact.
+    return { ...category, group: plan.id };
   }),
 }));
+
+/**
+ * Categories by id, for the router.
+ *
+ * `/menu/cookie-pans` has to resolve to a category before anything can be
+ * rendered, and doing that with `MENU.find` inside a component means a linear
+ * scan of seventeen entries on every render of the page *and* of the category
+ * bar's seventeen links. Built once, here, from the grouped categories, so the
+ * object this returns is the object the page renders.
+ */
+export const CATEGORY_BY_ID: ReadonlyMap<string, MenuCategory> = new Map(
+  MENU_GROUPS.flatMap((group) => group.categories.map((category) => [category.id, category] as const)),
+);
 
 /** Groups by id, for the router. */
 export const GROUP_BY_ID: ReadonlyMap<string, MenuGroup> = new Map(
@@ -584,6 +624,27 @@ export const GROUP_BY_ID: ReadonlyMap<string, MenuGroup> = new Map(
 export const GROUP_BY_CATEGORY_ID: ReadonlyMap<string, MenuGroup> = new Map(
   MENU_GROUPS.flatMap((group) => group.categories.map((category) => [category.id, group] as const)),
 );
+
+/**
+ * The working days a page needs between the order and the handover, or 0.
+ *
+ * Asked by id rather than by holding the group, because the cart knows a
+ * product's category and nothing else — and a category the dashboard created
+ * names its page in the database, so its id is all there is to go on.
+ */
+export function leadDaysForGroup(groupId: string | undefined | null): number {
+  if (!groupId) return 0;
+  return GROUP_BY_ID.get(groupId)?.leadDays ?? 0;
+}
+
+/**
+ * The same, for a category: the page a printed category is planned onto, or the
+ * one a dashboard-created category names.
+ */
+export function leadDaysForCategory(categoryId: string, storedGroup?: string): number {
+  const planned = GROUP_BY_CATEGORY_ID.get(categoryId);
+  return planned ? planned.leadDays ?? 0 : leadDaysForGroup(storedGroup);
+}
 
 /** Every item in a group, for the count under its heading. */
 export function groupItemCount(group: MenuGroup): number {
