@@ -42,11 +42,14 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-/** Cash is the only payment method, so these describe the handover, not a gateway. */
-const PAYMENT_LABELS: Record<string, string> = {
-  unpaid: "Cash not yet collected",
-  paid: "Cash collected",
-  refunded: "Refunded",
+/** A cash order's status describes the handover; an online one, Paymob. */
+const PAYMENT_LABELS: Record<string, Record<string, string>> = {
+  cash: { unpaid: "Cash not yet collected", paid: "Cash collected", refunded: "Refunded" },
+  online: {
+    unpaid: "Awaiting payment — not paid yet, do not bake",
+    paid: "Paid online (Paymob)",
+    refunded: "Refunded",
+  },
 };
 
 export default function OrderDetailView({
@@ -177,11 +180,11 @@ export default function OrderDetailView({
               label="Payment method"
               value={order.paymentMethod === "cash"
                 ? (isPickup ? "Cash on pickup" : "Cash on delivery")
-                : order.paymentMethod}
+                : order.paymentMethod === "online" ? "Online — card or wallet (Paymob)" : order.paymentMethod}
             />
             <Field
               label="Payment status"
-              value={PAYMENT_LABELS[order.paymentStatus ?? "unpaid"] ?? order.paymentStatus}
+              value={PAYMENT_LABELS[order.paymentMethod]?.[order.paymentStatus ?? "unpaid"] ?? order.paymentStatus}
             />
             {/* Collected at checkout under "Notes for the kitchen". Rendered as
                 text, never markup, and kept on its own line breaks. */}

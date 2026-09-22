@@ -15,6 +15,8 @@ import { createOrder, normalizePhone } from '../orderTransaction.js';
 import { validateParams, amount, identifier, email as emailSchema } from '../validation.js';
 import { mailConfigured, sendOrderConfirmation } from '../mailer.js';
 import { logEvent } from '../security.js';
+import { onlinePaymentEnabled } from '../paymob.js';
+import { openPayment } from './payments.js';
 // The status model is shared with the dashboard, which imports the same file
 // through its `@shared` alias — so the two cannot disagree about what a status
 // is.
@@ -64,7 +66,7 @@ const checkoutBody = z.strictObject({
   landmark: z.string().max(200).optional(),
   notes: z.string().max(1000).optional(),
   promoCode: z.string().max(40).optional(),
-  paymentMethod: z.literal('cash').optional(),
+  paymentMethod: z.enum(['cash', 'online']).optional(),
   lang: z.enum(['en', 'ar']).optional(),
   expectedTotal: amount.optional(),
 }).superRefine((body, ctx) => {
@@ -98,10 +100,34 @@ router.post('/', async (req, res, next) => {
     return res.status(400).json({ error: 'INVALID', message: 'Check the form.', fields });
   }
 
+  const online = parsed.data.paymentMethod === 'online';
+  if (online && !onlinePaymentEnabled()) {
+    logEvent('order_rejected', req, { code: 'PAYMENT_UNAVAILABLE' });
+    return res.status(400).json({ error: 'PAYMENT_UNAVAILABLE', message: 'Online payment is not available right now. Choose cash.' });
+  }
+  // Paymob sends its receipt there, and its checkout will not open without one.
+  if (online && !parsed.data.email) {
+    return res.status(400).json({
+      error: 'INVALID', message: 'Check the form.',
+      fields: { email: 'We need your email to pay online.' },
+    });
+  }
+
   try {
     // The session, never the body, says whose account this is.
     const customer = await readCustomer(req);
     const { order, duplicate } = await createOrder(parsed.data, { profileId: customer?.email ?? null });
+
+    // The order is committed before Paymob is asked for anything, so a slow or
+    // failing provider can cost the popup but never the order: `payment: null`
+    // tells the checkout to offer "try again", which opens a fresh session.
+    let payment = null;
+    if (order.paymentMethod === 'online' && order.paymentStatus === 'unpaid') {
+      payment = await openPayment(order, req).catch((error) => {
+        logEvent('payment_session_failed', req, { reference: order.reference, code: error.code ?? 'UNKNOWN' });
+        return null;
+      });
+    }
 
     // The confirmation goes out AFTER the order has committed, and its failure
     // is swallowed. Three things are load-bearing here:
@@ -136,7 +162,7 @@ router.post('/', async (req, res, next) => {
     }
 
     return res.status(duplicate ? 200 : 201)
-      .json({ order: orders.orderPayload(order), duplicate });
+      .json({ order: orders.orderPayload(order), duplicate, payment });
   } catch (error) {
     if (error.status) {
       logEvent('order_rejected', req, { code: error.code, status: error.status });
@@ -254,9 +280,9 @@ router.patch('/:reference/status', requireAdmin, async (req, res, next) => {
 /**
  * PATCH /api/orders/:reference/payment — record whether the cash was collected.
  *
- * Cash on delivery is the only way to pay, so this is internal bookkeeping set
- * by staff after the handover. No payment provider is involved and nothing here
- * claims one was.
+ * Cash orders only: internal bookkeeping set by staff after the handover. An
+ * online order is marked paid by Paymob's signed transaction and nothing else
+ * (routes/payments.js); the repo refuses it here.
  */
 router.patch('/:reference/payment', requireAdmin, async (req, res, next) => {
   try {

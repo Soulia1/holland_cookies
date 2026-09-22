@@ -50,6 +50,15 @@ export function validateEnvironment(env = process.env) {
     // The mail client's base URL is pinned in code so a stray environment
     // variable cannot redirect outbound mail.
     BREVO_BASE_URL: z.undefined().optional(),
+
+    // Online payment follows email's rule: off unless PAYMENTS_ONLINE=paymob,
+    // and only then are the Paymob keys required. `mock` is a laptop-only
+    // stand-in for Paymob's page and is refused here by omission.
+    PAYMENTS_ONLINE: z.enum(['paymob', 'disabled', '']).optional(),
+    PAYMOB_SECRET_KEY: z.union([z.literal(''), z.string().min(20).max(400)]).optional(),
+    PAYMOB_PUBLIC_KEY: z.union([z.literal(''), z.string().min(10).max(200)]).optional(),
+    PAYMOB_HMAC_SECRET: z.union([z.literal(''), z.string().min(16).max(200)]).optional(),
+    PAYMOB_INTEGRATION_IDS: z.union([z.literal(''), z.string().regex(/^\s*\d{1,12}\s*(,\s*\d{1,12}\s*)*$/)]).optional(),
   }).safeParse(env);
 
   if (!parsed.success) {
@@ -58,6 +67,13 @@ export function validateEnvironment(env = process.env) {
   if (env.ADMIN_KEY === env.JWT_SECRET) throw new Error('Production secrets must be independent');
   if (env.MAIL_TRANSPORT === 'brevo' && !(env.BREVO_API_KEY && env.MAIL_FROM_EMAIL)) {
     throw new Error('Invalid production configuration: MAIL_TRANSPORT=brevo needs BREVO_API_KEY and MAIL_FROM_EMAIL');
+  }
+  if (env.PAYMENTS_ONLINE === 'paymob') {
+    const missing = ['PAYMOB_SECRET_KEY', 'PAYMOB_PUBLIC_KEY', 'PAYMOB_HMAC_SECRET', 'PAYMOB_INTEGRATION_IDS']
+      .filter((name) => !env[name]);
+    if (missing.length) {
+      throw new Error(`Invalid production configuration: PAYMENTS_ONLINE=paymob needs ${missing.join(', ')}`);
+    }
   }
 
   assertFirebaseCredentials(env);

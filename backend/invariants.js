@@ -59,9 +59,10 @@ const finite = (value) => typeof value === 'number' && Number.isFinite(value);
  * A new order, as it must look at the moment it is first written.
  *
  * Was: `orders_insert_guard`. The status/payment triple is pinned rather than
- * merely validated — a brand new order is always `ordered` / `unpaid` / `cash`,
- * and an order that arrives already marked paid is a forged request, not an
- * unusual one.
+ * merely validated — a brand new order is always `ordered` / `unpaid`, paid in
+ * cash or online, and an order that arrives already marked paid is a forged
+ * request, not an unusual one. An online order becomes paid only through a
+ * transaction Paymob signed (see backend/paymob.js).
  */
 export function assertNewOrder(order) {
   for (const field of ['subtotal', 'discount', 'delivery', 'total']) {
@@ -78,7 +79,7 @@ export function assertNewOrder(order) {
 
   if (order.status !== 'ordered') fail("a new order must have status 'ordered'");
   if (order.paymentStatus !== 'unpaid') fail("a new order must be 'unpaid'");
-  if (order.paymentMethod !== 'cash') fail("a new order must be 'cash'");
+  if (!['cash', 'online'].includes(order.paymentMethod)) fail("a new order must be 'cash' or 'online'");
 
   if (!Array.isArray(order.items) || order.items.length === 0) fail('an order must have items');
   if (order.items.length > 60) fail('an order may not have more than 60 lines');
@@ -121,8 +122,9 @@ export function assertOrderItem(item) {
  * be rewritten after the fact is not a receipt.
  *
  * `paymentStatus` is the one financial field that is allowed to move, because
- * cash is collected after the order is placed and somebody has to record that.
- * It is constrained to the known states and is admin-only at the route layer.
+ * cash is collected after the order is placed and somebody has to record that,
+ * and an online payment settles after it too. It is constrained to the known
+ * states; cash is admin-only at the route layer, online is signature-only.
  */
 export function assertOrderUpdate(previous, next) {
   for (const field of ['subtotal', 'discount', 'delivery', 'total', 'paymentMethod']) {

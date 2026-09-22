@@ -15,6 +15,8 @@ import ordersRoute from './routes/orders.js';
 import adminRoute from './routes/admin.js';
 import imagesRoute from './routes/images.js';
 import accountRoute from './routes/account.js';
+import paymentsRoute from './routes/payments.js';
+import { onlinePaymentEnabled } from './paymob.js';
 import { validateEnvironment } from './config.js';
 import { limit, originGuard, requestContext, logEvent } from './security.js';
 import { validateEnvelope, rejectDangerousKeys } from './validation.js';
@@ -46,7 +48,10 @@ app.use(helmet({contentSecurityPolicy:{directives:{
   defaultSrc:["'self'"],scriptSrc:["'self'",...hashes],scriptSrcAttr:["'none'"],
   styleSrc:["'self'","'unsafe-inline'",'https://fonts.googleapis.com'],
   fontSrc:["'self'",'https://fonts.gstatic.com'],imgSrc:["'self'"],
-  connectSrc:["'self'"],frameSrc:["'none'"],frameAncestors:["'none'"],objectSrc:["'none'"],baseUri:["'none'"],formAction:["'self'"],
+  // The payment popup is Paymob's page in an iframe, and 3-D Secure moves that
+  // frame on to whichever bank issued the card — a list nobody can write down.
+  // So any https frame while online payment is on, and none while it is off.
+  connectSrc:["'self'"],frameSrc:onlinePaymentEnabled()?["'self'",'https:']:["'none'"],frameAncestors:["'none'"],objectSrc:["'none'"],baseUri:["'none'"],formAction:["'self'"],
   ...(process.env.NODE_ENV==='production'?{}:{upgradeInsecureRequests:null}),
 }},strictTransportSecurity:process.env.NODE_ENV==='production'?{maxAge:31536000}:false,referrerPolicy:{policy:'no-referrer'},crossOriginEmbedderPolicy:false}));
 const allowedOrigins=process.env.NODE_ENV==='production'?[]:(process.env.ALLOWED_ORIGINS||'').split(',').filter(Boolean);
@@ -69,6 +74,9 @@ app.use('/api',(req,res,next)=>{
 app.post('/api/admin/session',limit('login',15*60000,10));
 app.post('/api/orders',limit('checkout',10*60000,20));
 app.use('/api/orders/track',limit('tracking',15*60000,20));
+app.post('/api/payments/session',limit('payment-session',10*60000,20));
+// The popup polls this every few seconds while it is open.
+app.use('/api/payments/status',limit('payment-status',60000,40));
 app.post('/api/admin/promos/validate',limit('coupon',15*60000,20));
 app.use(['/api/orders/stats','/api/admin/users'],limit('report',60000,60));
 const writeLimit=limit('admin-write',60000,60);
@@ -94,7 +102,7 @@ app.get('/api/ready',async(_req,res)=>{
   try{await db.get().collection('_health').doc('probe').get();res.json({ok:true});}
   catch{res.status(503).json({ok:false});}
 });
-app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);
+app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);app.use('/api/payments',paymentsRoute);
 app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No such endpoint.'}));
 const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\\/]assets[\\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
 app.use('/dashboard',express.static(dashboardDist,staticOptions));app.use(express.static(dist,staticOptions));

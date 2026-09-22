@@ -1,8 +1,9 @@
 import { cloneElement, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, api, newIdempotencyKey,
-  type ApiProduct, type Order, type Settings,
+  type ApiProduct, type Order, type PaymentSession, type Settings,
 } from "@/lib/api";
+import PaymentPopup from "@/components/PaymentPopup";
 import { useCart } from "@/lib/cart";
 import { lineKey } from "@/lib/cart-core";
 import { areaFee, choiceProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
@@ -56,6 +57,14 @@ export default function CheckoutPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
+  const [payMethod, setPayMethod] = useState<"cash" | "online">("cash");
+  /**
+   * An online order that exists but is not paid yet. From here the form is
+   * gone: the order is committed, and a second submit would be a second order.
+   */
+  const [awaiting, setAwaiting] = useState<{
+    order: Order; phone: string; session: PaymentSession | null; open: boolean; error: string | null;
+  } | null>(null);
 
   const [promoInput, setPromoInput] = useState("");
   const [promo, setPromo] = useState<{ code: string; discount: number } | null>(null);
@@ -239,13 +248,18 @@ export default function CheckoutPage() {
     // not catch this: the cart is genuinely full, it is the *priced* cart that
     // is not ready.
     if (!catalogue) return;
+    const online = payMethod === "online" && !!settings?.onlinePaymentEnabled;
+    if (online && !form.email.trim()) {
+      setFieldErrors({ email: t.ckPayOnlineEmail });
+      return;
+    }
     submittingRef.current = true;
     setSubmitting(true);
     setFormError(null);
     setFieldErrors({});
 
     try {
-      const { order } = await api.placeOrder({
+      const { order, payment } = await api.placeOrder({
         idempotencyKey: idempotencyKey.current,
         // Identity and quantity only. Nothing about money leaves this page
         // except `expectedTotal`, which can only cause a refusal.
@@ -276,9 +290,20 @@ export default function CheckoutPage() {
         landmark: form.landmark.trim() || undefined,
         notes: form.notes.trim() || undefined,
         promoCode: promo?.code,
+        paymentMethod: online ? "online" : "cash",
         lang,
         expectedTotal: totals.total,
       });
+      if (order.paymentMethod === "online" && order.paymentStatus !== "paid") {
+        // The basket stays until the money does: an order abandoned at the
+        // payment page should not also cost the customer their cart.
+        setAwaiting({
+          order, phone: form.phone.trim(), session: payment ?? null,
+          open: !!payment, error: payment ? null : t.payOpenFailed,
+        });
+        window.scrollTo({ top: 0 });
+        return;
+      }
       // Cleared only once the order exists. Clearing optimistically would
       // destroy the basket of anyone whose order was refused.
       clear();
@@ -309,9 +334,70 @@ export default function CheckoutPage() {
     }
   }
 
+  function paid() {
+    if (!awaiting) return;
+    clear();
+    setPlaced({ ...awaiting.order, paymentStatus: "paid" });
+    setAwaiting(null);
+    window.scrollTo({ top: 0 });
+  }
+
+  /** A fresh Paymob session: after a decline, a closed popup, or a failed open. */
+  async function retryPayment() {
+    if (!awaiting) return;
+    const { order, phone } = awaiting;
+    setAwaiting({ ...awaiting, session: null, open: true, error: null });
+    try {
+      const { payment } = await api.paymentSession(order.reference, phone);
+      setAwaiting((current) => current && { ...current, session: payment });
+    } catch (error) {
+      // Paid in the meantime — by the webhook, or in another tab.
+      if (error instanceof ApiError && error.code === "NOTHING_TO_PAY") {
+        const status = await api.paymentStatus(order.reference, phone).catch(() => null);
+        if (status?.paymentStatus === "paid") return paid();
+      }
+      setAwaiting((current) => current && {
+        ...current, open: false,
+        error: error instanceof ApiError ? error.message : t.payOpenFailed,
+      });
+    }
+  }
+
   if (placed) return <ReceiptPrinter order={placed} />;
 
+  if (awaiting) {
+    return (
+      <main className="ed-page">
+        <div className="ed-shell">
+          <div className="ed-empty">
+            <span className="ed-tag">{t.ckTitle}</span>
+            <h1 className="ed-title">{t.payPendingTitle(awaiting.order.reference)}</h1>
+            <p className="ed-note">{t.payPendingBody}</p>
+            {awaiting.error && <p className="ed-alert" role="alert">{awaiting.error}</p>}
+            <button type="button" className="ed-btn"
+              onClick={() => (awaiting.session && !awaiting.error
+                ? setAwaiting({ ...awaiting, open: true })
+                : void retryPayment())}>
+              {t.payContinue}
+            </button>
+          </div>
+        </div>
+        <PaymentPopup
+          open={awaiting.open}
+          session={awaiting.session}
+          reference={awaiting.order.reference}
+          phone={awaiting.phone}
+          onPaid={paid}
+          onClose={() => setAwaiting((current) => current && { ...current, open: false })}
+          onRetry={() => void retryPayment()}
+        />
+      </main>
+    );
+  }
+
   const delivering = form.fulfilment === "delivery";
+  const onlineOffered = !!settings?.onlinePaymentEnabled;
+  const payingOnline = onlineOffered && payMethod === "online";
 
   return (
     <main className="ed-page">
@@ -351,7 +437,7 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="ed-2col">
-                  <Field id="email" label={t.ckEmail} error={fieldErrors.email}>
+                  <Field id="email" label={t.ckEmail} error={fieldErrors.email} required={payingOnline}>
                     <input id="email" className="ed-input" type="email" inputMode="email" dir="ltr"
                       autoComplete="email" value={form.email}
                       onChange={(e) => set("email", e.target.value)} />
@@ -454,12 +540,15 @@ export default function CheckoutPage() {
 
                 <div className="ed-field" style={{ marginBlockStart: 34 }}>
                   <span className="ed-label">{t.ckPayment}</span>
-                  {/* One method, and it is stated rather than offered as a
-                      choice between one thing. A card option that opened
-                      nothing would be a lie. */}
-                  <div className="ed-pay">
-                    <label className="active">
-                      <input type="radio" name="payment" value="cash" checked readOnly />
+                  {/* Online appears only when the server says Paymob is
+                      configured: a card option that opened nothing would be a
+                      lie. Until then cash is stated, not offered. */}
+                  <div className={`ed-pay ${onlineOffered ? "is-choice" : ""}`}
+                    role={onlineOffered ? "radiogroup" : undefined}
+                    aria-label={onlineOffered ? t.ckPayment : undefined}>
+                    <label className={payingOnline ? "" : "active"}>
+                      <input type="radio" name="payment" value="cash" checked={!payingOnline}
+                        onChange={() => setPayMethod("cash")} />
                       {/* Delivery is paid to the driver, pickup at the counter.
                           Saying "cash on delivery" over a pickup order names a
                           person who is never going to turn up. */}
@@ -470,6 +559,14 @@ export default function CheckoutPage() {
                         {delivering ? t.ckPayCashNote : t.ckPayPickupNote}
                       </span>
                     </label>
+                    {onlineOffered && (
+                      <label className={payingOnline ? "active" : ""}>
+                        <input type="radio" name="payment" value="online" checked={payingOnline}
+                          onChange={() => setPayMethod("online")} />
+                        <span className="ed-pay-label">{t.ckPayOnline}</span>
+                        <span className="ed-pay-sub">{t.ckPayOnlineNote}</span>
+                      </label>
+                    )}
                   </div>
                 </div>
 
@@ -482,7 +579,7 @@ export default function CheckoutPage() {
                 <button type="submit" className="ed-btn"
                   disabled={submitting || !catalogue || !!blocked.length
                     || settings?.acceptingOrders === false}>
-                  {submitting ? t.ckPlacing : t.ckPlaceOrder}
+                  {submitting ? t.ckPlacing : payingOnline ? t.ckPlaceOrderPay : t.ckPlaceOrder}
                 </button>
                 <p className="ed-fine">{t.cartHandoffNote}</p>
               </form>

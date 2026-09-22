@@ -227,7 +227,11 @@ export default function ReceiptPrinter({ order }: { order: Order }) {
                 <span>{t.rpPaidWith}</span>
                 {/* Matches the method the checkout actually offered for
                     this order's fulfilment type. */}
-                <span>{delivering ? t.ckPayCash : t.ckPayPickup}</span>
+                <span>
+                  {order.paymentMethod === "online"
+                    ? t.ckPayOnlinePaid
+                    : delivering ? t.ckPayCash : t.ckPayPickup}
+                </span>
               </li>
               <li><span>{t.rpDate}</span><span dir="ltr">{placed}</span></li>
             </ul>

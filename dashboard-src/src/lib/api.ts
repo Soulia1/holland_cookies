@@ -342,6 +342,8 @@ export interface ShopSettings {
   areas: DeliveryArea[];
   /** Read-only: whether the server has an email provider switched on. */
   emailEnabled?: boolean;
+  /** Read-only: whether checkout offers paying online through Paymob. */
+  onlinePaymentEnabled?: boolean;
 }
 
 // ------------------------------------------------------------- the fetches ---

@@ -26,10 +26,17 @@ export function validateEnvelope(req, res, next) {
   }
   if (/^\/orders\/track\//.test(req.path)) schema = z.strictObject({phone:z.string().min(6).max(24)});
   if (/^\/menu\/admin\/categories\/[^/]+$/.test(req.path)) schema = z.strictObject({withProducts:z.literal('1').optional()});
+  if (/^\/payments\/status\//.test(req.path)) schema = z.strictObject({phone:z.string().min(6).max(24)});
+  if (req.path === '/payments/paymob/webhook') schema = z.strictObject({hmac:z.string().max(200)});
+  if (req.path === '/payments/mock/checkout') schema = z.strictObject({ref:z.string().max(60),amount_cents:z.string().max(12)});
+  // Paymob's own field list, not ours to enumerate; every value is checked by
+  // the HMAC over it, and only as flat strings.
+  const paymobReturn = req.path === '/payments/paymob/return';
+  if (paymobReturn) schema = z.record(z.string().max(60), z.string().max(400)).refine((q) => Object.keys(q).length <= 60);
   const query = schema.safeParse(req.query);
   if (!query.success) return invalid(res);
   req.validatedQuery = query.data;
-  if (req.originalUrl.length > 2048) return res.status(414).json({error:'URI_TOO_LONG',message:'Request URL is too long.'});
+  if (req.originalUrl.length > (paymobReturn ? 6144 : 2048)) return res.status(414).json({error:'URI_TOO_LONG',message:'Request URL is too long.'});
   return next();
 }
 

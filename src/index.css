@@ -3348,6 +3348,35 @@ html[dir="rtl"] .ed-choice button { letter-spacing: 0; }
   text-align: end;
 }
 
+/* Two methods are a real choice, so the rows are clickable once there are two. */
+.ed-pay.is-choice label { cursor: pointer; }
+
+/* --- Payment popup -------------------------------------------------------- */
+
+/* Paymob's page is laid out for a phone-width column and scrolls inside the
+   frame, so the panel is sized to hold it rather than to its content. */
+.pay-popup {
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  width: min(480px, calc(100vw - 48px));
+  height: min(760px, calc(100dvh - 48px));
+  border-radius: 12px;
+}
+
+@media (max-width: 640px) {
+  .pay-popup {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    translate: none;
+    width: 100%;
+    height: 94dvh;
+    border-radius: 16px 16px 0 0;
+  }
+}
+
 /* --- Summary items + promo ------------------------------------------------ */
 
 .ed-sum-item {

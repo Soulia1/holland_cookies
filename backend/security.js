@@ -3,6 +3,7 @@ import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import {
   incrementRateLimit, decrementRateLimit, resetRateLimit, purgeExpiredRateLimits,
 } from './repo/system.js';
+import { onlinePaymentEnabled } from './paymob.js';
 
 /**
  * Rate limiting.
@@ -114,7 +115,10 @@ export function logEvent(event, req, extra = {}) {
 export function requestContext(req, res, next) {
   req.requestId = randomUUID();
   res.set('X-Request-Id', req.requestId);
-  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  // Paymob's page offers Google Pay / Apple Pay through the Payment Request
+  // API, which a framed page may use only if its parent allows it.
+  res.set('Permissions-Policy', `camera=(), microphone=(), geolocation=(), payment=${
+    onlinePaymentEnabled() ? '(self "https://accept.paymob.com" "https://eg.checkout.paymob.com")' : '()'}`);
   const start = performance.now();
   res.on('finish', () => {
     if (req.originalUrl.startsWith('/api/')) {
@@ -142,6 +146,9 @@ export function requestContext(req, res, next) {
  */
 export function originGuard(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  // Paymob's server, not a browser: it sends no Origin and cannot be asked to.
+  // It is not a CSRF target either — nothing is done unless its HMAC verifies.
+  if (req.method === 'POST' && req.path === '/payments/paymob/webhook') return next();
   const origin = req.get('origin');
   const expected = process.env.APP_ORIGIN || `${req.protocol}://${req.get('host')}`;
   const permitted = [expected, ...(process.env.NODE_ENV === 'production'

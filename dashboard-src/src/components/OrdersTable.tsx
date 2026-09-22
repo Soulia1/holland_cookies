@@ -115,11 +115,30 @@ function ItemLines({ items, limit = 3 }: { items: Order["items"]; limit?: number
 }
 
 /**
- * Whether the cash for a completed order has been collected.
+ * An online order's payment, as Paymob reported it. Read-only: only Paymob's
+ * signed transaction marks one paid. "Awaiting payment" is the one to notice —
+ * the customer left the payment page, and nothing has been paid for.
+ */
+export function OnlinePaymentPill({ order }: { order: Order }) {
+  if (order.paymentMethod !== "online") return null;
+  if (order.paymentStatus === "paid") {
+    return (
+      <span className="adm-pill is-done whitespace-nowrap">
+        <CircleCheck className="size-3.5 shrink-0" aria-hidden />
+        Paid online
+      </span>
+    );
+  }
+  if (order.paymentStatus === "refunded") return <span className="adm-pill whitespace-nowrap">Refunded</span>;
+  return <span className="adm-pill is-pending whitespace-nowrap">Awaiting payment</span>;
+}
+
+/**
+ * Whether the cash for a completed cash order has been collected.
  *
- * Cash on delivery is the only payment method, so this is the shop's own record
- * of the handover — not an online payment. Reversible on purpose: the only other
- * way to undo a misclick is a Firestore script. The server audits both directions.
+ * The shop's own record of the handover — not an online payment. Reversible on
+ * purpose: the only other way to undo a misclick is a Firestore script. The
+ * server audits both directions.
  */
 function PaymentControl({
   paid, busy, onChange,
@@ -167,8 +186,9 @@ function PaymentControl({
  *
  * `completed` and `cancelled` have no legal next status, so this column used to
  * render a dead dash on the rows that matter most. A completed order is exactly
- * where the money question lives — every order is cash on handover — so it gets
- * the payment control in place of the empty menu. Cancelled stays a dash:
+ * where the money question lives — cash changes hands at the handover — so it
+ * gets the payment control in place of the empty menu (an online order shows how
+ * Paymob settled instead). Cancelled stays a dash:
  * nothing was fulfilled and nothing is owed either way.
  */
 function RowActions({
@@ -185,6 +205,8 @@ function RowActions({
   const next = allowedNextStatuses(order.status, fulfillmentType);
   if (!next.length) {
     if (order.status !== "completed") return <span className="text-muted-foreground">—</span>;
+    // Paid through Paymob, or not; either way there is no cash to collect.
+    if (order.paymentMethod === "online") return <OnlinePaymentPill order={order} />;
     return (
       <PaymentControl
         paid={order.paymentStatus === "paid"}
@@ -371,7 +393,8 @@ export default function OrdersTable({
                     {formatDate(order.createdAt)}
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                  {order.status !== "completed" && <OnlinePaymentPill order={order} />}
                   <StatusPill status={order.status} fulfillmentType={fulfillmentType} />
                   <RowActions
                     order={order}
@@ -513,7 +536,12 @@ export default function OrdersTable({
                   <td className="max-w-[260px] text-[13px]">
                     <ItemLines items={order.items} />
                   </td>
-                  <td><StatusPill status={order.status} fulfillmentType={fulfillmentType} /></td>
+                  <td>
+                    <StatusPill status={order.status} fulfillmentType={fulfillmentType} />
+                    {order.status !== "completed" && (
+                      <div className="mt-1"><OnlinePaymentPill order={order} /></div>
+                    )}
+                  </td>
                   <td className="num">{itemCount(order)}</td>
                   <td>
                     <FulfillmentPill fulfillmentType={fulfillmentType} />

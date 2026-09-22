@@ -334,6 +334,74 @@ export async function setCashCollected(reference, collected, { actor = 'admin', 
   });
 }
 
+// ---------------------------------------------------------- online payment ----
+
+/**
+ * Remember the payment session opened for an order. Every attempt is kept, so
+ * a transaction can be traced back to the order even when it names only
+ * Paymob's own order id.
+ */
+export async function attachPaymentSession(reference, session) {
+  await collections.orders().doc(String(reference).toUpperCase()).update({
+    'paymob.intentionId': session.intentionId,
+    'paymob.specialReference': session.specialReference,
+    'paymob.references': FieldValue.arrayUnion(session.specialReference),
+    ...(session.paymobOrderId ? { 'paymob.orderIds': FieldValue.arrayUnion(session.paymobOrderId) } : {}),
+    'paymob.openedAt': now(),
+  });
+}
+
+export async function findReferenceByPaymobOrder(paymobOrderId) {
+  if (!paymobOrderId) return null;
+  const snapshot = await collections.orders()
+    .where('paymob.orderIds', 'array-contains', String(paymobOrderId)).limit(1).get();
+  return snapshot.empty ? null : snapshot.docs[0].id;
+}
+
+/**
+ * Apply a transaction Paymob signed. The caller has already verified the
+ * signature; this decides whether it pays *this* order.
+ *
+ * The same transaction arrives twice — the webhook and the popup's return —
+ * so a second copy is an answer, not an error. Money is compared to the order
+ * as the server priced it: a signed transaction for a different amount is
+ * somebody else's payment, or a bug, and neither pays for these cookies.
+ */
+export async function recordOnlinePayment(reference, txn, { requestId = '' } = {}) {
+  const ref = collections.orders().doc(String(reference).toUpperCase());
+  const db = collections.orders().firestore;
+
+  return db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) return { found: false };
+    const order = orderFromDoc(snapshot);
+
+    if (order.paymentMethod !== 'online') return { found: true, outcome: 'not_online' };
+    // A refund or void is a second transaction on the same order. Refunds are
+    // run from Paymob's dashboard; none of them may *pay* an order here.
+    if (txn.followUp) return { found: true, outcome: 'follow_up' };
+    if (!txn.success || txn.pending) return { found: true, outcome: txn.pending ? 'pending' : 'declined', order };
+    if (txn.currency !== 'EGP' || txn.amountCents !== Math.round(order.total * 100)) {
+      return { found: true, outcome: 'amount_mismatch' };
+    }
+    if (order.paymentStatus === 'paid') return { found: true, outcome: 'already_paid', order };
+
+    // Recorded even on a cancelled order: the money has moved, and a cancelled
+    // order marked paid is exactly what tells staff a refund is owed.
+    const update = { paymentStatus: 'paid', paymentRef: txn.id, updatedAt: now() };
+    assertOrderUpdate(order, update);
+    tx.update(ref, update);
+    tx.create(collections.auditEvents().doc(), {
+      actor: 'paymob',
+      action: `online:${order.paymentStatus}->paid`,
+      resource: order.reference,
+      requestId,
+      createdAt: now(),
+    });
+    return { found: true, outcome: 'paid', order: { ...order, ...update } };
+  });
+}
+
 // ------------------------------------------------------------------ stats ----
 
 /**
