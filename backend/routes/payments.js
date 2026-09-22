@@ -87,16 +87,44 @@ const RESULT_TEXT = {
 };
 
 /** A page with no script, framed only by our own checkout. */
-function sendFramePage(res, status, title, body) {
+function sendFramePage(res, status, title, body, extraStyle = '') {
   res.status(status)
     .set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'")
     .type('html')
     .send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 system-ui,sans-serif;color:#5d101d;background:#fdf8f3;text-align:center;padding:24px;box-sizing:border-box}
 main{max-width:360px}h1{font-size:20px;margin:0 0 8px}p{margin:0 0 20px;color:#5d101d99}a{display:block;margin:10px 0;padding:14px;border-radius:10px;text-decoration:none;font-weight:600}
-.pay{background:#5d101d;color:#fff}.decline{border:1px solid #5d101d33;color:#5d101d}small{display:block;margin-top:18px;color:#5d101d80}</style></head>
-<body><main>${body}</main></body></html>`);
+.pay{background:#5d101d;color:#fff}.decline{border:1px solid #5d101d33;color:#5d101d}small{display:block;margin-top:18px;color:#5d101d80}${extraStyle}</style></head>
+<body>${body.startsWith('<div') ? body : `<main>${body}</main>`}</body></html>`);
 }
+
+/**
+ * The mock's page, laid out like Paymob's own: the amount on the left, the
+ * method picker and card form on the right. It is a picture of that page with
+ * two working links, so the popup can be seen and judged before the merchant
+ * account has keys. Nothing here is a real field.
+ */
+const MOCK_STYLE = `
+body{display:block;padding:0;background:#fff;text-align:start;color:#1f2430;font-size:15px}
+.mock{display:flex;min-height:100vh;flex-wrap:wrap}
+.mock-left{flex:1 1 300px;background:#f1f2f4;padding:40px 36px;display:flex;flex-direction:column;justify-content:space-between}
+.mock-right{flex:1 1 380px;padding:40px 36px;background:#fff}
+.mock-brand{font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:13px;color:#1f2430}
+.mock-total-label{margin:48px 0 6px;font-size:15px;color:#59606e}
+.mock-total{margin:0;font-size:34px;font-weight:700;letter-spacing:-.01em}
+.mock-foot{font-size:12.5px;color:#7b8291;margin:0}
+.mock-h2{margin:0 0 22px;font-size:21px;font-weight:700}
+.mock-label{font-size:13px;color:#59606e;margin:0 0 8px}
+.mock-tabs{display:flex;gap:10px;margin-bottom:22px;flex-wrap:wrap}
+.mock-tab{flex:1 1 90px;border:1px solid #d8dbe1;border-radius:8px;padding:12px 8px;text-align:center;font-size:13px;font-weight:600;color:#59606e}
+.mock-tab.on{border-color:#2f6df6;color:#2f6df6;box-shadow:inset 0 0 0 1px #2f6df6}
+.mock-field{border:1px solid #d8dbe1;border-radius:8px;padding:13px 14px;color:#9aa0ac;font-size:14px;margin-bottom:10px}
+.mock-split{display:flex;gap:10px}.mock-split>div{flex:1}
+.mock-note{margin:22px 0 10px;padding:10px 12px;border-radius:8px;background:#fff7e6;color:#8a5a00;font-size:12.5px}
+a.pay{background:#2f6df6;color:#fff;text-align:center}
+a.decline{border:1px solid #d8dbe1;color:#59606e;text-align:center}
+@media(max-width:700px){.mock-left{padding:24px}.mock-right{padding:24px}.mock-total{font-size:28px}.mock-total-label{margin-top:16px}}
+`;
 
 router.get('/paymob/return', async (req, res, next) => {
   try {
@@ -166,11 +194,31 @@ router.get('/mock/checkout', (req, res) => {
   // the page's, and the return page has to stay same-origin with the checkout.
   const link = (success) => `/api/payments/paymob/return?${mockResultQuery({ specialReference, amountCents, success })}`;
   const amount = (amountCents / 100).toLocaleString('en-EG', { minimumFractionDigits: 2 });
-  return sendFramePage(res, 200, 'Test payment', `<h1>Test payment</h1>
-<p>This stands in for Paymob's page on this computer. No card is charged.<br><strong>${amount} EGP</strong> · ${referenceFrom(specialReference)}</p>
-<a class="pay" href="${link(true)}">Pay ${amount} EGP</a>
-<a class="decline" href="${link(false)}">Decline the card</a>
-<small>PAYMENTS_ONLINE=mock</small>`);
+  return sendFramePage(res, 200, 'Test payment', `<div class="mock">
+  <div class="mock-left">
+    <div class="mock-brand">Holland Cookies</div>
+    <div>
+      <p class="mock-total-label">Total Amount</p>
+      <p class="mock-total">EGP ${amount}</p>
+      <p class="mock-foot" style="margin-top:8px">Order ${referenceFrom(specialReference)}</p>
+    </div>
+    <p class="mock-foot">Stand-in for <strong>Paymob</strong> · Secure payment</p>
+  </div>
+  <div class="mock-right">
+    <h1 class="mock-h2">Checkout</h1>
+    <p class="mock-label">Payment method</p>
+    <div class="mock-tabs">
+      <div class="mock-tab on">Card</div><div class="mock-tab">Wallet</div><div class="mock-tab">Instalments</div>
+    </div>
+    <p class="mock-label">Card information</p>
+    <div class="mock-field">1234 1234 1234 1234</div>
+    <div class="mock-split"><div class="mock-field">MM / YY</div><div class="mock-field">CVV</div></div>
+    <div class="mock-field">Cardholder name</div>
+    <p class="mock-note">Test page — the real Paymob checkout replaces this once the account keys are set. No card is charged and these fields do nothing.</p>
+    <a class="pay" href="${link(true)}">Pay EGP ${amount}</a>
+    <a class="decline" href="${link(false)}">Simulate a declined card</a>
+  </div>
+</div>`, MOCK_STYLE);
 });
 
 export default router;

@@ -546,27 +546,43 @@ export default function CheckoutPage() {
                   <div className={`ed-pay ${onlineOffered ? "is-choice" : ""}`}
                     role={onlineOffered ? "radiogroup" : undefined}
                     aria-label={onlineOffered ? t.ckPayment : undefined}>
-                    <label className={payingOnline ? "" : "active"}>
-                      <input type="radio" name="payment" value="cash" checked={!payingOnline}
-                        onChange={() => setPayMethod("cash")} />
-                      {/* Delivery is paid to the driver, pickup at the counter.
-                          Saying "cash on delivery" over a pickup order names a
-                          person who is never going to turn up. */}
-                      <span className="ed-pay-label">
-                        {delivering ? t.ckPayCash : t.ckPayPickup}
-                      </span>
-                      <span className="ed-pay-sub">
-                        {delivering ? t.ckPayCashNote : t.ckPayPickupNote}
-                      </span>
-                    </label>
+                    {/* Online first, because it is the one being offered; cash
+                        stays selected by default, which is what most orders
+                        still are. */}
                     {onlineOffered && (
-                      <label className={payingOnline ? "active" : ""}>
-                        <input type="radio" name="payment" value="online" checked={payingOnline}
-                          onChange={() => setPayMethod("online")} />
-                        <span className="ed-pay-label">{t.ckPayOnline}</span>
-                        <span className="ed-pay-sub">{t.ckPayOnlineNote}</span>
+                      <label className={`ed-pay-opt ${payingOnline ? "is-active" : ""}`}>
+                        <span className="ed-pay-row">
+                          <input type="radio" name="payment" value="online" checked={payingOnline}
+                            onChange={() => setPayMethod("online")} />
+                          <span className="ed-pay-text">
+                            <span className="ed-pay-label">{t.ckPayOnline}</span>
+                            <span className="ed-pay-sub">{t.ckPayOnlineNote}</span>
+                          </span>
+                          <PayBrands more={t.ckPayWallets} />
+                        </span>
+                        {/* Only under the selected option, as the reference
+                            checkout does: an explanation of what the button is
+                            about to do, where it is about to be needed. */}
+                        {payingOnline && <span className="ed-pay-hint">{t.ckPayOnlineHint}</span>}
                       </label>
                     )}
+                    <label className={`ed-pay-opt ${payingOnline ? "" : "is-active"}`}>
+                      <span className="ed-pay-row">
+                        <input type="radio" name="payment" value="cash" checked={!payingOnline}
+                          onChange={() => setPayMethod("cash")} />
+                        <span className="ed-pay-text">
+                          {/* Delivery is paid to the driver, pickup at the counter.
+                              Saying "cash on delivery" over a pickup order names a
+                              person who is never going to turn up. */}
+                          <span className="ed-pay-label">
+                            {delivering ? t.ckPayCash : t.ckPayPickup}
+                          </span>
+                          <span className="ed-pay-sub">
+                            {delivering ? t.ckPayCashNote : t.ckPayPickupNote}
+                          </span>
+                        </span>
+                      </span>
+                    </label>
                   </div>
                 </div>
 
@@ -683,6 +699,42 @@ export default function CheckoutPage() {
         )}
       </div>
     </main>
+  );
+}
+
+/**
+ * What the online option accepts, as small marks on the right of the row —
+ * the reassurance the reference checkout gives at exactly this moment.
+ *
+ * Drawn inline rather than fetched: the content policy allows images from this
+ * origin only, and four tiny marks are not worth four requests or four files.
+ * Which methods are actually live is decided by the integrations on the Paymob
+ * account, so this stays at the level of "cards and wallets" and does not
+ * promise a particular scheme.
+ */
+function PayBrands({ more }: { more: string }) {
+  return (
+    <span className="ed-pay-brands" aria-hidden="true">
+      <span className="ed-pay-brand" title="Visa">
+        <svg viewBox="0 0 34 12" width="30" height="11">
+          <text x="17" y="10" textAnchor="middle" fontSize="11" fontWeight="700"
+            fontStyle="italic" fontFamily="Georgia, serif" fill="#1434CB">VISA</text>
+        </svg>
+      </span>
+      <span className="ed-pay-brand" title="Mastercard">
+        <svg viewBox="0 0 34 20" width="30" height="18">
+          <circle cx="14" cy="10" r="6.5" fill="#EB001B" />
+          <circle cx="20" cy="10" r="6.5" fill="#F79E1B" fillOpacity="0.85" />
+        </svg>
+      </span>
+      <span className="ed-pay-brand" title="Meeza">
+        <svg viewBox="0 0 34 12" width="30" height="11">
+          <text x="17" y="9.5" textAnchor="middle" fontSize="9" fontWeight="700"
+            fontFamily="Georgia, serif" fill="#0B4E8A">meeza</text>
+        </svg>
+      </span>
+      <span className="ed-pay-more">{more}</span>
+    </span>
   );
 }
 
