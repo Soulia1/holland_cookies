@@ -144,7 +144,7 @@ test('production refuses the mock, and Paymob without all four keys', () => {
   const prod = {
     NODE_ENV: 'production',
     ADMIN_KEY: 'a'.repeat(40), JWT_SECRET: 'b'.repeat(40), APP_ORIGIN: 'https://shop.test',
-    DEPLOYMENT_MODE: 'single-instance',
+    ADMIN_HOSTNAME: 'admin.shop.test', DEPLOYMENT_MODE: 'single-instance',
     FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({
       project_id: 'p-test', client_email: 'x@p-test.iam.gserviceaccount.com',
       private_key: `-----BEGIN PRIVATE KEY-----\n${'A'.repeat(120)}\n-----END PRIVATE KEY-----\n`,

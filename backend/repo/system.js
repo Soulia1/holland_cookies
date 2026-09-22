@@ -171,3 +171,42 @@ export async function updateOtpRecord(email, patch) {
 }
 
 export const otpCollection = () => collections.otpCodes();
+
+// -------------------------------------------------------------- mail log ----
+
+/**
+ * One send, once.
+ *
+ * The dedupe key IS the document id, so the claim is `create()` — which fails
+ * if the document exists — rather than a read followed by a write. Read-then-
+ * write is not a lock: two requests can both read "nothing sent" before either
+ * writes, and the customer gets the same receipt twice. Firestore's create is
+ * atomic and needs no transaction, no query and therefore no index.
+ *
+ * A failed send releases its claim, so the next genuine attempt can still get
+ * through. A claim left behind by a crash between claim and send costs one
+ * unsent email, which is the safer of the two ways to be wrong.
+ */
+export async function claimMailSend(dedupeKey) {
+  try {
+    await collections.mailLog().doc(dedupeKey).create({ status: 'sending', createdAt: now() });
+    return true;
+  } catch (error) {
+    // 6 is ALREADY_EXISTS. Anything else is a real datastore failure.
+    if (error?.code === 6) return false;
+    throw error;
+  }
+}
+
+export async function recordMailSent(dedupeKey, { to, subject }) {
+  await collections.mailLog().doc(dedupeKey).set({
+    status: 'sent',
+    to: String(to).slice(0, 320),
+    subject: String(subject).slice(0, 200),
+    sentAt: now(),
+  }, { merge: true });
+}
+
+export async function releaseMailClaim(dedupeKey) {
+  await collections.mailLog().doc(dedupeKey).delete();
+}

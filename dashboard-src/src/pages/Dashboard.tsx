@@ -392,7 +392,7 @@ export default function Dashboard() {
           <PanelHeading
             icon={ChartPie}
             title="Best Sellers"
-            action={<PanelLink href="/dashboard/menu">More details</PanelLink>}
+            action={<PanelLink href="/menu">More details</PanelLink>}
           />
           {productTotal > 0 ? (
             <div className="mt-4 flex items-center gap-4">
@@ -430,7 +430,7 @@ export default function Dashboard() {
           <PanelHeading
             icon={UsersRound}
             title="Orders / Day"
-            action={<PanelLink href="/dashboard/orders">View orders</PanelLink>}
+            action={<PanelLink href="/orders">View orders</PanelLink>}
           />
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -460,7 +460,7 @@ export default function Dashboard() {
           <PanelHeading
             icon={Truck}
             title="Fulfilment Snapshot"
-            action={<PanelLink href="/dashboard/orders">Full snapshot</PanelLink>}
+            action={<PanelLink href="/orders">Full snapshot</PanelLink>}
           />
           <div className="mt-4 grid grid-cols-3 divide-x divide-border">
             <div className="pe-3">
@@ -558,7 +558,7 @@ export default function Dashboard() {
                 <DropdownMenuItem onClick={() => void load(days, search)}>Refresh</DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
-                    window.location.href = "/dashboard/orders";
+                    window.location.href = "/orders";
                   }}
                 >
                   Open all orders

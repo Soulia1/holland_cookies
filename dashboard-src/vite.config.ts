@@ -11,7 +11,7 @@ const ROOT = import.meta.dirname;
  * Separate from the storefront because it shares nothing with it: different
  * fonts, different palette, different audience, and — most importantly — a
  * customer must never download the admin bundle. Two apps, one Express server,
- * one origin.
+ * two hostnames: the dashboard is served at the root of ADMIN_HOSTNAME.
  */
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -29,7 +29,7 @@ export default defineConfig({
     },
   },
   root: ROOT,
-  base: "/dashboard/",
+  base: "/",
   build: {
     outDir: path.resolve(ROOT, "../dist-dashboard"),
     emptyOutDir: true,

@@ -10,7 +10,21 @@
  * confirmation is sent and customer sign-in (which needs an emailed code) is
  * switched off — see `accountsAvailable`.
  *
- * Two messages are sent: the sign-in code, and the order confirmation.
+ * Four kinds of message are sent:
+ *
+ *   - the sign-in code, to a customer signing in;
+ *   - the order confirmation, to the customer who ordered;
+ *   - the new-order alert, to the bakery (ADMIN_ORDER_EMAIL);
+ *   - a milestone update when an order goes out and when it arrives.
+ *
+ * Only two milestones are announced. Holland's statuses are fulfilment-neutral
+ * — `in_transit` reads "Out for delivery" or "Ready for pickup" and `completed`
+ * reads "Delivered" or "Picked up" — so those two statuses produce the four
+ * messages a customer can receive, and the earlier internal moves produce none.
+ * A mail for every step would be noise, and noise is what gets a sender blocked.
+ *
+ * Every send that must not repeat goes through `sendOnce`, which claims its
+ * dedupe key in the mail log before the provider is called.
  *
  * The three things it must never do:
  *
@@ -26,7 +40,27 @@
  *    and sends no receipt.
  */
 
+import { statusLabel } from '../shared/orderStatus.mjs';
+import { adminHostname } from './config.js';
+import { claimMailSend, recordMailSent, releaseMailClaim } from './repo/system.js';
+import {
+  BRAND, esc, money, numeric, shopOrigin, shell, heading, referenceBlock, itemsBlock,
+  factsBlock, buttonBlock, noteBlock,
+} from './emailTheme.js';
+
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
+
+/**
+ * Where the bakery's copy of every order goes.
+ *
+ * Several addresses may be listed, comma separated — a shop inbox and a phone
+ * that someone actually looks at are different things and both want the alert.
+ */
+export function adminOrderRecipients() {
+  const configured = String(process.env.ADMIN_ORDER_EMAIL || '').trim();
+  return (configured || 'hollandcookies.mf@gmail.com')
+    .split(',').map((address) => address.trim()).filter(Boolean);
+}
 
 export function mailConfigured() {
   return process.env.MAIL_TRANSPORT === 'brevo' && Boolean(process.env.BREVO_API_KEY);
@@ -76,6 +110,8 @@ function sender() {
  *   turns that into a visible failure rather than a silent one.
  */
 export async function sendMail({ to, subject, text, html }) {
+  const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  if (!recipients.length) return { delivered: false, via: 'skipped-no-address' };
   if (!mailConfigured()) {
     if (!consoleTransportAllowed()) {
       const error = new Error('No mail provider is configured, so nothing can be sent.');
@@ -87,7 +123,7 @@ export async function sendMail({ to, subject, text, html }) {
     // configured, and it is what makes the sign-in flow testable locally.
     console.log(
       `\n[holland:mail] (no provider configured — printing instead of sending)\n`
-      + `  to:      ${to}\n  subject: ${subject}\n  ${text?.replace(/\n/g, '\n  ')}\n`,
+      + `  to:      ${recipients.join(', ')}\n  subject: ${subject}\n  ${text?.replace(/\n/g, '\n  ')}\n`,
     );
     return { delivered: false, via: 'console' };
   }
@@ -103,9 +139,12 @@ export async function sendMail({ to, subject, text, html }) {
     },
     body: JSON.stringify({
       sender: sender(),
-      to: [{ email: to }],
+      to: recipients.map((email) => ({ email })),
       subject,
       textContent: text,
+      // Tells well-behaved clients not to send an out-of-office reply to a
+      // receipt, and marks the message as machine-generated for spam filters.
+      headers: { 'Auto-Submitted': 'auto-generated' },
       ...(html ? { htmlContent: html } : {}),
       ...(process.env.MAIL_REPLY_TO
         ? { replyTo: { email: process.env.MAIL_REPLY_TO } }
@@ -128,6 +167,27 @@ export async function sendMail({ to, subject, text, html }) {
   return { delivered: true, via: 'brevo' };
 }
 
+/**
+ * Send a message that must not be sent twice.
+ *
+ * The claim is taken before the provider is called and released if the call
+ * fails, so a retry can still deliver. A message whose key is already claimed
+ * resolves as skipped rather than throwing: a duplicate is not an error, it is
+ * the thing this exists to prevent.
+ */
+async function sendOnce(dedupeKey, message) {
+  if (!(await claimMailSend(dedupeKey))) return { delivered: false, via: 'skipped-duplicate' };
+  try {
+    const result = await sendMail(message);
+    const recipients = Array.isArray(message.to) ? message.to : [message.to];
+    await recordMailSent(dedupeKey, { to: recipients.join(', '), subject: message.subject });
+    return result;
+  } catch (error) {
+    await releaseMailClaim(dedupeKey).catch(() => {});
+    throw error;
+  }
+}
+
 /** The sign-in code email. */
 export async function sendSignInCode(email, code, lang = 'en') {
   const arabic = lang === 'ar';
@@ -137,61 +197,50 @@ export async function sendSignInCode(email, code, lang = 'en') {
     : `Your Holland Cookies sign-in code is ${code}\n\n`
       + `It is good for ten minutes. If you did not ask for it, ignore this email.`;
 
-  const html = `<div style="font-family:system-ui,sans-serif;max-width:420px">
-  <p style="font-size:14px;color:#5d101d;font-weight:600;letter-spacing:.12em;text-transform:uppercase">
-    Holland Cookies</p>
-  <p style="font-size:15px;color:#333">${arabic ? 'كود الدخول بتاعك' : 'Your sign-in code'}</p>
-  <p style="font-size:34px;font-weight:700;letter-spacing:.16em;color:#5d101d;margin:8px 0">${code}</p>
-  <p style="font-size:13px;color:#777">${
-    arabic
-      ? 'الكود صالح لعشر دقايق. لو مش إنت اللي طلبته، تجاهل الرسالة دي.'
-      : 'Good for ten minutes. If you did not ask for it, ignore this email.'
-  }</p>
-</div>`;
+  const html = shell({
+    lang, title: subject,
+    preheader: arabic ? `كود الدخول ${code}` : `Sign-in code ${code}`,
+    blocks: [
+      heading({
+        lang,
+        accent: arabic ? 'تسجيل الدخول' : 'Sign in',
+        title: arabic ? 'كود الدخول بتاعك' : 'Your sign-in code',
+      }),
+      `<tr><td style="padding:8px 28px 4px 28px;">
+        <div style="display:inline-block;background:${BRAND.cream};border:1px solid ${BRAND.border};border-radius:14px;padding:16px 26px;">
+          <span style="font-size:34px;font-weight:800;letter-spacing:.22em;color:${BRAND.cocoa};">${esc(code)}</span>
+        </div>
+      </td></tr>`,
+      noteBlock({
+        text: arabic
+          ? 'الكود صالح لعشر دقايق. لو مش إنت اللي طلبته، تجاهل الرسالة دي.'
+          : 'Good for ten minutes. If you did not ask for it, ignore this email.',
+      }),
+    ],
+  });
 
   return sendMail({ to: email, subject, text, html });
 }
 
-// --------------------------------------------------------- order receipt ----
-
-const EGP = (value) => `${Number(value).toFixed(2)} EGP`;
+// --------------------------------------------------------- order emails ----
 
 /**
- * Escape for HTML.
+ * What every order email reads off the order.
  *
- * Product names and the customer's own name go into this email. They are
- * already bounded and validated on the way in, but "validated" is not
- * "escaped" — a name containing `<` belongs in an email as a `<`, and the
- * contextual encoding for HTML is this, applied here, at the point the string
- * becomes markup. The plain-text part needs none of it, which is exactly why
- * the two are built separately rather than by stripping tags from one.
+ * Built once, here, and shared by the customer's receipt, the bakery's alert
+ * and the milestone updates. Nothing in it is computed: every figure is the one
+ * the server stored, so an email cannot disagree with the receipt on screen or
+ * with the dashboard. That was already the rule for the confirmation; keeping
+ * one model is what stops the three messages drifting apart.
  */
-const esc = (value) => String(value ?? '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
-/**
- * The order confirmation.
- *
- * Deliberately reflects only what the server decided. Every figure here is read
- * back off the stored order, never recomputed and never taken from the request,
- * so the email cannot disagree with the receipt or with the dashboard.
- */
-export async function sendOrderConfirmation(order, lang = 'en') {
-  const arabic = lang === 'ar';
-  const to = order.email;
-  if (!to) return { delivered: false, via: 'skipped-no-address' };
-
-  const subject = arabic
-    ? `تأكيد طلبك ${order.reference}`
-    : `Your Holland Cookies order ${order.reference}`;
-
+function orderModel(order, arabic = false) {
+  const pick = (english, ar) => (arabic && ar ? ar : english);
   const lines = (order.items ?? []).map((item) => {
-    const product = arabic && item.nameAr ? item.nameAr : item.name;
-    const option = item.choice ? (arabic && item.choice.nameAr ? item.choice.nameAr : item.choice.name) : '';
+    const product = pick(item.name, item.nameAr);
+    const option = item.choice ? pick(item.choice.name, item.choice.nameAr) : '';
     const name = option ? `${product} — ${option}` : product;
     const inside = [...(item.selections ?? []), ...(item.components ?? [])]
-      .map((part) => `${part.quantity}× ${arabic && part.nameAr ? part.nameAr : part.name}`);
+      .map((part) => `${part.quantity}× ${pick(part.name, part.nameAr)}`);
     return {
       name: inside.length ? `${name} (${inside.join(', ')})` : name,
       qty: item.qty,
@@ -199,57 +248,311 @@ export async function sendOrderConfirmation(order, lang = 'en') {
     };
   });
 
+  const delivery = order.fulfilment === 'delivery';
   const totals = [
     [arabic ? 'الإجمالي الفرعي' : 'Subtotal', order.subtotal],
     ...(order.discount ? [[arabic ? 'الخصم' : 'Discount', -order.discount]] : []),
-    ...(order.fulfilment === 'delivery' ? [[arabic ? 'التوصيل' : 'Delivery', order.delivery]] : []),
+    ...(delivery ? [[arabic ? 'التوصيل' : 'Delivery', order.delivery]] : []),
   ];
 
-  const text = [
-    arabic ? `شكراً! استلمنا طلبك.` : `Thank you — we have your order.`,
-    ``,
-    `${arabic ? 'رقم الطلب' : 'Order'}: ${order.reference}`,
-    ``,
-    ...lines.map((l) => `  ${l.qty} x ${l.name}  ${EGP(l.total)}`),
-    ``,
-    ...totals.map(([label, value]) => `${label}: ${EGP(value)}`),
-    `${arabic ? 'الإجمالي' : 'Total'}: ${EGP(order.total)}`,
-    ``,
-    order.fulfilment === 'delivery'
+  // The stored order is flat — `orderPayload` is what nests it for the API, and
+  // this reads the document, not the payload.
+  const address = delivery ? [
+    order.address,
+    order.building && `${arabic ? 'عمارة' : 'Building'} ${order.building}`,
+    order.floor && `${arabic ? 'دور' : 'Floor'} ${order.floor}`,
+    order.apartment && `${arabic ? 'شقة' : 'Apt'} ${order.apartment}`,
+    order.landmark,
+  ].filter(Boolean).join(', ') : '';
+
+  return {
+    lines,
+    totals,
+    delivery,
+    address,
+    total: order.total,
+    reference: order.reference,
+    firstName: order.firstName || '',
+    totalLabel: arabic ? 'الإجمالي' : 'Total',
+    paymentNote: delivery
       ? (arabic ? 'الدفع كاش عند الاستلام.' : 'Payment is cash on delivery.')
       : (arabic ? 'الدفع كاش عند الاستلام من الفرع.' : 'Payment is cash on pickup.'),
+  };
+}
+
+/** The plain-text part. Built separately rather than stripped out of the HTML. */
+function orderText(model, { intro, closing, arabic }) {
+  return [
+    intro,
     ``,
-    arabic
-      ? `تقدر تتابع طلبك برقم الطلب ورقم تليفونك.`
-      : `You can track it with your order number and phone number.`,
+    `${arabic ? 'رقم الطلب' : 'Order'}: ${model.reference}`,
+    ``,
+    ...model.lines.map((line) => `  ${line.qty} x ${line.name}  ${money(line.total)}`),
+    ``,
+    ...model.totals.map(([label, value]) => `${label}: ${money(value)}`),
+    `${model.totalLabel}: ${money(model.total)}`,
+    ``,
+    closing,
+  ].join('\n');
+}
+
+/** The tracking page for one order — the only link a customer needs. */
+const trackUrl = (reference) => `${shopOrigin()}/track?reference=${encodeURIComponent(reference)}`;
+
+/** The dashboard lives on its own host; see ADMIN_HOSTNAME in backend/config.js. */
+function dashboardOrderUrl(reference) {
+  const url = new URL(shopOrigin());
+  url.hostname = adminHostname();
+  return `${url.origin}/orders/${encodeURIComponent(reference)}`;
+}
+
+/**
+ * The order confirmation, to the customer.
+ *
+ * Sent once per order: the dedupe key is the reference, so a retried submission
+ * that returns the original order cannot turn one order into two receipts even
+ * if a future caller forgets to check `duplicate`.
+ */
+export async function sendOrderConfirmation(order, lang = 'en') {
+  const arabic = lang === 'ar';
+  const to = order.email;
+  if (!to) return { delivered: false, via: 'skipped-no-address' };
+
+  const model = orderModel(order, arabic);
+  const subject = arabic
+    ? `تأكيد طلبك ${order.reference}`
+    : `Your Holland Cookies order ${order.reference}`;
+
+  const text = orderText(model, {
+    arabic,
+    intro: arabic ? 'شكراً! استلمنا طلبك.' : 'Thank you — we have your order.',
+    closing: [
+      model.paymentNote,
+      ``,
+      arabic
+        ? `تقدر تتابع طلبك برقم الطلب ورقم تليفونك: ${trackUrl(order.reference)}`
+        : `You can track it with your order number and phone number: ${trackUrl(order.reference)}`,
+    ].join('\n'),
+  });
+
+  const html = shell({
+    lang,
+    title: subject,
+    preheader: arabic
+      ? `استلمنا طلبك ${order.reference}`
+      : `We have your order ${order.reference}`,
+    blocks: [
+      heading({
+        lang,
+        accent: arabic ? 'تأكيد الطلب' : 'Order confirmed',
+        title: model.firstName
+          ? (arabic ? `شكراً يا ${model.firstName}!` : `Thank you, ${model.firstName}!`)
+          : (arabic ? 'شكراً!' : 'Thank you!'),
+        lead: arabic
+          ? 'استلمنا طلبك وبدأنا نجهزه. هنبعتلك تحديث أول ما يتحرك.'
+          : 'We have your order and we are getting it ready. We will write again when it moves.',
+      }),
+      referenceBlock({ lang, reference: model.reference }),
+      itemsBlock({
+        lang,
+        lines: model.lines,
+        totals: model.totals,
+        total: model.total,
+        totalLabel: model.totalLabel,
+      }),
+      factsBlock({
+        lang,
+        title: arabic ? 'التوصيل' : 'Fulfilment',
+        rows: [
+          [arabic ? 'الطريقة' : 'Method', model.delivery
+            ? (arabic ? 'توصيل' : 'Delivery')
+            : (arabic ? 'استلام من الفرع' : 'Pickup')],
+          ...(model.address ? [[arabic ? 'العنوان' : 'Address', model.address]] : []),
+        ],
+      }),
+      buttonBlock({
+        href: trackUrl(model.reference),
+        label: arabic ? 'تابع طلبك' : 'Track your order',
+      }),
+      noteBlock({ text: model.paymentNote }),
+    ],
+  });
+
+  return sendOnce(`confirmation:${order.reference}`, { to, subject, text, html });
+}
+
+/**
+ * The new-order alert, to the bakery.
+ *
+ * The one message addressed to the shop rather than to a customer, and the only
+ * one carrying the customer's phone and address — somebody reads this to start
+ * baking, so it leads with how to reach them rather than with thanks. Always in
+ * English: it is read by staff, not by the customer.
+ */
+export async function sendAdminOrderAlert(order) {
+  const to = adminOrderRecipients();
+  const model = orderModel(order, false);
+  const subject = `New order ${order.reference} — ${money(order.total)}`;
+
+  const text = orderText(model, {
+    arabic: false,
+    intro: `New order ${order.reference}.`,
+    closing: [
+      `Customer: ${`${order.firstName || ''} ${order.lastName || ''}`.trim() || '—'}`,
+      `Phone: ${order.phone || '—'}`,
+      `Email: ${order.email || '—'}`,
+      `${model.delivery ? 'Delivery' : 'Pickup'}${model.address ? ` to ${model.address}` : ''}`,
+      order.notes ? `Notes: ${order.notes}` : '',
+      ``,
+      `Open the dashboard: ${dashboardOrderUrl(order.reference)}`,
+    ].filter(Boolean).join('\n'),
+  });
+
+  const html = shell({
+    lang: 'en',
+    title: subject,
+    preheader: `${order.firstName || 'A customer'} ordered ${money(order.total)}`,
+    blocks: [
+      heading({
+        accent: 'New order',
+        title: `${money(order.total)} — ${model.delivery ? 'delivery' : 'pickup'}`,
+        lead: 'A customer has just placed an order.',
+      }),
+      referenceBlock({ reference: model.reference }),
+      factsBlock({
+        title: 'Customer',
+        rows: [
+          ['Name', `${order.firstName || ''} ${order.lastName || ''}`.trim()],
+          ['Phone', order.phone || ''],
+          ['Email', order.email || ''],
+          ['Fulfilment', model.delivery ? 'Delivery' : 'Pickup'],
+          ['Address', model.address],
+          ['Payment', order.paymentMethod === 'online' ? 'Paid online' : 'Cash'],
+          ['Notes', order.notes || ''],
+        ],
+      }),
+      itemsBlock({
+        lines: model.lines,
+        totals: model.totals,
+        total: model.total,
+        totalLabel: model.totalLabel,
+      }),
+      buttonBlock({ href: dashboardOrderUrl(order.reference), label: 'Open in the dashboard' }),
+    ],
+  });
+
+  return sendOnce(`admin:${order.reference}`, { to, subject, text, html });
+}
+
+/**
+ * The milestone update, to the customer.
+ *
+ * Only `in_transit` and `completed` are announced, and what each says depends on
+ * whether the order is delivered or collected — which is exactly the split
+ * `statusLabel` already owns, so the wording is derived from the shared status
+ * model rather than from a second copy of it here. Every other status,
+ * `cancelled` included, sends nothing: a cancellation is a conversation the shop
+ * has with the customer, not an automated mail.
+ */
+export async function sendOrderStatusUpdate(order, status, lang = 'en') {
+  const to = order.email;
+  if (!to) return { delivered: false, via: 'skipped-no-address' };
+  if (status !== 'in_transit' && status !== 'completed') {
+    return { delivered: false, via: 'skipped-not-announced' };
+  }
+
+  const arabic = lang === 'ar';
+  const model = orderModel(order, arabic);
+  // `statusLabel` is the shared English name used by the shop's own screens.
+  // An Arabic email must not put an English status in front of the customer,
+  // and the status model carries no Arabic, so the Arabic wording lives with
+  // the rest of the Arabic copy for this message.
+  const copy = milestoneCopy({ status, delivery: model.delivery, arabic, firstName: model.firstName });
+  const label = arabic ? copy.label : statusLabel(status, model.delivery ? 'delivery' : 'pickup');
+  const subject = arabic
+    ? `${copy.title} — طلبك ${order.reference}`
+    : `${copy.title} — order ${order.reference}`;
+
+  const text = [
+    copy.title,
+    ``,
+    copy.lead,
+    ``,
+    `${arabic ? 'رقم الطلب' : 'Order'}: ${model.reference}`,
+    `${arabic ? 'الحالة' : 'Status'}: ${label}`,
+    `${model.totalLabel}: ${money(model.total)}`,
+    ``,
+    `${arabic ? 'تابع طلبك' : 'Track your order'}: ${trackUrl(model.reference)}`,
   ].join('\n');
 
-  const html = `<div style="font-family:system-ui,sans-serif;max-width:520px"${arabic ? ' dir="rtl"' : ''}>
-  <p style="font-size:14px;color:#5d101d;font-weight:600;letter-spacing:.12em;text-transform:uppercase">
-    Holland Cookies</p>
-  <p style="font-size:15px;color:#333">${arabic ? 'شكراً! استلمنا طلبك.' : 'Thank you — we have your order.'}</p>
-  <p style="font-size:24px;font-weight:700;letter-spacing:.08em;color:#5d101d;margin:8px 0">${esc(order.reference)}</p>
-  <table style="width:100%;border-collapse:collapse;font-size:14px;color:#333;margin-top:16px">
-    ${lines.map((l) => `<tr>
-      <td style="padding:4px 0">${esc(l.qty)} &times; ${esc(l.name)}</td>
-      <td style="padding:4px 0;text-align:${arabic ? 'left' : 'right'}">${EGP(l.total)}</td>
-    </tr>`).join('')}
-    <tr><td colspan="2" style="border-top:1px solid #e5e5e5;padding-top:8px"></td></tr>
-    ${totals.map(([label, value]) => `<tr>
-      <td style="padding:2px 0;color:#777">${esc(label)}</td>
-      <td style="padding:2px 0;text-align:${arabic ? 'left' : 'right'};color:#777">${EGP(value)}</td>
-    </tr>`).join('')}
-    <tr>
-      <td style="padding:6px 0;font-weight:700">${arabic ? 'الإجمالي' : 'Total'}</td>
-      <td style="padding:6px 0;text-align:${arabic ? 'left' : 'right'};font-weight:700">${EGP(order.total)}</td>
-    </tr>
-  </table>
-  <p style="font-size:13px;color:#777;margin-top:16px">${
-    order.fulfilment === 'delivery'
-      ? (arabic ? 'الدفع كاش عند الاستلام.' : 'Payment is cash on delivery.')
-      : (arabic ? 'الدفع كاش عند الاستلام من الفرع.' : 'Payment is cash on pickup.')
-  }</p>
-</div>`;
+  const html = shell({
+    lang,
+    title: subject,
+    preheader: copy.lead,
+    blocks: [
+      heading({ lang, accent: label, title: copy.title, lead: copy.lead }),
+      referenceBlock({ lang, reference: model.reference }),
+      factsBlock({
+        lang,
+        title: arabic ? 'طلبك' : 'Your order',
+        rows: [
+          [arabic ? 'الحالة' : 'Status', label],
+          [model.totalLabel, numeric(money(model.total))],
+          ...(model.delivery && model.address ? [[arabic ? 'العنوان' : 'Address', model.address]] : []),
+        ],
+      }),
+      buttonBlock({
+        href: trackUrl(model.reference),
+        label: arabic ? 'تابع طلبك' : 'Track your order',
+      }),
+      noteBlock({ text: copy.note }),
+    ],
+  });
 
-  return sendMail({ to, subject, text, html });
+  return sendOnce(`status:${order.reference}:${status}`, { to, subject, text, html });
+}
+
+/** What each milestone says. Four messages out of two statuses. */
+function milestoneCopy({ status, delivery, arabic, firstName }) {
+  const name = firstName ? (arabic ? ` يا ${firstName}` : `, ${firstName}`) : '';
+  if (status === 'in_transit') {
+    return delivery
+      ? {
+        label: 'في الطريق',
+        title: arabic ? 'طلبك في الطريق' : 'Your order is on its way',
+        lead: arabic
+          ? `طلبك خرج من الفرن وفي طريقه ليك${name}.`
+          : `Your order has left the bakery and is on its way to you${name}.`,
+        note: arabic ? 'السائق هيتصل بيك لما يوصل.' : 'The driver will call when they arrive.',
+      }
+      : {
+        label: 'جاهز للاستلام',
+        title: arabic ? 'طلبك جاهز للاستلام' : 'Your order is ready for pickup',
+        lead: arabic
+          ? `طلبك جاهز ومستنيك في الفرع${name}.`
+          : `Your order is baked and waiting for you at the shop${name}.`,
+        note: arabic ? 'قول رقم الطلب عند الاستلام.' : 'Give your order number at the counter.',
+      };
+  }
+  return delivery
+    ? {
+      label: 'اتسلم',
+      title: arabic ? 'طلبك وصل' : 'Your order has arrived',
+      lead: arabic
+        ? `طلبك اتسلم${name}. بالهنا والشفا!`
+        : `Your order has been delivered${name}. Enjoy every crumb.`,
+      note: arabic
+        ? 'لو في أي حاجة مش مظبوطة، رد على الرسالة دي.'
+        : 'If anything is not right, just reply to this email.',
+    }
+    : {
+      label: 'تم الاستلام',
+      title: arabic ? 'شكراً على استلام طلبك' : 'Thanks for collecting your order',
+      lead: arabic
+        ? `استلمت طلبك من الفرع${name}. بالهنا والشفا!`
+        : `You have picked up your order${name}. Enjoy every crumb.`,
+      note: arabic
+        ? 'لو في أي حاجة مش مظبوطة، رد على الرسالة دي.'
+        : 'If anything is not right, just reply to this email.',
+    };
 }

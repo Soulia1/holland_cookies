@@ -29,6 +29,9 @@ if (process.env.ALLOW_REAL_FIRESTORE) {
 }
 
 process.env.PORT = '3100';
+// The shop is 127.0.0.1 and the dashboard is localhost: two origins with separate
+// cookie jars, as in production, and both resolve with no DNS or hosts-file help.
+process.env.ADMIN_HOSTNAME = 'localhost';
 process.env.ADMIN_KEY = 'e2e-admin-key-0123456789abcdefghijkl';
 process.env.JWT_SECRET = 'e2e-jwt-secret-0123456789abcdefghijkl';
 // Deliberately NOT 'production'. The production config validator now requires a
@@ -61,6 +64,10 @@ const fsdb = await import('../firestore.js');
 const COLLECTIONS = [
   'orders', 'orderIdempotency', 'customers', 'products', 'categories', 'promos',
   'profiles', 'otpCodes', 'sessions', 'rateLimits', 'auditEvents', 'counters', 'settings',
+  // Cleared with `counters`, never without it: the mail log is keyed by order
+  // reference, so restarting the reference counter while keeping the log would
+  // make every send look like a duplicate and quietly send nothing.
+  'mailLog',
 ];
 
 /**

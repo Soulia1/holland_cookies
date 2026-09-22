@@ -5,8 +5,9 @@ Inventory from all Express route registrations and both frontend routers. Every 
 | Method | Path | Auth / role | Input | Output | DB | External | Limit class | Validation | Sensitive / risk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | GET/HEAD | `/`, `/menu`, `/checkout`, `/account`, `/track` | P | Client route, language | Storefront shell | No | Google Fonts in browser | Edge | Known page paths | No server PII; DOM XSS/cache |
-| GET/HEAD | `/dashboard` and known dashboard pages | P shell; A data | Client route | Admin shell | No | Fonts | Edge | Known paths | UI is public; data auth mandatory |
-| GET/HEAD | `/assets/*`, `/img/*`, `/dashboard/assets/*` | P | Static path | Bundled JS/CSS/raster | No | No | Edge | Static root containment | Traversal/cache; no secrets/source maps |
+| GET/HEAD | `/`, `/orders`, `/orders/:id`, `/menu`, `/users`, `/promos`, `/settings` on `ADMIN_HOSTNAME` only | P shell; A data | Client route | Admin shell | No | Fonts | Edge | Known paths, Host header | UI is public; data auth mandatory; admin cookie is host-only on the admin host |
+| GET/HEAD | `/dashboard/*` on the shop host | P | Path | 301 to the same path on `ADMIN_HOSTNAME` | No | No | Edge | Fixed scheme and host | Host is configuration, never request input |
+| GET/HEAD | `/assets/*` (per host: shop bundle or admin bundle), `/img/*` (both hosts) | P | Static path | Bundled JS/CSS/raster | No | No | Edge | Static root containment | Traversal/cache; no secrets/source maps; admin bundle unreachable from the shop host |
 | GET | `/api/health` | P | None | Liveness | No | No | public | Empty query | Availability; no internals |
 | GET | `/api/ready` | P | None | Readiness | SELECT 1 | No | public | Empty query | Generic unavailable |
 | GET | `/api/menu` | P | None | Visible catalogue | Read categories/products | No | public | Empty query | Bounded catalogue, output escaping |
