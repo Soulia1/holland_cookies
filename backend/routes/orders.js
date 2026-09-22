@@ -13,7 +13,9 @@ import { requireAdmin } from '../adminSession.js';
 import { readCustomer } from '../customerAuth.js';
 import { createOrder, normalizePhone } from '../orderTransaction.js';
 import { validateParams, amount, identifier, email as emailSchema } from '../validation.js';
-import { mailConfigured, sendOrderConfirmation } from '../mailer.js';
+import {
+  mailConfigured, sendOrderConfirmation, sendAdminOrderAlert, sendOrderStatusUpdate,
+} from '../mailer.js';
 import { logEvent } from '../security.js';
 // The status model is shared with the dashboard, which imports the same file
 // through its `@shared` alias — so the two cannot disagree about what a status
@@ -122,17 +124,26 @@ router.post('/', async (req, res, next) => {
     //
     // And it is not attempted at all while email is switched off, which it is
     // for launch — a log line per order saying mail failed would be noise.
+    //
+    // The bakery's alert goes out on the same terms and for the same reasons.
+    // It is a separate send rather than a second recipient on the confirmation:
+    // the shop needs the phone, the address and a dashboard link, none of which
+    // belong in the customer's copy, and one blocked address must not take the
+    // other message down with it.
     if (!duplicate && mailConfigured()) {
+      const note = (event) => (result) => {
+        if (result.delivered) logEvent(event, req, { reference: order.reference });
+      };
+      const blame = (event) => (error) => logEvent(event, req, {
+        reference: order.reference,
+        // The code, never the provider's message: it can quote the recipient
+        // address back and this goes to a shared log.
+        code: typeof error.code === 'string' ? error.code : 'UNKNOWN',
+      });
       sendOrderConfirmation(order, parsed.data.lang)
-        .then((result) => {
-          if (result.delivered) logEvent('order_email_sent', req, { reference: order.reference });
-        })
-        .catch((error) => logEvent('order_email_failed', req, {
-          reference: order.reference,
-          // The code, never the provider's message: it can quote the recipient
-          // address back and this goes to a shared log.
-          code: typeof error.code === 'string' ? error.code : 'UNKNOWN',
-        }));
+        .then(note('order_email_sent')).catch(blame('order_email_failed'));
+      sendAdminOrderAlert(order)
+        .then(note('admin_alert_sent')).catch(blame('admin_alert_failed'));
     }
 
     return res.status(duplicate ? 200 : 201)
@@ -247,6 +258,28 @@ router.patch('/:reference/status', requireAdmin, async (req, res, next) => {
     }
 
     const updated = await orders.getOrder(req.params.reference);
+
+    // The milestone mail, on the same terms as the confirmation: after the
+    // change has committed, not awaited, failure logged and dropped. An admin
+    // moving an order along must never be left waiting on a mail provider, nor
+    // see the move fail because one refused. `sendOrderStatusUpdate` decides
+    // which statuses are worth announcing; its dedupe key means a status set
+    // twice still writes to the customer once.
+    if (mailConfigured()) {
+      sendOrderStatusUpdate(updated, parsed.data.status, updated.lang)
+        .then((sent) => {
+          if (sent.delivered) {
+            logEvent('status_email_sent', req, {
+              reference: updated.reference, status: parsed.data.status,
+            });
+          }
+        })
+        .catch((error) => logEvent('status_email_failed', req, {
+          reference: updated.reference,
+          code: typeof error.code === 'string' ? error.code : 'UNKNOWN',
+        }));
+    }
+
     return res.json({ order: orders.orderPayload(updated) });
   } catch (error) { return next(error); }
 });

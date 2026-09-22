@@ -3,6 +3,7 @@ import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import {
   incrementRateLimit, decrementRateLimit, resetRateLimit, purgeExpiredRateLimits,
 } from './repo/system.js';
+import { adminHostname } from './config.js';
 
 /**
  * Rate limiting.
@@ -144,7 +145,14 @@ export function originGuard(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   const origin = req.get('origin');
   const expected = process.env.APP_ORIGIN || `${req.protocol}://${req.get('host')}`;
-  const permitted = [expected, ...(process.env.NODE_ENV === 'production'
+  // APP_ORIGIN is the shop's; the dashboard is the same scheme and port on its own host.
+  const admin = [];
+  if (process.env.APP_ORIGIN) {
+    const url = new URL(process.env.APP_ORIGIN);
+    url.hostname = adminHostname();
+    admin.push(url.origin);
+  }
+  const permitted = [expected, ...admin, ...(process.env.NODE_ENV === 'production'
     ? [] : (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean))];
   const validOrigin = origin && permitted.includes(origin);
 

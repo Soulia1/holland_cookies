@@ -15,7 +15,7 @@ import ordersRoute from './routes/orders.js';
 import adminRoute from './routes/admin.js';
 import imagesRoute from './routes/images.js';
 import accountRoute from './routes/account.js';
-import { validateEnvironment } from './config.js';
+import { validateEnvironment, adminHostname } from './config.js';
 import { limit, originGuard, requestContext, logEvent } from './security.js';
 import { validateEnvelope, rejectDangerousKeys } from './validation.js';
 
@@ -23,6 +23,9 @@ validateEnvironment();
 const here=path.dirname(fileURLToPath(import.meta.url));
 const dist=path.join(here,'..','dist');
 const dashboardDist=path.join(here,'..','dist-dashboard');
+// The dashboard is served only on this host, at its root; every other host is the shop.
+const ADMIN_HOSTNAME=adminHostname();
+const isAdminHost=(req)=>req.hostname===ADMIN_HOSTNAME;
 const app=express();
 app.disable('x-powered-by');
 app.set('query parser','simple');
@@ -97,8 +100,24 @@ app.get('/api/ready',async(_req,res)=>{
 app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);
 app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No such endpoint.'}));
 const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\\/]assets[\\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
-app.use('/dashboard',express.static(dashboardDist,staticOptions));app.use(express.static(dist,staticOptions));
-app.get(['/dashboard','/dashboard/','/dashboard/orders','/dashboard/orders/:id','/dashboard/menu','/dashboard/users','/dashboard/promos','/dashboard/settings'],(_req,res)=>{res.set('Cache-Control','no-cache');res.sendFile(path.join(dashboardDist,'index.html'));});
+// Old bookmarks: the dashboard used to live under /dashboard on the shop's host.
+app.use('/dashboard',(req,res,next)=>{
+  if(isAdminHost(req))return next();
+  const rest=req.originalUrl.slice('/dashboard'.length);
+  // req.protocol reads "http" behind the edge unless its CIDRs are trusted.
+  const production=process.env.NODE_ENV==='production';
+  const scheme=production?'https':req.protocol;
+  const port=production?'':(/:\d+$/.exec(req.get('host')||'')?.[0]||'');
+  res.redirect(301,`${scheme}://${ADMIN_HOSTNAME}${port}${rest.startsWith('/')?rest:`/${rest}`}`);
+});
+// Product placeholders and the logo live in the shop's build; the dashboard shows them too.
+app.use('/img',express.static(path.join(dist,'img'),staticOptions));
+const serveDashboard=express.static(dashboardDist,staticOptions);const serveShop=express.static(dist,staticOptions);
+app.use((req,res,next)=>(isAdminHost(req)?serveDashboard:serveShop)(req,res,next));
+app.get(['/','/orders','/orders/:id','/menu','/users','/promos','/settings'],(req,res,next)=>{
+  if(!isAdminHost(req))return next();
+  res.set('Cache-Control','no-cache');res.sendFile(path.join(dashboardDist,'index.html'));
+});
 // `/menu/:slug` is not decoration: the menu is a page per group, so `/menu/cookies`
 // is what every "Menu" link on the site produces, and `/menu/<category>` is the
 // older per-category address App.tsx still accepts and redirects. Listing only
@@ -106,7 +125,10 @@ app.get(['/dashboard','/dashboard/','/dashboard/orders','/dashboard/orders/:id',
 // never asks the server, so the 404 appeared only on a refresh, a bookmark, a
 // shared link or a crawler. Clicking through the site cannot reveal it, which is
 // why the dashboard's parameterised routes above were remembered and this was not.
-app.get(['/','/menu','/menu/:slug','/checkout','/account','/track'],(_req,res)=>{res.set('Cache-Control','no-cache');res.sendFile(path.join(dist,'index.html'));});
+app.get(['/','/menu','/menu/:slug','/checkout','/account','/track'],(req,res,next)=>{
+  if(isAdminHost(req))return next();
+  res.set('Cache-Control','no-cache');res.sendFile(path.join(dist,'index.html'));
+});
 app.use((_req,res)=>res.status(404).type('text').send('Not found.'));
 app.use((error,req,res,_next)=>{
   logEvent('request_error',req,{code:typeof error.code==='string'?error.code.slice(0,64):'INTERNAL'});

@@ -34,6 +34,13 @@ const PLATFORM: NavItem[] = [
 
 const SYSTEM: NavItem[] = [{ label: "Settings", icon: Settings, href: "/settings", expandable: true }];
 
+// The dashboard lives on admin.<shop>, so "/" here is the dashboard, not the shop.
+function storefrontUrl(): string {
+  const { protocol, hostname, port } = window.location;
+  if (!hostname.startsWith("admin.")) return "/";
+  return `${protocol}//${hostname.slice("admin.".length)}${port ? `:${port}` : ""}/`;
+}
+
 function SectionLabel({ children }: { children: string }) {
   return (
     <p className="px-2 pb-1 pt-3 text-xs font-medium text-muted-foreground">{children}</p>
@@ -247,7 +254,7 @@ export default function Sidebar({
           collapsed && "lg:px-1.5"
         )}
       >
-        <FooterLink icon={ExternalLink} label="View storefront" href="/" collapsed={collapsed} />
+        <FooterLink icon={ExternalLink} label="View storefront" href={storefrontUrl()} collapsed={collapsed} />
         <FooterLink
           icon={LogOut}
           label="Sign out"

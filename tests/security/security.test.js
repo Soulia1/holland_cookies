@@ -74,8 +74,14 @@ before(async () => {
   assert.match(fsdb.currentTarget(), /^emulator /,
     'the security suite is pointed at a real Firestore project — refusing to run');
 
+  // mailLog belongs in this list for a reason that is easy to get wrong: the
+  // dedupe key is the order reference, and wiping `counters` restarts
+  // references at HC-1001. A mail log left behind by the previous run therefore
+  // holds a claim on every reference this run is about to mint, and every send
+  // is skipped as a duplicate — silently, because a duplicate is not an error.
   await wipe(['orders', 'orderIdempotency', 'customers', 'products', 'categories',
-    'promos', 'profiles', 'otpCodes', 'sessions', 'rateLimits', 'auditEvents', 'counters']);
+    'promos', 'profiles', 'otpCodes', 'sessions', 'rateLimits', 'auditEvents', 'counters',
+    'mailLog']);
 
   await fsdb.collections.categories().doc('cookies').set({ name: 'Cookies', nameAr: '', sort: 0, visible: true });
   await fsdb.collections.products().doc('cookie').set({
@@ -204,6 +210,30 @@ test('csrf/cors: cross-origin and originless simple writes denied; allowed brows
 
   assert.equal((await request('/api/menu', { headers: { origin: 'https://attacker.invalid' } }))
     .headers.get('access-control-allow-origin'), null);
+});
+
+test('csrf with a fixed APP_ORIGIN: the shop and its admin host write, nothing else does', async () => {
+  const saved = { APP_ORIGIN: process.env.APP_ORIGIN, ADMIN_HOSTNAME: process.env.ADMIN_HOSTNAME };
+  process.env.APP_ORIGIN = 'https://hollandcookie.example';
+  process.env.ADMIN_HOSTNAME = 'admin.hollandcookie.example';
+  const write = (origin) => request('/api/admin/settings', {
+    method: 'PATCH', cookie: admin, body: { acceptingOrders: true }, headers: { origin },
+  });
+  try {
+    assert.equal((await write('https://hollandcookie.example')).status, 200, 'the shop');
+    assert.equal((await write('https://admin.hollandcookie.example')).status, 200, 'the dashboard');
+    for (const origin of [
+      'http://admin.hollandcookie.example', 'https://admin.hollandcookie.example:8443',
+      'https://evil.hollandcookie.example', 'https://admin.hollandcookie.example.attacker.invalid',
+      base,
+    ]) {
+      assert.equal((await write(origin)).status, 403, origin);
+    }
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
 });
 
 // ---------------------------------------------------------------- sessions ----
@@ -473,7 +503,7 @@ test('production configuration fails closed', async () => {
   assert.throws(() => validateEnvironment({
     NODE_ENV: 'production',
     ADMIN_KEY: 'a'.repeat(40), JWT_SECRET: 'b'.repeat(40),
-    APP_ORIGIN: 'https://hollandcookie.example',
+    APP_ORIGIN: 'https://hollandcookie.example', ADMIN_HOSTNAME: 'admin.hollandcookie.example',
     FIREBASE_PROJECT_ID: 'holland-cookie-prod',
     FIREBASE_CLIENT_EMAIL: 'sa@holland-cookie-prod.iam.gserviceaccount.com',
     FIREBASE_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----${'x'.repeat(120)}`,
@@ -487,7 +517,7 @@ test('production boots without an email provider, and email needs an explicit sw
   const base = {
     NODE_ENV: 'production',
     ADMIN_KEY: 'a'.repeat(40), JWT_SECRET: 'b'.repeat(40),
-    APP_ORIGIN: 'https://hollandcookie.example',
+    APP_ORIGIN: 'https://hollandcookie.example', ADMIN_HOSTNAME: 'admin.hollandcookie.example',
     FIREBASE_PROJECT_ID: 'holland-cookie-prod',
     FIREBASE_CLIENT_EMAIL: 'sa@holland-cookie-prod.iam.gserviceaccount.com',
     FIREBASE_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----${'x'.repeat(120)}`,
@@ -499,6 +529,50 @@ test('production boots without an email provider, and email needs an explicit sw
   assert.doesNotThrow(() => validateEnvironment({ ...base, BREVO_API_KEY: 'k'.repeat(24) }));
   // Switching Brevo on without its variables is a misconfiguration.
   assert.throws(() => validateEnvironment({ ...base, MAIL_TRANSPORT: 'brevo' }), /MAIL_TRANSPORT=brevo/);
+});
+
+test('production refuses an address the bakery alert could never reach', () => {
+  const base = {
+    NODE_ENV: 'production',
+    ADMIN_KEY: 'a'.repeat(40), JWT_SECRET: 'b'.repeat(40),
+    APP_ORIGIN: 'https://hollandcookie.example', ADMIN_HOSTNAME: 'admin.hollandcookie.example',
+    FIREBASE_PROJECT_ID: 'holland-cookie-prod',
+    FIREBASE_CLIENT_EMAIL: 'sa@holland-cookie-prod.iam.gserviceaccount.com',
+    FIREBASE_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----${'x'.repeat(120)}`,
+    DEPLOYMENT_MODE: 'single-instance',
+  };
+  // Unset is fine — it falls back to the shop's own inbox.
+  assert.doesNotThrow(() => validateEnvironment(base));
+  assert.doesNotThrow(() => validateEnvironment({ ...base, ADMIN_ORDER_EMAIL: 'shop@hollandcookie.example' }));
+  assert.doesNotThrow(() => validateEnvironment({
+    ...base, ADMIN_ORDER_EMAIL: 'one@shop.example, two@shop.example',
+  }));
+  for (const bad of ['shop@', 'shop.example', 'one@shop.example, nope', 'one@shop.example;two@shop.example']) {
+    assert.throws(() => validateEnvironment({ ...base, ADMIN_ORDER_EMAIL: bad }), /ADMIN_ORDER_EMAIL/, bad);
+  }
+});
+
+test('production needs a dashboard host that is a bare hostname and not the shop', () => {
+  const base = {
+    NODE_ENV: 'production',
+    ADMIN_KEY: 'a'.repeat(40), JWT_SECRET: 'b'.repeat(40),
+    APP_ORIGIN: 'https://hollandcookie.example', ADMIN_HOSTNAME: 'admin.hollandcookie.example',
+    FIREBASE_PROJECT_ID: 'holland-cookie-prod',
+    FIREBASE_CLIENT_EMAIL: 'sa@holland-cookie-prod.iam.gserviceaccount.com',
+    FIREBASE_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----${'x'.repeat(120)}`,
+    DEPLOYMENT_MODE: 'single-instance',
+  };
+  assert.doesNotThrow(() => validateEnvironment(base));
+  const { ADMIN_HOSTNAME: _omitted, ...missing } = base;
+  assert.throws(() => validateEnvironment(missing), /ADMIN_HOSTNAME/);
+  for (const bad of [
+    'https://admin.hollandcookie.example', 'admin.hollandcookie.example/', 'admin.hollandcookie.example:443',
+    'Admin.HollandCookie.example', 'admin', 'admin.localhost.', '', '-admin.hollandcookie.example',
+  ]) {
+    assert.throws(() => validateEnvironment({ ...base, ADMIN_HOSTNAME: bad }), /ADMIN_HOSTNAME/, bad);
+  }
+  assert.throws(() => validateEnvironment({ ...base, ADMIN_HOSTNAME: 'hollandcookie.example' }),
+    /ADMIN_HOSTNAME must differ/);
 });
 
 test('a Brevo key without MAIL_TRANSPORT=brevo sends nothing and offers no accounts', async () => {
@@ -567,9 +641,13 @@ test('email: a missing or failing provider never costs an order, and a retry nev
 
     // The send is deliberately not awaited by the route, so give it a tick.
     await new Promise((r) => setTimeout(r, 400));
-    assert.equal(sent.length, 1, 'exactly one confirmation for one order');
+    // Two messages per order since the bakery alert was added: the customer's
+    // receipt and the shop's copy. They are counted separately by recipient —
+    // a total count would pass for the wrong reason the next time one is added.
+    const receipts = () => sent.filter((m) => m.to.some((e) => e.email === 'c@example.test'));
+    assert.equal(receipts().length, 1, 'exactly one confirmation for one order');
 
-    const message = sent[0];
+    const message = receipts()[0];
     assert.equal(message.to[0].email, 'c@example.test');
     assert.match(message.subject, /HC-\d+/);
     // Every figure in the email comes off the stored order, so the total in the
@@ -582,7 +660,7 @@ test('email: a missing or failing provider never costs an order, and a retry nev
     assert.equal(replay.status, 200);
     assert.equal(replay.data.duplicate, true);
     await new Promise((r) => setTimeout(r, 400));
-    assert.equal(sent.length, 1, 'a duplicate submission must not send a second confirmation');
+    assert.equal(receipts().length, 1, 'a duplicate submission must not send a second confirmation');
   } finally {
     globalThis.fetch = realFetch;
     process.env.BREVO_API_KEY = ''; process.env.MAIL_TRANSPORT = 'disabled';
@@ -592,9 +670,12 @@ test('email: a missing or failing provider never costs an order, and a retry nev
 test('email: an order with no address is not a mail failure', async () => {
   const realFetch = globalThis.fetch;
   process.env.MAIL_TRANSPORT = 'brevo'; process.env.BREVO_API_KEY = 'fixture-key';
-  let called = 0;
+  const recipients = [];
   globalThis.fetch = async (url, init) => {
-    if (String(url).startsWith('https://api.brevo.com')) { called += 1; return new Response('{}', { status: 201 }); }
+    if (String(url).startsWith('https://api.brevo.com')) {
+      recipients.push(...JSON.parse(init.body).to.map((entry) => entry.email));
+      return new Response('{"messageId":"x"}', { status: 201 });
+    }
     return realFetch(url, init);
   };
   try {
@@ -602,7 +683,10 @@ test('email: an order with no address is not a mail failure', async () => {
     const created = await request('/api/orders', { method: 'POST', body: payload() });
     assert.equal(created.status, 201);
     await new Promise((r) => setTimeout(r, 300));
-    assert.equal(called, 0, 'no address means no send, and no error either');
+    // The bakery is still told — it is the shop's own alert and does not depend
+    // on the customer leaving an address. The customer simply gets nothing.
+    assert.deepEqual(recipients, ['hollandcookies.mf@gmail.com'],
+      'no customer address means no receipt, and no error either');
   } finally {
     globalThis.fetch = realFetch;
     process.env.BREVO_API_KEY = ''; process.env.MAIL_TRANSPORT = 'disabled';

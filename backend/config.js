@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+/** The host the dashboard is served on. `*.localhost` resolves to this machine in browsers. */
+export const adminHostname = () => process.env.ADMIN_HOSTNAME || 'admin.localhost';
+
 /**
  * Production configuration, checked once at boot.
  *
@@ -21,6 +24,9 @@ export function validateEnvironment(env = process.env) {
     ADMIN_KEY: secret,
     JWT_SECRET: secret,
     APP_ORIGIN: z.url().refine((v) => new URL(v).protocol === 'https:' && new URL(v).origin === v),
+    // A bare hostname, e.g. admin.holland-cookies.com — no scheme, port or path.
+    ADMIN_HOSTNAME: z.string().max(253)
+      .regex(/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/),
 
     // --- Firestore -----------------------------------------------------------
     // Credentials are checked below rather than here, because there are three
@@ -45,6 +51,12 @@ export function validateEnvironment(env = process.env) {
     DEPLOYMENT_MODE: z.literal('single-instance'),
     HTTPS_ORIGIN: z.literal('true').optional(),
     MAIL_TRANSPORT: z.enum(['brevo', 'disabled', '']).optional(),
+    // Where the bakery's copy of every order goes. One address or several,
+    // comma separated. Checked because a typo here is invisible: the alert is
+    // sent, accepted and delivered to nobody.
+    ADMIN_ORDER_EMAIL: z.union([z.literal(''), z.string().max(320).refine(
+      (v) => v.split(',').every((address) => z.email().safeParse(address.trim()).success),
+    )]).optional(),
     DISABLE_ADMIN_AUTH: z.enum(['false', '']).optional(),
     ALLOWED_ORIGINS: z.literal('').optional(),
     // The mail client's base URL is pinned in code so a stray environment
@@ -56,6 +68,10 @@ export function validateEnvironment(env = process.env) {
     throw new Error(`Invalid production configuration: ${[...new Set(parsed.error.issues.map((i) => i.path[0]))].join(', ')}`);
   }
   if (env.ADMIN_KEY === env.JWT_SECRET) throw new Error('Production secrets must be independent');
+  // Equal to the shop's host, every page of the shop would be the dashboard.
+  if (env.ADMIN_HOSTNAME === new URL(env.APP_ORIGIN).hostname) {
+    throw new Error('Invalid production configuration: ADMIN_HOSTNAME must differ from the APP_ORIGIN host');
+  }
   if (env.MAIL_TRANSPORT === 'brevo' && !(env.BREVO_API_KEY && env.MAIL_FROM_EMAIL)) {
     throw new Error('Invalid production configuration: MAIL_TRANSPORT=brevo needs BREVO_API_KEY and MAIL_FROM_EMAIL');
   }

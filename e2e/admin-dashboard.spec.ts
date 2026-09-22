@@ -18,6 +18,12 @@ import { DEFAULT_AREAS } from "../shared/deliveryAreas.mjs";
  */
 
 const ADMIN_KEY = "e2e-admin-key-0123456789abcdefghijkl";
+/**
+ * The dashboard's own host (ADMIN_HOSTNAME in backend/test/e2e-server.js). The
+ * shop is the project baseURL on 127.0.0.1, so the admin session cookie lives
+ * here only: an admin call made through `page.request` must name this host.
+ */
+const ADMIN = "http://localhost:3100";
 const DEFAULT_SETTINGS = { deliveryFee: 40, freeDeliveryOver: 600, acceptingOrders: true };
 
 /** Unique per run, so a project re-running after a failure never collides with leftovers. */
@@ -52,7 +58,7 @@ async function ready(page: Page) {
 }
 
 async function signIn(page: Page, path = "") {
-  await page.goto("/dashboard/", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/`, { waitUntil: "load" });
   // The gate asks the server whether a session exists before it draws either the
   // key form or the dashboard. Counting the form while that answer was still out
   // found nothing, skipped signing in, and left the next page stuck on the gate
@@ -64,7 +70,7 @@ async function signIn(page: Page, path = "") {
     await page.getByRole("button", { name: "Unlock", exact: true }).click();
     await expect(page.locator("#admin-key")).toHaveCount(0);
   }
-  if (path) await page.goto(`/dashboard/${path}`, { waitUntil: "load" });
+  if (path) await page.goto(`${ADMIN}/${path}`, { waitUntil: "load" });
 }
 
 /** A small, valid PNG drawn in the page, a different colour each time. */
@@ -527,7 +533,7 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   await expect(orderDialog).toHaveCount(0);
 
   for (const status of ["baking", "in_transit", "completed"]) {
-    const moved = await page.request.patch(`/api/orders/${reference}/status`, { headers: headers(baseURL!), data: { status } });
+    const moved = await page.request.patch(`${ADMIN}/api/orders/${reference}/status`, { headers: headers(ADMIN), data: { status } });
     expect(moved.ok()).toBeTruthy();
   }
   await page.reload({ waitUntil: "load" });
@@ -535,20 +541,20 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   await collect.click();
   const collected = page.getByRole("button", { name: "Cash collected" }).filter({ visible: true });
   await expect(collected).toBeVisible();
-  expect((await (await page.request.get(`/api/orders/${reference}`)).json()).order.paymentStatus).toBe("paid");
+  expect((await (await page.request.get(`${ADMIN}/api/orders/${reference}`)).json()).order.paymentStatus).toBe("paid");
   await collected.click();
   await page.getByRole("menuitem", { name: "Mark cash not collected" }).click();
   await expect(collect).toBeVisible();
 
-  await page.goto(`/dashboard/orders/${reference}`, { waitUntil: "load" });
+  await page.goto(`${ADMIN}/orders/${reference}`, { waitUntil: "load" });
   await expect(page.getByRole("heading", { name: reference })).toBeVisible();
   await expect(page.locator("main")).not.toContainText("Invalid Date");
-  await page.goto("/dashboard/users", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/users`, { waitUntil: "load" });
   await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
   await expect(page.locator("main")).not.toContainText("Invalid Date");
 
   // ----------------------------------------------------------- edit ----
-  await page.goto("/dashboard/menu", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/menu`, { waitUntil: "load" });
   dialog = await openEditor(page, PRODUCT.name);
   await dialog.locator("#p-name").fill(RENAMED);
   await dialog.locator("#p-price").fill("120");
@@ -576,7 +582,7 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   await page.keyboard.press("Escape");
 
   // ------------------------------------------------------ sold out ----
-  await page.goto("/dashboard/menu", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/menu`, { waitUntil: "load" });
   dialog = await openEditor(page, RENAMED);
   await dialog.getByRole("checkbox", { name: "Available to order" }).uncheck();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
@@ -604,7 +610,7 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   });
   expect(soldOut.status(), "a disabled button is not the only thing in the way").toBe(409);
 
-  await page.goto("/dashboard/menu", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/menu`, { waitUntil: "load" });
   dialog = await openEditor(page, RENAMED);
   await dialog.getByRole("checkbox", { name: "Available to order" }).check();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
@@ -625,16 +631,16 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   await expect(page.locator(".rcpt-total-value")).toHaveText("108.00 EGP");
   await expect(page.locator(".rcpt-meta")).toContainText(phone);
   const editedReference = (await page.locator(".rcpt-barcode-text").innerText()).trim();
-  const editedOrder = (await (await page.request.get(`/api/orders/${editedReference}`)).json()).order;
+  const editedOrder = (await (await page.request.get(`${ADMIN}/api/orders/${editedReference}`)).json()).order;
   expect(editedOrder.items[0]).toMatchObject({ productId: PRODUCT.id, name: RENAMED, nameAr: PRODUCT.nameAr, unitPrice: 108 });
   expect(editedOrder.delivery.notes).toBe(NOTE);
-  await page.goto(`/dashboard/orders/${editedReference}`, { waitUntil: "load" });
+  await page.goto(`${ADMIN}/orders/${editedReference}`, { waitUntil: "load" });
   await expect(page.getByText(NOTE, { exact: true })).toBeVisible();
   await expect(page.locator('img[src="x"]')).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
 
   // A fixed amount off: refused at the full price, then sold at the difference.
-  await page.goto("/dashboard/menu", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/menu`, { waitUntil: "load" });
   dialog = await openEditor(page, RENAMED);
   await dialog.locator("#p-dtype").selectOption("fixed");
   await dialog.locator("#p-dvalue").fill("120");
@@ -647,7 +653,7 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   expect(await publicProduct(page, PRODUCT.id)).toMatchObject({ price: 100, regularPrice: 120, discounted: true });
 
   // -------------------------------------------------------- bundles ----
-  await page.goto("/dashboard/menu", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/menu`, { waitUntil: "load" });
   await page.getByRole("button", { name: "New product" }).click();
   dialog = page.getByRole("dialog");
   await dialog.locator("#p-cat").selectOption(CATEGORY.id);
@@ -667,8 +673,8 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   });
 
   // A box is sold out while a cookie inside it is: on the menu, and at the server.
-  const sellCookie = (available: boolean) => page.request.patch(`/api/menu/admin/products/${PRODUCT.id}`, {
-    headers: headers(baseURL!), data: { available },
+  const sellCookie = (available: boolean) => page.request.patch(`${ADMIN}/api/menu/admin/products/${PRODUCT.id}`, {
+    headers: headers(ADMIN), data: { available },
   });
   expect((await sellCookie(false)).ok()).toBeTruthy();
   expect((await publicProduct(page, BOX.id))!.available).toBe(false);
@@ -685,8 +691,8 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
 
   const plain = (await publicMenu(page)).flatMap((c) => c.items)
     .find((item) => item.available && !item.isBundle && item.id !== PRODUCT.id)!;
-  const choice = await page.request.post("/api/menu/admin/products", {
-    headers: headers(baseURL!),
+  const choice = await page.request.post(`${ADMIN}/api/menu/admin/products`, {
+    headers: headers(ADMIN),
     data: {
       id: CHOICE_ID, categoryId: CATEGORY.id, name: `Loop Pick Two ${RUN}`, price: 150,
       isBundle: true, bundleType: "choice",
@@ -723,7 +729,7 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   });
   expect(cheated.status()).toBe(400);
 
-  await page.goto(`/dashboard/orders/${bundled.reference}`, { waitUntil: "load" });
+  await page.goto(`${ADMIN}/orders/${bundled.reference}`, { waitUntil: "load" });
   const items = page.locator("section", { has: page.getByRole("heading", { name: "Items" }) });
   await expect(items).toContainText(BOX.name);
   await expect(items).toContainText(`Loop Pick Two ${RUN}`);
@@ -732,7 +738,7 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   await expect(items).toContainText(plain.name);
 
   // A product a bundle holds cannot be deleted out from under it — said, not swallowed.
-  await page.goto("/dashboard/menu", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/menu`, { waitUntil: "load" });
   await page.getByLabel("Search products").fill(RENAMED);
   page.once("dialog", (confirm) => confirm.accept());
   await page.getByRole("button", { name: `Delete ${RENAMED}`, exact: true }).click();
@@ -740,7 +746,7 @@ test("a product made in the dashboard is sold, edited, sold out, bundled and del
   expect(await publicProduct(page, PRODUCT.id)).toBeTruthy();
 
   // -------------------------------------------------------- delete ----
-  expect((await page.request.delete(`/api/menu/admin/products/${CHOICE_ID}`, { headers: headers(baseURL!) })).status()).toBe(204);
+  expect((await page.request.delete(`${ADMIN}/api/menu/admin/products/${CHOICE_ID}`, { headers: headers(ADMIN) })).status()).toBe(204);
   await page.getByLabel("Search products").fill("");
   for (const name of [BOX.name, RENAMED]) {
     page.once("dialog", (confirm) => confirm.accept());
@@ -879,15 +885,15 @@ test("the dashboard fits a phone, a tablet and a desktop without sideways scroll
   for (const viewport of [{ width: 375, height: 812 }, { width: 768, height: 1024 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport);
     for (const path of ["", "orders", "menu", "promos", "settings", "users"]) {
-      await page.goto(`/dashboard/${path}`, { waitUntil: "load" });
+      await page.goto(`${ADMIN}/${path}`, { waitUntil: "load" });
       await expect(page.locator("main")).toBeVisible();
       await page.waitForLoadState("networkidle");
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      expect(overflow, `/dashboard/${path} at ${viewport.width}px scrolls sideways`).toBeLessThanOrEqual(1);
+      expect(overflow, `/${path} at ${viewport.width}px scrolls sideways`).toBeLessThanOrEqual(1);
     }
 
     // The editor's Save stays reachable however long the form is.
-    await page.goto("/dashboard/menu", { waitUntil: "load" });
+    await page.goto(`${ADMIN}/menu`, { waitUntil: "load" });
     await page.getByRole("button", { name: "New product" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("checkbox", { name: "This is a bundle" }).check();

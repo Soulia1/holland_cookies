@@ -137,7 +137,7 @@ await sleep(2500);
 console.log(`
   ─────────────────────────────────────────────
     storefront   http://127.0.0.1:5173
-    dashboard    http://127.0.0.1:5173/dashboard   (build it first: npm run build:dashboard)
+    dashboard    http://admin.localhost:${API_PORT}   (build it first: npm run build:dashboard)
     API          http://127.0.0.1:${API_PORT}/api/menu
     emulator     http://${EMULATOR}
 

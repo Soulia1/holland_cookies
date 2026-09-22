@@ -266,6 +266,7 @@ export const collections = {
   counters: () => get().collection('counters'),
   orderIdempotency: () => get().collection('orderIdempotency'),
   productImages: () => get().collection('productImages'),
+  mailLog: () => get().collection('mailLog'),
 };
 
 /** The single settings document. One row in SQLite, one document here. */

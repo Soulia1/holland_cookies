@@ -1,19 +1,62 @@
 # Email — Brevo
 
-Holland Cookie sends two messages, both through Brevo's transactional API
-(`POST https://api.brevo.com/v3/smtp/email`):
+Holland Cookie sends four kinds of message, all through Brevo's transactional
+API (`POST https://api.brevo.com/v3/smtp/email`):
 
-| Message | Trigger | Blocking? |
-|---|---|---|
-| **Sign-in code** | Customer requests a one-time code | **Yes** — the customer is waiting for it, and a failure must be visible |
-| **Order confirmation** | An order commits | **No** — sent after the fact, failure logged and dropped |
+| Message | To | Trigger | Blocking? |
+|---|---|---|---|
+| **Sign-in code** | The customer | They request a one-time code | **Yes** — they are waiting for it, and a failure must be visible |
+| **Order confirmation** | The customer | An order commits | **No** — sent after the fact, failure logged and dropped |
+| **New-order alert** | The bakery (`ADMIN_ORDER_EMAIL`) | An order commits | **No** — same terms as the confirmation |
+| **Milestone update** | The customer | An order reaches `in_transit` or `completed` | **No** — sent after the status has committed |
 
 That difference is the most important thing in this document. A sign-in code
 that silently goes nowhere presents as "the code never arrives" and is nearly
 impossible to diagnose from outside, so `POST /api/account/request-code`
 surfaces a mail failure as a `502`. An order confirmation that fails must never
 undo or block an order that is already in the database — so it is not awaited,
-and its rejection is caught and logged.
+and its rejection is caught and logged. The bakery's alert and the milestone
+updates follow the same rule: an admin moving an order along is never left
+waiting on a mail provider, and never sees the move fail because one refused.
+
+## What gets announced, and what does not
+
+Only two statuses email the customer. Holland's statuses are
+fulfilment-neutral, so those two produce four messages:
+
+| Status | Delivery | Pickup |
+|---|---|---|
+| `in_transit` | "Your order is on its way" | "Your order is ready for pickup" |
+| `completed` | "Your order has arrived" | "Thanks for collecting your order" |
+
+`ordered`, `confirmed` and `baking` send nothing — a mail per internal step is
+noise, and noise is what gets a sender blocked. `cancelled` sends nothing
+either: a cancellation is a conversation the shop has with the customer, not an
+automated message.
+
+## Sending once, and only once
+
+Every message that must not repeat claims a key in the `mailLog` collection
+*before* the provider is called: `confirmation:<reference>`,
+`admin:<reference>`, `status:<reference>:<status>`. The claim is a Firestore
+`create()`, which fails if the document exists — a read followed by a write is
+not a lock, and two concurrent requests would both read "nothing sent" and both
+send. A failed send releases its claim so a later attempt can still deliver.
+
+**The trap:** the key is the order reference, so wiping `counters` (which
+restarts references at `HC-1001`) without also wiping `mailLog` leaves a claim
+on every reference the next run is about to mint, and every send is skipped —
+silently, because a duplicate is not an error. The test harnesses clear both
+together; production never resets the counter.
+
+## The look of the messages
+
+`backend/emailTheme.js` holds Holland's palette and the shared layout: tables,
+inline styles, no class names, no web font, because Outlook renders with Word's
+engine. It is Holland's own palette from `src/index.css`, not Scooby's — two
+bakeries whose mail should not be mistakable for each other. Arabic orders get
+`dir="rtl"` on the elements themselves, since a `dir` on `<html>` does not
+survive Gmail reparenting the message.
 
 ## Switching it on
 
@@ -31,15 +74,27 @@ nothing. There is no error to find.
 Brevo dashboard → **Senders, Domains & Dedicated IPs** → **Senders** → add the
 address you will send from, and complete the verification email.
 
-For anything beyond testing, verify the **domain** too and add the SPF and DKIM
-records Brevo gives you. Without them, mail from a real domain lands in spam or
-is rejected outright by Gmail and Outlook.
+For anything beyond testing, authenticate the **domain** too and add the records
+Brevo gives you. Without them, mail from a real domain lands in spam or is
+rejected outright by Gmail and Outlook.
+
+**Done on 2026-09-22.** The sending domain is the subdomain
+`mail.holland-cookies.com`, authenticated with four records on the Railway DNS
+for `holland-cookies.com` (Workspace → Settings → Domains → holland-cookies.com):
+a `brevo-code` TXT on `mail`, two DKIM CNAMEs on `brevo1._domainkey.mail` and
+`brevo2._domainkey.mail`, and a DMARC TXT on `_dmarc.mail` at `p=none`. Brevo
+reports the domain Authenticated and the sender
+`Holland Cookies <orders@mail.holland-cookies.com>` Verified, with DKIM and
+DMARC green — so senders on this domain need no per-address verification email.
+A sending subdomain keeps the shop's own domain free for a real mailbox and
+keeps this traffic's reputation separate. The old Gmail sender is still listed
+and is still flagged as freemail; prefer the new address.
 
 ### 3. Configure the environment
 
 ```bash
-BREVO_API_KEY=xkeysib-…            # the v3 key
-MAIL_FROM_EMAIL=orders@yourdomain  # MUST be a verified sender
+BREVO_API_KEY=xkeysib-…                            # the v3 key
+MAIL_FROM_EMAIL=orders@mail.holland-cookies.com    # MUST be a verified sender
 MAIL_FROM_NAME=Holland Cookies     # optional, defaults to this
 MAIL_REPLY_TO=hello@yourdomain     # optional
 MAIL_TRANSPORT=brevo               # optional; the key alone is what activates it

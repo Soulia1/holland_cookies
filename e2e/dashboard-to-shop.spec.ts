@@ -17,6 +17,8 @@ import { expect, request, test, type Page } from "@playwright/test";
  */
 
 const ADMIN_KEY = "e2e-admin-key-0123456789abcdefghijkl";
+/** The dashboard's own host (ADMIN_HOSTNAME in backend/test/e2e-server.js); the shop is baseURL. */
+const ADMIN = "http://localhost:3100";
 const CATEGORY = { id: "seasonal-specials-e2e", name: "Seasonal Specials E2E", nameAr: "موسمي" };
 const PRODUCT = {
   name: "Pistachio Crunch Cookie",
@@ -67,11 +69,11 @@ async function settle(page: Page) {
 }
 
 async function signInToDashboard(page: Page) {
-  await page.goto("/dashboard/", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/`, { waitUntil: "load" });
   await page.locator("#admin-key").fill(ADMIN_KEY);
   await page.getByRole("button", { name: "Unlock" }).click();
   await expect(page.locator("#admin-key")).toHaveCount(0);
-  await page.goto("/dashboard/menu", { waitUntil: "load" });
+  await page.goto(`${ADMIN}/menu`, { waitUntil: "load" });
   await expect(page.getByLabel("Search products")).toBeVisible();
 }
 

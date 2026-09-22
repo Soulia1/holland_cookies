@@ -19,6 +19,10 @@ process.env.JWT_SECRET = 'spa-routes-suite-0123456789abcdefghij';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Imported dynamically, after the assignments above. A static import is
 // hoisted, and server.js boots itself at import time unless NODE_ENV is
@@ -83,6 +87,113 @@ test('a menu address that names nothing is still the app, not a 404', async () =
   try {
     const response = await fetch(`${origin}/menu/not-a-real-category`);
     assert.equal(response.status, 200);
+  } finally {
+    await close();
+  }
+});
+
+// ------------------------------------------------------ the admin host ----
+
+const ADMIN_HOST = 'admin.localhost';
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const DASHBOARD_ROUTES = ['/', '/orders', '/orders/HC-1001', '/menu', '/users', '/promos', '/settings'];
+
+/** fetch() will not send a Host of our choosing, so this goes through node:http. */
+function get(origin, route, host) {
+  const { hostname, port } = new URL(origin);
+  return new Promise((resolve, reject) => {
+    http.get({ hostname, port, path: route, headers: { host: `${host}:${port}` } }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+    }).on('error', reject);
+  });
+}
+
+const isDashboard = (html) => /<title>[^<]*Dashboard<\/title>/.test(html);
+const firstScript = (file) => /<script[^>]+src="([^"]+)"/.exec(fs.readFileSync(path.join(root, file), 'utf8'))[1];
+
+test('every dashboard route serves the dashboard shell on the admin host', async () => {
+  const { origin, close } = await serve();
+  try {
+    for (const route of DASHBOARD_ROUTES) {
+      const res = await get(origin, route, ADMIN_HOST);
+      assert.equal(res.status, 200, `${route} on the admin host`);
+      assert.ok(isDashboard(res.body), `${route} on the admin host was not the dashboard`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test('the shop host never serves the dashboard, and the admin host never serves the shop', async () => {
+  const { origin, close } = await serve();
+  try {
+    const shopHome = await get(origin, '/', '127.0.0.1');
+    assert.equal(shopHome.status, 200);
+    assert.ok(!isDashboard(shopHome.body), '/ on the shop host was the dashboard');
+
+    const menu = await get(origin, '/menu', '127.0.0.1');
+    assert.ok(!isDashboard(menu.body), '/menu on the shop host must be the shop menu');
+
+    for (const route of ['/orders', '/users', '/promos', '/settings']) {
+      assert.equal((await get(origin, route, '127.0.0.1')).status, 404, `${route} on the shop host`);
+    }
+    for (const route of ['/checkout', '/account', '/track', '/menu/cookies']) {
+      assert.equal((await get(origin, route, ADMIN_HOST)).status, 404, `${route} on the admin host`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test('each bundle is only downloadable from its own host', async () => {
+  const { origin, close } = await serve();
+  try {
+    const dashboardScript = firstScript('dist-dashboard/index.html');
+    const shopScript = firstScript('dist/index.html');
+    assert.equal((await get(origin, dashboardScript, ADMIN_HOST)).status, 200);
+    assert.equal((await get(origin, dashboardScript, '127.0.0.1')).status, 404,
+      'a customer must never be able to download the admin bundle');
+    assert.equal((await get(origin, shopScript, '127.0.0.1')).status, 200);
+    assert.equal((await get(origin, shopScript, ADMIN_HOST)).status, 404);
+  } finally {
+    await close();
+  }
+});
+
+test('shared images and the API answer on both hosts', async () => {
+  const { origin, close } = await serve();
+  try {
+    for (const host of [ADMIN_HOST, '127.0.0.1']) {
+      assert.equal((await get(origin, '/img/logo.webp', host)).status, 200, `logo on ${host}`);
+      assert.equal((await get(origin, '/img/menu/matilda.webp', host)).status, 200, `menu photo on ${host}`);
+      assert.equal((await get(origin, '/api/health', host)).status, 200, `API on ${host}`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test('old /dashboard addresses on the shop host move permanently to the admin host', async () => {
+  const { origin, close } = await serve();
+  const { port } = new URL(origin);
+  try {
+    for (const [from, to] of [
+      ['/dashboard', '/'], ['/dashboard/', '/'], ['/dashboard/orders', '/orders'],
+      ['/dashboard/orders/HC-1001', '/orders/HC-1001'], ['/dashboard/orders?q=0101', '/orders?q=0101'],
+      ['/dashboard?x=1', '/?x=1'],
+    ]) {
+      const res = await get(origin, from, '127.0.0.1');
+      assert.equal(res.status, 301, from);
+      assert.equal(res.headers.location, `http://${ADMIN_HOST}:${port}${to}`, from);
+    }
+    // Not a prefix match on the word: /dashboards is just an unknown page.
+    assert.equal((await get(origin, '/dashboards', '127.0.0.1')).status, 404);
+    // The redirect keeps the scheme and host it was given; the path cannot change the host.
+    const sneaky = await get(origin, '/dashboard//evil.example', '127.0.0.1');
+    assert.equal(new URL(sneaky.headers.location).host, `${ADMIN_HOST}:${port}`);
   } finally {
     await close();
   }

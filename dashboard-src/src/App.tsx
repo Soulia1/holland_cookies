@@ -118,7 +118,7 @@ function Shell() {
 
 export default function App() {
   return (
-    <WouterRouter base="/dashboard">
+    <WouterRouter>
       <KeyGate>
         <Shell />
       </KeyGate>
