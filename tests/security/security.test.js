@@ -28,6 +28,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 const { default: app } = await import('../../backend/server.js');
 const fsdb = await import('../../backend/firestore.js');
+const { syncAll } = await import('../../backend/mirror.js');
 const { requestCode, verifyCode } = await import('../../backend/otp.js');
 const { createSession } = await import('../../backend/sessionStore.js');
 const { validateEnvironment } = await import('../../backend/config.js');
@@ -90,6 +91,7 @@ before(async () => {
   });
   await fsdb.orderCounterDoc().set({ value: 1000 });
   await fsdb.settingsDoc().set({ deliveryFee: 0, freeDeliveryOver: 0, acceptingOrders: true, areas: [] });
+  await syncAll();
 
   server = app.listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
@@ -299,6 +301,7 @@ test('BOLA: customer A cannot read B orders or change identity; logout invalidat
   assert.equal(order.status, 201);
   // Attach the order to B.
   await fsdb.collections.orders().doc(order.data.order.reference).update({ profileId: 'b@example.test' });
+  await syncAll();
 
   assert.equal((await request('/api/account/orders', { cookie: a })).data.orders.length, 0);
   assert.equal((await request('/api/account/orders', { cookie: b })).data.orders.length, 1);
@@ -474,22 +477,40 @@ test('CSP authorizes the inline bootstrap text after HTML newline normalization'
 // ------------------------------------------------------- failure behaviour ----
 
 test('exceptional conditions: a datastore failure is generic and never authenticates', async () => {
+  // Minted before the outage, and never yet presented, so checking it has to
+  // reach the datastore.
+  const unseen = `holland_admin_session=${await createSession('admin', 'admin', 3600)}`;
+  assert.equal((await request('/api/orders', { cookie: admin })).status, 200);
+
   const real = fsdb.get().collection;
   // Simulate Firestore being unreachable, with a message full of things that
   // must not reach a client.
   fsdb.get().collection = () => {
     throw Object.assign(new Error('UNAVAILABLE: holland-cookie-prod /var/secrets/key.json'), { code: 14 });
   };
-  try {
-    const res = await request('/api/orders', { cookie: admin });
-    assert.equal(res.status, 503, 'a datastore outage is a 503, not a 500');
+  const generic = (res, what) => {
+    assert.equal(res.status, 503, `${what}: a datastore outage is a 503, not a 500 and never a 200`);
     // `error: 'UNAVAILABLE'` is our own deliberate public error code and is
     // expected here. What must never appear is the underlying detail: the
     // project id, the credential path, or the driver's own message.
     assert.equal(res.data.error, 'UNAVAILABLE');
     assert.doesNotMatch(JSON.stringify(res.data), /holland-cookie-prod|secrets|\.json|\/var\//,
       'internal detail must not reach the client');
+  };
+  try {
+    // A session that cannot be checked is not a session: fail closed.
+    generic(await request('/api/orders', { cookie: unseen }), 'unverifiable session');
+
+    // A read that has to go to the datastore fails generically.
+    process.env.READ_MIRROR = 'off';
+    generic(await request('/api/orders', { cookie: admin }), 'direct read');
+    delete process.env.READ_MIRROR;
+
+    // What the in-memory mirror already holds keeps serving an administrator
+    // this process verified moments ago: an outage does not blank the dashboard.
+    assert.equal((await request('/api/orders', { cookie: admin })).status, 200);
   } finally {
+    delete process.env.READ_MIRROR;
     fsdb.get().collection = real;
   }
 });

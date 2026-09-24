@@ -202,3 +202,58 @@ export function searchOrders(orders, query, indexOf = buildOrderSearchIndex) {
     .sort((a, b) => b.score - a.score || b.index.createdAt - a.index.createdAt)
     .map((row) => row.order);
 }
+
+/**
+ * The matcher's view of an order as the API sends it (`orderPayload`). The
+ * server indexes its stored documents with the same fields, so an order is
+ * findable by exactly the same queries on either side of the wire.
+ */
+export function payloadSearchShape(order = {}) {
+  const customer = order.customer ?? {};
+  const delivery = order.delivery ?? {};
+  return {
+    orderId: order.reference,
+    name: `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim(),
+    phone: customer.phone,
+    email: customer.email,
+    address: delivery.address,
+    area: delivery.area,
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    status: order.status,
+    fulfillmentType: order.fulfilment,
+    promoCode: order.promoCode,
+    items: order.items,
+    createdAt: order.createdAt,
+  };
+}
+
+/**
+ * One page of the dashboard's order list: filtered by status and fulfilment,
+ * searched, ranked and sliced.
+ *
+ * The API answers `GET /api/orders` with this, and the dashboard answers the
+ * same question in the browser over the order book it holds — one function, so
+ * the two cannot disagree about what a query finds or in which order.
+ *
+ * `rows` must be newest first. Ranking is strongest match first; the sort is
+ * stable, so within a tier the rows keep that newest-first order.
+ */
+export function queryOrders(rows, { page = 1, perPage = 25, q = '', status = null, fulfilment = null } = {}, indexOf) {
+  const parsed = parseSearchQuery(q ?? '');
+  const filtered = status || fulfilment
+    ? rows.filter((row) => (!status || row.status === status) && (!fulfilment || row.fulfilment === fulfilment))
+    : rows;
+  const matched = parsed.empty
+    ? filtered
+    : filtered
+      .map((row) => ({ row, score: scoreSearchMatch(indexOf(row), parsed) }))
+      .filter((scored) => scored.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((scored) => scored.row);
+  return {
+    rows: matched.slice((page - 1) * perPage, page * perPage),
+    total: matched.length,
+    pages: Math.max(1, Math.ceil(matched.length / perPage)),
+  };
+}

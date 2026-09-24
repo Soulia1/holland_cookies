@@ -51,6 +51,7 @@ import { assertNewOrder } from './invariants.js';
 import { upsertCustomerInTransaction } from './repo/people.js';
 import { isPromoCode } from './repo/shop.js';
 import { allocateReferenceInTransaction } from './repo/system.js';
+import { refresh } from './mirror.js';
 
 function hash(value) {
   return createHash('sha256').update(String(value), 'utf8').digest('hex');
@@ -169,7 +170,7 @@ export async function createOrder(payload, { profileId = null } = {}) {
   const promoRef = requestedCode ? collections.promos().doc(requestedCode) : null;
   const customerRef = collections.customers().doc(phone);
 
-  return firestore().runTransaction(async (tx) => {
+  const result = await firestore().runTransaction(async (tx) => {
     // ================= EVERY READ, BEFORE ANY WRITE =========================
 
     const [idempotencySnap, settingsSnap, counterSnap, customerSnap] = await tx.getAll(
@@ -455,4 +456,16 @@ export async function createOrder(payload, { profileId = null } = {}) {
 
     return { order: { ...order, createdAt: new Date().toISOString() }, duplicate: false };
   });
+
+  // The dashboard, the customer's account page and the promo list all read
+  // from the mirror; make them see this order now rather than when the
+  // listener next reports in.
+  if (!result.duplicate) {
+    await Promise.all([
+      refresh('orders', result.order.reference),
+      refresh('customers', phone),
+      requestedCode ? refresh('promos', requestedCode) : null,
+    ]);
+  }
+  return result;
 }

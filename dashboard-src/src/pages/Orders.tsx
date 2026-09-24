@@ -16,23 +16,33 @@ import {
  * itself is never debounced — what the operator typed is on screen the same
  * frame they typed it, and only the request behind it waits.
  */
-const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 150;
 
 const PAGE_SIZE = 25;
+
+/**
+ * How often an open Orders page asks whether the order book has changed. An
+ * unchanged book is a bodiless 304, so this is cheap; it is what makes a new
+ * order appear without pressing Refresh.
+ */
+const BOOK_REFRESH_MS = 15_000;
 
 export default function Orders() {
   const queryString = useSearch();
   const initialQuery = () => new URLSearchParams(queryString).get("q") || "";
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  // The first page as it was last seen, if it was: the table opens on it and
+  // the request below replaces it, rather than opening on a spinner.
+  const [opening] = useState(() => ordersApi.peekList(1, PAGE_SIZE, initialQuery()));
+  const [orders, setOrders] = useState<Order[]>(() => opening?.orders ?? []);
+  const [loading, setLoading] = useState(!opening);
   const [error, setError] = useState("");
   const [search, setSearch] = useState(initialQuery);
   const [appliedSearch, setAppliedSearch] = useState(initialQuery);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
   const [typeFilter, setTypeFilter] = useState<FulfillmentType | "">("");
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(opening?.hasMore ?? false);
+  const [total, setTotal] = useState<number | null>(opening?.total ?? null);
   // Bumped to re-run the load effect for the same query — Refresh, Retry, and
   // the refetch after a status change that may have moved a row off the page.
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -43,6 +53,40 @@ export default function Orders() {
   // be in flight when the first has been aborted but its rejection has not been
   // delivered yet, and only the newest may write to state.
   const latestRequest = useRef(0);
+  // Bumped whenever the order book changes, so the local answer is recomputed.
+  const [bookTick, setBookTick] = useState(0);
+  const [bookRefreshing, setBookRefreshing] = useState(false);
+
+  // Keep the order book current while this page is open and looked at: now, on
+  // an interval, and the moment the operator comes back to the tab.
+  useEffect(() => {
+    const off = ordersApi.onBook(() => setBookTick((tick) => tick + 1));
+    const revalidate = () => {
+      if (document.visibilityState === "visible") ordersApi.book().catch(() => {});
+    };
+    revalidate();
+    const timer = setInterval(revalidate, BOOK_REFRESH_MS);
+    document.addEventListener("visibilitychange", revalidate);
+    window.addEventListener("focus", revalidate);
+    return () => {
+      off();
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", revalidate);
+      window.removeEventListener("focus", revalidate);
+    };
+  }, []);
+
+  // The answer from the order book held in the browser, for exactly what is in
+  // the search box right now — no debounce and no request, so it is on screen
+  // the frame after the key is pressed. Used whenever the book holds every
+  // order; otherwise the server is asked, below, as before.
+  const local = useMemo(
+    () => ordersApi.localList(page, PAGE_SIZE, search, { status: statusFilter, fulfillmentType: typeFilter }),
+    // bookTick stands in for the book itself, which lives outside React.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bookTick, page, search, statusFilter, typeFilter],
+  );
+  const localComplete = Boolean(local?.complete);
 
   /** Apply a query now rather than on the debounce — Enter, and the clear
    *  button, are both explicit and should not make the operator wait. */
@@ -56,26 +100,45 @@ export default function Orders() {
 
   useEffect(() => {
     if (search === appliedSearch) return;
+    // A query already answered once — backspacing, retyping — is applied at
+    // once: its rows are in memory, so there is no request to spare the server.
+    const answered = ordersApi.peekList(1, PAGE_SIZE, search, {
+      status: statusFilter,
+      fulfillmentType: typeFilter,
+    });
     const timer = setTimeout(() => {
       setAppliedSearch(search);
       setPage(1);
-    }, SEARCH_DEBOUNCE_MS);
+    }, answered ? 0 : SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [search, appliedSearch]);
+  }, [search, appliedSearch, statusFilter, typeFilter]);
 
   useEffect(() => {
+    // The order book already answers this, in the browser.
+    if (localComplete) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     const token = ++latestRequest.current;
 
+    const filters = { status: statusFilter, fulfillmentType: typeFilter };
+    // Show what this exact view held last time straight away; the request
+    // below still runs and replaces it.
+    const seen = ordersApi.peekList(page, PAGE_SIZE, appliedSearch, filters);
+    if (seen) {
+      setOrders(seen.orders);
+      setTotal(seen.total ?? null);
+      setHasMore(seen.hasMore);
+      setError("");
+    }
+
     (async () => {
       try {
-        setLoading(true);
+        setLoading(!seen);
         // There is no "today's fulfilments" view: checkout does not ask for a
         // delivery or pickup date, so there is no date to filter on.
-        const result = await ordersApi.list(page, PAGE_SIZE, appliedSearch, {
-          status: statusFilter,
-          fulfillmentType: typeFilter,
-        }, controller.signal);
+        const result = await ordersApi.list(page, PAGE_SIZE, appliedSearch, filters, controller.signal);
         if (token !== latestRequest.current) return;
         setOrders(result.orders);
         setTotal(result.total ?? null);
@@ -93,7 +156,7 @@ export default function Orders() {
     })();
 
     return () => controller.abort();
-  }, [page, appliedSearch, statusFilter, typeFilter, reloadNonce]);
+  }, [page, appliedSearch, statusFilter, typeFilter, reloadNonce, localComplete]);
 
   useEffect(() => {
     const q = new URLSearchParams(queryString).get("q");
@@ -160,17 +223,40 @@ export default function Orders() {
     [orders, appliedSearch]
   );
 
-  // True while what is on screen is older than what has been typed: during the
-  // debounce, and while the request it fires is still out.
-  const searching = Boolean(search) && (search !== appliedSearch || loading);
+  // What is on screen: the order book's answer when it has every order,
+  // otherwise the server's.
+  const view = localComplete ? local! : null;
+  const rows = view ? view.orders : filtered;
+  const shownQuery = view ? search.trim() : appliedSearch;
+  const shownTotal = view ? view.total : total;
+  const shownHasMore = view ? view.hasMore : hasMore;
+  const busy = view ? bookRefreshing : loading;
 
-  // The total is the server's count of everything matching the filters, not of
-  // the rows on this page.
-  const countLine = total === null
+  // True while what is on screen is older than what has been typed: during the
+  // debounce, and while the request it fires is still out. Never, when the
+  // order book answers.
+  const searching = !view && Boolean(search) && (search !== appliedSearch || loading);
+
+  /** Refresh: the order book when it is what is shown, otherwise the page. */
+  function refresh() {
+    if (!view) {
+      setReloadNonce((value) => value + 1);
+      return;
+    }
+    setBookRefreshing(true);
+    ordersApi.book()
+      .then(() => setError(""))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load orders."))
+      .finally(() => setBookRefreshing(false));
+  }
+
+  // The total is the count of everything matching the filters, not of the rows
+  // on this page.
+  const countLine = shownTotal === null
     ? `Page ${page}`
-    : appliedSearch
-      ? `Page ${page} · ${total} ${total === 1 ? "match" : "matches"} for “${appliedSearch}”`
-      : `Page ${page} of ${Math.max(1, Math.ceil(total / PAGE_SIZE))} · ${total} ${total === 1 ? "order" : "orders"}`;
+    : shownQuery
+      ? `Page ${page} · ${shownTotal} ${shownTotal === 1 ? "match" : "matches"} for “${shownQuery}”`
+      : `Page ${page} of ${Math.max(1, Math.ceil(shownTotal / PAGE_SIZE))} · ${shownTotal} ${shownTotal === 1 ? "order" : "orders"}`;
 
   return (
     <div className="adm-page">
@@ -183,10 +269,10 @@ export default function Orders() {
         <button
           type="button"
           className="adm-btn adm-btn-ghost"
-          onClick={() => setReloadNonce((value) => value + 1)}
-          disabled={loading}
+          onClick={refresh}
+          disabled={busy}
         >
-          {loading ? "Refreshing…" : "Refresh"}
+          {busy ? "Refreshing…" : "Refresh"}
         </button>
       </header>
 
@@ -198,7 +284,7 @@ export default function Orders() {
           <button
             type="button"
             className="shrink-0 font-medium underline underline-offset-4"
-            onClick={() => setReloadNonce((value) => value + 1)}
+            onClick={refresh}
           >
             Retry
           </button>
@@ -224,7 +310,11 @@ export default function Orders() {
             className="adm-input"
             type="search"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              // The order book answers as it is typed, and always from page 1.
+              if (localComplete) setPage(1);
+            }}
             placeholder="Search orders, customers, phone…"
             aria-label="Search orders"
             autoComplete="off"
@@ -276,11 +366,11 @@ export default function Orders() {
 
       <div className="pt-2">
         <OrdersTable
-          orders={filtered}
-          loading={loading}
-          highlight={appliedSearch}
+          orders={rows}
+          loading={view ? false : loading}
+          highlight={shownQuery}
           emptyMessage={
-            appliedSearch ? `No orders found matching “${appliedSearch}”.` : "No orders yet."
+            shownQuery ? `No orders found matching “${shownQuery}”.` : "No orders yet."
           }
           onOpenOrder={setViewing}
           onStatusChange={handleStatusChange}
@@ -304,7 +394,7 @@ export default function Orders() {
         <button
           type="button"
           className="adm-btn adm-btn-ghost flex-1 sm:flex-none"
-          disabled={page === 1 || loading}
+          disabled={page === 1 || (!view && loading)}
           onClick={() => setPage((value) => Math.max(1, value - 1))}
         >
           Previous
@@ -312,7 +402,7 @@ export default function Orders() {
         <button
           type="button"
           className="adm-btn adm-btn-ghost flex-1 sm:flex-none"
-          disabled={!hasMore || loading}
+          disabled={!shownHasMore || (!view && loading)}
           onClick={() => setPage((value) => value + 1)}
         >
           Next

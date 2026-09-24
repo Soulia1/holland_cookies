@@ -21,6 +21,7 @@ process.env.JWT_SECRET = 'order-transaction-suite-0123456789abcdef';
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fsdb from '../firestore.js';
+import { syncAll } from '../mirror.js';
 import { createOrder, normalizePhone, evaluatePromo } from '../orderTransaction.js';
 import { assertNewOrder, InvariantError } from '../invariants.js';
 
@@ -69,6 +70,7 @@ async function seed() {
       deliveryFee: 30, freeDeliveryOver: 500, acceptingOrders: true, areas: [],
     }),
   ]);
+  await syncAll();
 }
 
 function payload(overrides = {}) {

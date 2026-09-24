@@ -10,6 +10,7 @@ import helmet from 'helmet';
 import 'dotenv/config';
 import * as db from './firestore.js';
 import { isDatastoreOutage } from './firestore.js';
+import { startAll as startMirrors } from './mirror.js';
 import menuRoute from './routes/menu.js';
 import ordersRoute from './routes/orders.js';
 import adminRoute from './routes/admin.js';
@@ -74,6 +75,9 @@ app.post('/api/orders',limit('checkout',10*60000,20));
 app.use('/api/orders/track',limit('tracking',15*60000,20));
 app.post('/api/admin/promos/validate',limit('coupon',15*60000,20));
 app.use(['/api/orders/stats','/api/admin/users'],limit('report',60000,60));
+// Its own budget: an open Orders page revalidates every 15s and on every return
+// to the tab, and must never use up the overview's figures. Mostly bodiless 304s.
+app.use('/api/orders/book',limit('book',60000,120));
 const writeLimit=limit('admin-write',60000,60);
 app.use(['/api/admin','/api/menu/admin','/api/orders'],(req,res,next)=>['PATCH','DELETE'].includes(req.method) || (req.method==='POST' && (req.originalUrl.startsWith('/api/menu/admin') || req.originalUrl.startsWith('/api/admin/images')))?writeLimit(req,res,next):next());
 app.use('/api',originGuard);
@@ -138,6 +142,8 @@ app.use((error,req,res,_next)=>{
 async function boot(){
   db.get();
   console.info(JSON.stringify({event:'datastore',target:db.currentTarget()}));
+  // Warm the read mirrors now, so the first visitor is not the one who waits.
+  startMirrors();
   // Seeding is a separate explicit operation; boot never creates production content.
   const server=app.listen(Number(process.env.PORT)||3000,process.env.HOST || '0.0.0.0',()=>console.info(JSON.stringify({event:'started',version:process.env.RELEASE_SHA || 'local'})));
   server.requestTimeout=15000;server.headersTimeout=10000;server.keepAliveTimeout=5000;server.maxRequestsPerSocket=100;

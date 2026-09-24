@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ChevronDown, Search, UserRound } from "lucide-react";
 import { StatusPill } from "@/components/StatusPill";
@@ -100,8 +100,12 @@ function OrderHistory({ user }: { user: UserRecord }) {
   );
 }
 
+/** How many customers are drawn at a time. */
+const ROWS_PER_PAGE = 100;
+
 export default function Users() {
-  const [data, setData] = useState<UserDirectory | null>(null);
+  // Opened on the directory as last seen, if it was; load() refreshes it.
+  const [data, setData] = useState<UserDirectory | null>(() => usersApi.peek() ?? null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -153,6 +157,23 @@ export default function Users() {
       return String(b.lastOrderAt || "").localeCompare(String(a.lastOrderAt || ""));
     });
   }, [data, search, sortKey]);
+
+  // Drawn a page at a time: a directory of a few thousand rows took over a
+  // second to render in one go, on every visit. Search and sort still run over
+  // everyone, so any customer is one keystroke away; scrolling near the end of
+  // what is drawn draws the next page.
+  const [shown, setShown] = useState(ROWS_PER_PAGE);
+  useEffect(() => setShown(ROWS_PER_PAGE), [search, sortKey]);
+  const more = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    const sentinel = more.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setShown((count) => count + ROWS_PER_PAGE);
+    }, { rootMargin: "600px" });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [shown, rows.length]);
 
   const totals = data?.totals;
 
@@ -252,7 +273,7 @@ export default function Users() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((user) => {
+              {rows.slice(0, shown).map((user) => {
                 const open = expanded.has(user.key);
                 return [
                   <tr key={user.key}>
@@ -307,6 +328,19 @@ export default function Users() {
                   ) : null,
                 ];
               })}
+              {rows.length > shown && (
+                <tr ref={more}>
+                  <td colSpan={7} className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => setShown((count) => count + ROWS_PER_PAGE)}
+                      className="adm-muted rounded-md px-3 py-2 text-[13px] hover:bg-accent hover:text-foreground"
+                    >
+                      Show more ({rows.length - shown} left)
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}

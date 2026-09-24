@@ -13,6 +13,7 @@ process.env.GCLOUD_PROJECT = 'holland-cookie-seed';
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fsdb from '../firestore.js';
+import { syncAll } from '../mirror.js';
 import { seed, readMenu } from '../seed.js';
 
 async function wipe() {
@@ -26,6 +27,7 @@ beforeEach(async () => {
   fsdb.get();
   assert.match(fsdb.currentTarget(), /^emulator /, 'refusing to run against a real Firestore project');
   await wipe();
+  await syncAll();
 });
 
 after(async () => {

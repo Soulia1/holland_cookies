@@ -18,10 +18,15 @@ export const SHOP_TIME_ZONE = "Africa/Cairo";
 
 const FIELDS = { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" };
 
+// Built once. Constructing an Intl.DateTimeFormat costs far more than using
+// one, and the overview buckets every order in its window through shopDateOf.
+let wallClock;
+let calendar;
+
 /** Minutes the shop's clock is ahead of UTC at this instant. */
 function offsetMinutes(instantMs) {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: SHOP_TIME_ZONE, hourCycle: "h23", ...FIELDS })
-    .formatToParts(new Date(instantMs));
+  wallClock ??= new Intl.DateTimeFormat("en-US", { timeZone: SHOP_TIME_ZONE, hourCycle: "h23", ...FIELDS });
+  const parts = wallClock.formatToParts(new Date(instantMs));
   const read = (type) => Number(parts.find((part) => part.type === type)?.value);
   const wall = Date.UTC(read("year"), read("month") - 1, read("day"), read("hour"), read("minute"), read("second"));
   return Math.round((wall - Math.floor(instantMs / 1000) * 1000) / 60000);
@@ -65,8 +70,8 @@ export function shopDays(days, nowMs = Date.now()) {
 export function shopDateOf(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: SHOP_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" })
-    .formatToParts(date);
+  calendar ??= new Intl.DateTimeFormat("en-US", { timeZone: SHOP_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+  const parts = calendar.formatToParts(date);
   const read = (type) => parts.find((part) => part.type === type)?.value ?? "";
   return `${read("year")}-${read("month")}-${read("day")}`;
 }

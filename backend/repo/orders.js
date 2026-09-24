@@ -36,6 +36,8 @@ import { money } from '../../shared/pricing.mjs';
 import { assertOrderUpdate } from '../invariants.js';
 import { validateStatusTransition } from '../../shared/orderStatus.mjs';
 import { shopDateOf, shopDays } from '../../shared/cairoTime.mjs';
+import { buildOrderSearchIndex, parseSearchQuery, queryOrders } from '../../shared/orderSearch.mjs';
+import { live, refresh } from '../mirror.js';
 
 const now = () => FieldValue.serverTimestamp();
 const iso = (value) => (value?.toDate ? value.toDate().toISOString() : (value ?? null));
@@ -135,7 +137,78 @@ export const historyOut = (order) => (order.history ?? []).map((entry) => ({
   created_at: iso(entry.at),
 }));
 
+/**
+ * Every order, newest first, from the mirror — or null when the mirror cannot
+ * answer and the caller has to ask Firestore. Shared between requests and
+ * rebuilt only when an order changes, so treat it as read-only.
+ */
+function mirroredOrders() {
+  const mirror = live('orders');
+  if (!mirror) return null;
+  return mirror.derive('bySeq', () => mirror.docs()
+    .map(([reference, data]) => wrapOrder(reference, data))
+    .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0)));
+}
+
+/**
+ * One object per version of an order, reused across rebuilds of the list, so
+ * the search index below survives other orders changing.
+ */
+const wrappedOrders = new WeakMap();
+function wrapOrder(reference, data) {
+  let order = wrappedOrders.get(data);
+  if (!order) {
+    order = { reference, ...data };
+    wrappedOrders.set(data, order);
+  }
+  return order;
+}
+
+/**
+ * The dashboard's order shape, as the shared matcher reads it. The matcher is
+ * the same one the dashboard highlights with, so a row the API finds is a row
+ * the table can mark up.
+ */
+function searchShape(order) {
+  return {
+    orderId: order.reference,
+    name: `${order.firstName ?? ''} ${order.lastName ?? ''}`.trim(),
+    phone: order.phone,
+    email: order.email,
+    address: order.address,
+    area: order.area,
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    status: order.status,
+    fulfillmentType: order.fulfilment,
+    promoCode: order.promoCode,
+    items: order.items,
+    createdAt: iso(order.createdAt),
+  };
+}
+
+/**
+ * The search index for an order, built once per version of it. Keyed on the
+ * order object, which the mirror replaces whenever the document changes, so a
+ * keystroke re-scores thousands of orders without re-normalising any of them.
+ */
+const searchIndexes = new WeakMap();
+function searchIndexOf(order) {
+  let index = searchIndexes.get(order);
+  if (!index) {
+    index = buildOrderSearchIndex(searchShape(order));
+    searchIndexes.set(order, index);
+  }
+  return index;
+}
+
 export async function getOrder(reference) {
+  const id = String(reference).toUpperCase();
+  const mirror = live('orders');
+  if (mirror) {
+    const data = mirror.get(id);
+    return data ? { reference: id, ...data } : null;
+  }
   const doc = await collections.orders().doc(String(reference).toUpperCase()).get();
   return doc.exists ? orderFromDoc(doc) : null;
 }
@@ -154,16 +227,28 @@ export async function getOrderForTracking(reference, phone) {
 /**
  * The dashboard list.
  *
- * Two paths, because they have genuinely different costs:
+ * Served from the orders mirror: filtering, ranking and paging over memory,
+ * with no round trip. Search uses the shared matcher (shared/orderSearch.mjs),
+ * so Arabic letter variants, Arabic-Indic digits and any spelling of a phone
+ * number find the same order the dashboard then highlights. The filtering and
+ * ranking are `queryOrders`, which the dashboard also runs in the browser over
+ * the order book (`orderBook` below), so the two always agree.
  *
- *   No search term → a real Firestore query with the status and fulfilment
- *   filters, ordering and page window pushed to the server. Reads exactly one
- *   page, and the total counts the filtered set.
- *
- *   Search term → a bounded scan, filtered here. Unavoidable; see SEARCH_SCAN_CAP.
+ * While the mirror is not serving, the two old Firestore paths answer instead:
+ * a real query for the unsearched list, and a bounded scan (SEARCH_SCAN_CAP)
+ * for a search, because Firestore has no substring operator.
  */
 export async function listOrders({ page = 1, perPage = 25, status = null, fulfilment = null, q = '' } = {}) {
-  const needle = String(q ?? '').trim().toLowerCase();
+  const answer = (rows) => {
+    const result = queryOrders(rows, { page, perPage, q, status, fulfilment }, searchIndexOf);
+    return { orders: result.rows.map(orderPayload), page, perPage, total: result.total, pages: result.pages };
+  };
+
+  const mirrored = mirroredOrders();
+  if (mirrored) return answer(mirrored);
+
+  // The mirror is not serving (booting, or its listener is reconnecting), so
+  // ask Firestore — the path this module used before the mirror existed.
   const filtered = () => {
     let query = collections.orders();
     if (status) query = query.where('status', '==', status);
@@ -171,15 +256,13 @@ export async function listOrders({ page = 1, perPage = 25, status = null, fulfil
     return query;
   };
 
-  if (!needle) {
+  if (parseSearchQuery(q ?? '').empty) {
     const total = (await filtered().count().get()).data().count;
-
     const snapshot = await filtered()
       .orderBy('seq', 'desc')
       .offset((page - 1) * perPage)
       .limit(perPage)
       .get();
-
     return {
       orders: snapshot.docs.map((doc) => orderPayload(orderFromDoc(doc))),
       page,
@@ -190,18 +273,57 @@ export async function listOrders({ page = 1, perPage = 25, status = null, fulfil
   }
 
   const snapshot = await filtered().orderBy('seq', 'desc').limit(SEARCH_SCAN_CAP).get();
+  return answer(snapshot.docs.map(orderFromDoc));
+}
 
-  const matched = snapshot.docs.map(orderFromDoc).filter((order) => [
-    order.reference, order.firstName, order.lastName, order.phone, order.email,
-  ].some((field) => String(field ?? '').toLowerCase().includes(needle)));
+/**
+ * How many of the newest orders the dashboard holds in the browser. Past this
+ * its local answers are marked incomplete and the server is still asked, so a
+ * search never silently misses an old order; below it — which is this shop for
+ * a long while — searching, filtering and paging never leave the browser.
+ */
+export const ORDER_BOOK_LIMIT = 3000;
 
-  const start = (page - 1) * perPage;
+/** Distinguishes this process's versions from a previous one's after a restart. */
+const BOOT = Date.now().toString(36);
+
+/**
+ * The newest orders, whole, for the dashboard to search and page in the
+ * browser: a keystroke there is then no request at all.
+ *
+ * `version` names this exact answer and is cheap to compute, so an unchanged
+ * book is answered with a 304 before anything is built or serialised. It is
+ * null while the mirror is not serving — the Firestore read below cannot say
+ * cheaply whether anything changed, so every answer is then a full one.
+ */
+export function orderBookVersion(limit = ORDER_BOOK_LIMIT) {
+  const mirror = live('orders');
+  return mirror ? `${BOOT}.${mirror.generation}.${limit}` : null;
+}
+
+export async function orderBook(limit = ORDER_BOOK_LIMIT) {
+  const mirror = live('orders');
+  if (mirror) {
+    return mirror.derive(`book:${limit}`, () => {
+      const all = mirroredOrders();
+      return {
+        version: orderBookVersion(limit),
+        orders: all.slice(0, limit).map(orderPayload),
+        total: all.length,
+        complete: all.length <= limit,
+      };
+    });
+  }
+  const [count, snapshot] = await Promise.all([
+    collections.orders().count().get(),
+    collections.orders().orderBy('seq', 'desc').limit(limit).get(),
+  ]);
+  const total = count.data().count;
   return {
-    orders: matched.slice(start, start + perPage).map(orderPayload),
-    page,
-    perPage,
-    total: matched.length,
-    pages: Math.max(1, Math.ceil(matched.length / perPage)),
+    version: null,
+    orders: snapshot.docs.map((doc) => orderPayload(orderFromDoc(doc))),
+    total,
+    complete: total <= limit,
   };
 }
 
@@ -220,12 +342,16 @@ export async function listOrders({ page = 1, perPage = 25, status = null, fulfil
  * shop's realistic order count.
  */
 export async function listAllOrdersForReporting(limit = REPORTING_CAP) {
+  const mirrored = mirroredOrders();
+  if (mirrored) return mirrored.slice(0, limit);
   const snapshot = await collections.orders().orderBy('seq', 'desc').limit(limit).get();
   return snapshot.docs.map(orderFromDoc);
 }
 
 /** Every order for one customer phone, newest first. */
 export async function ordersForPhone(phone, limit = 200) {
+  const mirrored = mirroredOrders();
+  if (mirrored) return mirrored.filter((order) => order.phone === phone).slice(0, limit);
   const snapshot = await collections.orders()
     .where('phone', '==', phone).orderBy('seq', 'desc').limit(limit).get();
   return snapshot.docs.map(orderFromDoc);
@@ -233,12 +359,21 @@ export async function ordersForPhone(phone, limit = 200) {
 
 /** Every order attached to a proved account. */
 export async function ordersForProfile(profileId, limit = 100) {
+  const mirrored = mirroredOrders();
+  if (mirrored) return mirrored.filter((order) => order.profileId === profileId).slice(0, limit);
   const snapshot = await collections.orders()
     .where('profileId', '==', profileId).orderBy('seq', 'desc').limit(limit).get();
   return snapshot.docs.map(orderFromDoc);
 }
 
 // ---------------------------------------------------------------- status ----
+
+/** Once a write to this order has committed, show it to the next read. */
+async function afterOrderWrite(reference, write) {
+  const result = await write;
+  if (result.order) await refresh('orders', reference);
+  return result;
+}
 
 /**
  * Move an order to a new state.
@@ -256,7 +391,7 @@ export async function changeOrderStatus(reference, nextStatus, note, { actor = '
   const ref = collections.orders().doc(String(reference).toUpperCase());
   const db = collections.orders().firestore;
 
-  return db.runTransaction(async (tx) => {
+  return afterOrderWrite(ref.id, db.runTransaction(async (tx) => {
     const snapshot = await tx.get(ref);
     if (!snapshot.exists) return { found: false };
     const order = orderFromDoc(snapshot);
@@ -288,7 +423,7 @@ export async function changeOrderStatus(reference, nextStatus, note, { actor = '
     });
 
     return { found: true, order: { ...order, status: nextStatus } };
-  });
+  }));
 }
 
 /**
@@ -304,7 +439,7 @@ export async function setCashCollected(reference, collected, { actor = 'admin', 
   const ref = collections.orders().doc(String(reference).toUpperCase());
   const db = collections.orders().firestore;
 
-  return db.runTransaction(async (tx) => {
+  return afterOrderWrite(ref.id, db.runTransaction(async (tx) => {
     const snapshot = await tx.get(ref);
     if (!snapshot.exists) return { found: false };
     const order = orderFromDoc(snapshot);
@@ -331,7 +466,7 @@ export async function setCashCollected(reference, collected, { actor = 'admin', 
       createdAt: now(),
     });
     return { found: true, order: { ...order, paymentStatus } };
-  });
+  }));
 }
 
 // ------------------------------------------------------------------ stats ----
@@ -366,7 +501,45 @@ export async function setCashCollected(reference, collected, { actor = 'admin', 
  * month" beside "orders this month" is the more useful and more coherent
  * reading. `days` is already in the response so the window is not a secret.
  */
-export async function orderStats({ days = 30, topDays = days } = {}) {
+const STATUS_KEYS = ['ordered', 'confirmed', 'baking', 'in_transit', 'completed', 'cancelled'];
+const PAYMENT_KEYS = ['unpaid', 'paid', 'refunded'];
+const FULFILMENT_KEYS = ['delivery', 'pickup'];
+
+/**
+ * The same figures the Firestore aggregates produce, computed over the mirror.
+ * Kept faithful to Firestore's semantics rather than to what reads naturally:
+ * `sum()` skips a non-numeric total, a range filter on `createdAt` only matches
+ * real timestamps, and range results come back oldest first.
+ */
+function statsFromMemory(orders, windowStart) {
+  const sumOf = (rows) => ({
+    value: rows.reduce((sum, order) => sum + (typeof order.total === 'number' ? order.total : 0), 0),
+    count: rows.length,
+  });
+  const countsFor = (field, values) => Object.fromEntries(values
+    .map((value) => [value, orders.filter((order) => order[field] === value).length])
+    .filter(([, count]) => count > 0));
+  const cancelledRows = orders.filter((order) => order.status === 'cancelled');
+  const startMs = windowStart.getTime();
+  return {
+    all: sumOf(orders),
+    paid: sumOf(orders.filter((order) => order.paymentStatus === 'paid')),
+    fulfilled: sumOf(orders.filter((order) => order.status === 'completed')),
+    cancelled: sumOf(cancelledRows),
+    cancelledPaid: sumOf(cancelledRows.filter((order) => order.paymentStatus === 'paid')),
+    byStatus: countsFor('status', STATUS_KEYS),
+    byPaymentStatus: countsFor('paymentStatus', PAYMENT_KEYS),
+    byFulfillmentRaw: countsFor('fulfilment', FULFILMENT_KEYS),
+    inWindow: orders
+      .filter((order) => typeof order.createdAt?.toMillis === 'function' && order.createdAt.toMillis() >= startMs)
+      .sort((a, b) => a.createdAt.seconds - b.createdAt.seconds
+        || a.createdAt.nanoseconds - b.createdAt.nanoseconds
+        || (a.reference < b.reference ? -1 : a.reference > b.reference ? 1 : 0)),
+  };
+}
+
+/** The overview figures straight from Firestore, for when the mirror cannot answer. */
+async function statsFromFirestore(windowStart) {
   const orders = collections.orders();
 
   const sumOf = async (query) => {
@@ -392,28 +565,48 @@ export async function orderStats({ days = 30, topDays = days } = {}) {
     }))).filter(([, count]) => count > 0),
   );
 
-  const [byStatus, byPaymentStatus, byFulfillmentRaw] = await Promise.all([
-    countsFor('status', ['ordered', 'confirmed', 'baking', 'in_transit', 'completed', 'cancelled']),
-    countsFor('paymentStatus', ['unpaid', 'paid', 'refunded']),
-    countsFor('fulfilment', ['delivery', 'pickup']),
+  const [byStatus, byPaymentStatus, byFulfillmentRaw, windowed] = await Promise.all([
+    countsFor('status', STATUS_KEYS),
+    countsFor('paymentStatus', PAYMENT_KEYS),
+    countsFor('fulfilment', FULFILMENT_KEYS),
+    orders.where('createdAt', '>=', Timestamp.fromDate(windowStart)).get(),
   ]);
+
+  return {
+    all, paid, fulfilled, cancelled, cancelledPaid, byStatus, byPaymentStatus, byFulfillmentRaw,
+    inWindow: windowed.docs.map(orderFromDoc),
+  };
+}
+
+export async function orderStats({ days = 30, topDays = days } = {}) {
+  // Days are Cairo days. Bucketed by UTC, an order placed between midnight and
+  // 02:00/03:00 in Cairo was counted on the day before.
+  const span = shopDays(days);
+  const windowStart = new Date(span.start);
+  const mirrored = mirroredOrders();
+  // From the mirror, the figures only change when an order does (or the Cairo
+  // day rolls over, which changes span.start), so they are computed once per
+  // change rather than once per dashboard load.
+  if (mirrored) {
+    return live('orders').derive(`stats:${days}:${topDays}:${span.start}`,
+      () => summarise(statsFromMemory(mirrored, windowStart), span, days, topDays));
+  }
+  return summarise(await statsFromFirestore(windowStart), span, days, topDays);
+}
+
+/** The overview response, from the raw figures of either source. */
+function summarise(figures, span, days, topDays) {
+  const {
+    all, paid, fulfilled, cancelled, cancelledPaid, byStatus, byPaymentStatus, byFulfillmentRaw, inWindow,
+  } = figures;
 
   const liveValue = money(all.value - cancelled.value);
   const pendingValue = money(Math.max(0, liveValue - paid.value));
   const refundDueValue = money(Math.max(0, cancelledPaid.value));
 
-  // --- the one document read -------------------------------------------------
-  // Days are Cairo days. Bucketed by UTC, an order placed between midnight and
-  // 02:00/03:00 in Cairo was counted on the day before.
-  const span = shopDays(days);
   // The dashboard asks for twice its range so it can compare with the period
   // before; best sellers and areas cover only the range itself.
   const topDates = new Set(span.dates.slice(-topDays));
-
-  const windowed = await orders
-    .where('createdAt', '>=', Timestamp.fromDate(new Date(span.start)))
-    .get();
-  const inWindow = windowed.docs.map(orderFromDoc);
 
   const byDate = new Map();
   const areaCounts = new Map();

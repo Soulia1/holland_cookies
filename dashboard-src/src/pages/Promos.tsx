@@ -43,8 +43,9 @@ function formProblem(form: typeof emptyForm): string | null {
 }
 
 export default function Promos() {
-  const [promos, setPromos] = useState<Promo[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Opened on the codes as last seen, if they were; load() refreshes them.
+  const [promos, setPromos] = useState<Promo[]>(() => promosApi.peek() ?? []);
+  const [loading, setLoading] = useState(() => !promosApi.peek());
   const [error, setError] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [formMsg, setFormMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -53,7 +54,7 @@ export default function Promos() {
 
   async function load() {
     try {
-      setLoading(true);
+      setLoading(!promosApi.peek());
       setPromos(await promosApi.list());
       setError("");
     } catch (err) {

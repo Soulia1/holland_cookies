@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { settingsApi, signOut } from "@/lib/api";
+import { prefetch, settingsApi, signOut } from "@/lib/api";
 
 type NavItem = {
   label: string;
@@ -53,6 +53,11 @@ function NavLink({ item, active, collapsed }: { item: NavItem; active: boolean; 
     <Link
       href={item.href}
       title={collapsed ? item.label : undefined}
+      // Start loading the page's data the moment the pointer or a thumb lands
+      // on its link, so it is usually in hand by the time the page opens.
+      onPointerEnter={() => { if (!active) prefetch(item.href); }}
+      onTouchStart={() => { if (!active) prefetch(item.href); }}
+      onFocus={() => { if (!active) prefetch(item.href); }}
       className={cn(
         // 44px tall on touch so the rows are actually hittable with a thumb.
         "flex min-h-11 items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors lg:min-h-0",

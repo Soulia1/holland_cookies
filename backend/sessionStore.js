@@ -39,13 +39,43 @@ export async function createSession(kind, subject, ttlSeconds) {
   return token;
 }
 
+/**
+ * Sessions this process has recently verified, so a signed-in dashboard does
+ * not pay a Firestore round trip (~250ms from Railway to eur3) on every request.
+ *
+ * Only a successful read is remembered, for at most CACHE_MS and never past the
+ * session's own expiry. Signing out here removes the entry before the stored
+ * session is deleted, so a sign-out takes effect at once. What the cache does
+ * cost: a session deleted by hand in the Firebase console keeps working for up
+ * to CACHE_MS on an instance that had already seen it.
+ */
+const CACHE_MS = 30 * 1000;
+const CACHE_LIMIT = 1000;
+const verified = new Map();
+
 export async function readStoredSession(token, kind) {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-  return readSessionRecord(digest(token), kind);
+  const hash = digest(token);
+  const now = Date.now();
+  const held = verified.get(hash);
+  if (held && held.kind === kind && held.until > now) return { subject: held.subject };
+  if (held) verified.delete(hash);
+
+  const record = await readSessionRecord(hash, kind);
+  if (record) {
+    if (verified.size >= CACHE_LIMIT) verified.delete(verified.keys().next().value);
+    verified.set(hash, { kind, subject: record.subject, until: Math.min(now + CACHE_MS, record.expiresAtMs) });
+    return { subject: record.subject };
+  }
+  return null;
 }
 
 export async function revokeSession(token) {
-  if (typeof token === 'string' && token.length === 43) await deleteSession(digest(token));
+  if (typeof token === 'string' && token.length === 43) {
+    const hash = digest(token);
+    verified.delete(hash);
+    await deleteSession(hash);
+  }
 }
 
 export function cookieOptions(ttlSeconds) {

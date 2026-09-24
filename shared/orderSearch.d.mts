@@ -34,3 +34,16 @@ export declare function searchOrders<T>(
   query: unknown,
   indexOf?: (order: T) => OrderSearchIndex,
 ): T[];
+export declare function payloadSearchShape(order?: Record<string, any>): Record<string, unknown>;
+export interface OrderQuery {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  status?: string | null;
+  fulfilment?: string | null;
+}
+export declare function queryOrders<T extends { status?: unknown; fulfilment?: unknown }>(
+  rows: readonly T[],
+  query: OrderQuery,
+  indexOf: (row: T) => OrderSearchIndex,
+): { rows: T[]; total: number; pages: number };

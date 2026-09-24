@@ -14,6 +14,7 @@ process.env.GCLOUD_PROJECT = 'holland-cookie-categories';
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fsdb from '../firestore.js';
+import { syncAll } from '../mirror.js';
 import { createCategory, createProduct, menu, updateCategory } from '../repo/catalogue.js';
 import { MENU_GROUP_IDS } from '../routes/menu.js';
 
@@ -27,10 +28,15 @@ async function wipe() {
     const snapshot = await fsdb.get().collection(name).get();
     await Promise.all(snapshot.docs.map((doc) => doc.ref.delete()));
   }));
+  await syncAll();
 }
 
 beforeEach(wipe);
-after(wipe);
+after(async () => {
+  await wipe();
+  // The catalogue reads start a live listener, which holds the process open.
+  await fsdb.close();
+});
 
 // Read out of the storefront's own menu module rather than repeated here: the
 // two lists exist to be the same, and a literal in this file would only ever

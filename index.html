@@ -53,6 +53,18 @@
       })();
     </script>
 
+    <!-- The menu, requested now rather than after the bundle below has
+         downloaded, parsed and rendered: the two waits overlap instead of
+         adding up. api.ts picks this promise up; a failure resolves to null
+         and it simply asks again. Same headers and cookies as its own fetch. -->
+    <script>
+      window.__hollandMenu = fetch("/api/menu", {
+        credentials: "include",
+        headers: { "X-Requested-With": "Holland" }
+      }).then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; });
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

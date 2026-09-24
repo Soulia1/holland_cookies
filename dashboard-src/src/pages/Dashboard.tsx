@@ -155,12 +155,15 @@ function PanelLink({ href, children }: { href: string; children: string }) {
 }
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<OrderStats | null>(null);
-  const [recent, setRecent] = useState<Order[]>([]);
   const [range, setRange] = useState<TimeRange>("1m");
+  // Opened on the figures last seen for this range, if any; load() refreshes them.
+  const [stats, setStats] = useState<OrderStats | null>(
+    () => ordersApi.peekStats(TIME_RANGE_DAYS[range] * 2, TIME_RANGE_DAYS[range]) ?? null,
+  );
+  const [recent, setRecent] = useState<Order[]>(() => ordersApi.peekList(1, 8)?.orders ?? []);
   const [metricKey, setMetricKey] = useState<MetricKey>("revenue");
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => stats === null);
   const [error, setError] = useState("");
 
   const days = TIME_RANGE_DAYS[range];
@@ -170,8 +173,12 @@ export default function Dashboard() {
   // from. Metrics are aggregated server-side over every order, so they do not
   // silently under-report past the first page of results.
   async function load(windowDays: number, query: string) {
+    const seenStats = ordersApi.peekStats(windowDays * 2, windowDays);
+    const seenPage = ordersApi.peekList(1, 8, query);
+    if (seenStats) setStats(seenStats);
+    if (seenPage) setRecent(seenPage.orders);
     try {
-      setLoading(true);
+      setLoading(!(seenStats && seenPage));
       const [summary, page] = await Promise.all([
         ordersApi.stats(windowDays * 2, windowDays),
         ordersApi.list(1, 8, query),
@@ -190,12 +197,25 @@ export default function Dashboard() {
     void load(days, "");
   }, [days]);
 
-  // Debounced so typing does not fire a request per keystroke. Skipped on the
-  // first render, where load() has already fetched the unfiltered page.
+  // The order book, so the search below can answer in the browser. Loaded here
+  // too, not only on the Orders page, because this box is often the first place
+  // somebody searches.
+  useEffect(() => {
+    ordersApi.book().catch(() => { /* the search falls back to the server */ });
+  }, []);
+
+  // Answered from the order book as it is typed when the book holds every
+  // order; otherwise debounced so typing does not fire a request per keystroke.
+  // Skipped on the first render, where load() has already fetched the page.
   const searchReady = useRef(false);
   useEffect(() => {
     if (!searchReady.current) {
       searchReady.current = true;
+      return;
+    }
+    const local = ordersApi.localList(1, 8, search);
+    if (local?.complete) {
+      setRecent(local.orders);
       return;
     }
     const timer = setTimeout(() => {

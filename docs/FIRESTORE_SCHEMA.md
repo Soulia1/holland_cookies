@@ -246,14 +246,43 @@ check is now explicit in `repo/catalogue.js` `deleteCategory()` and must stay
 there — without it, deleting a category orphans its products into a catalogue
 that renders nothing.
 
-### 3. Substring search is a bounded scan
+### 3. Reads are served from an in-memory mirror (since 2026-09-24)
 
-Firestore has no substring operator. Order and customer search read documents and
-filter in memory, capped at `SEARCH_SCAN_CAP` (5,000) and `REPORTING_CAP`
-(20,000). This is not a regression — a leading-wildcard `LIKE` could not use a
-SQLite index either — but the cost moved from a page cache to a read quota.
-**Beyond those caps, search needs a real index.** The place to add one is
-`repo/orders.js` / `repo/people.js`.
+`backend/mirror.js` holds live copies of `categories`, `products`, `promos`,
+`settings`, `customers` and `orders`, kept current by Firestore real-time
+listeners (`onSnapshot`). The menu, the dashboard list, order and customer
+search, the overview figures, the customer directory and the account order
+history read those copies — no round trip. Firestore sits in `eur3` and a round
+trip from Railway measured ~250ms, so this removed between one and sixteen of
+them from every page.
+
+- **Own writes are visible immediately.** Every write the app makes to a
+  mirrored collection is followed by `refresh()` on the documents it touched.
+  Writes made elsewhere (console, seed script) arrive through the listener,
+  normally well under a second later.
+- **Out-of-order delivery cannot regress data.** Each entry keeps its version
+  (document `updateTime`, or the snapshot `readTime` for a deletion) and an
+  older version never replaces a newer one.
+- **Transactions never read the mirror.** Prices, promo limits and order totals
+  are still read with `tx.get` inside the order transaction.
+- **Fallback.** While a listener is not ready (booting, reconnecting), reads go
+  to Firestore directly — the old query paths, still in place. `READ_MIRROR=off`
+  forces that permanently.
+- **Search** uses `shared/orderSearch.mjs`, the same matcher the dashboard
+  highlights with (Arabic letter variants, Arabic-Indic digits, any phone
+  spelling, ranked). The Firestore fallback is still a bounded scan capped at
+  `SEARCH_SCAN_CAP`.
+- **Cost and memory.** Each process start reads every mirrored document once;
+  after that only changes are billed. Memory is a few KB per order, so tens of
+  thousands of orders are fine on one instance. Past that, archive old orders
+  out of the live collection rather than growing the mirror.
+- **Tests** that write fixtures straight into Firestore call `syncAll()` before
+  asking the API. `backend/test/mirror.test.js` asserts every mirrored endpoint
+  answers byte-for-byte the same with the mirror on and off.
+
+Admin sessions verified by this process are also cached for 30 seconds
+(`backend/sessionStore.js`). Signing out clears the entry immediately. A
+session deleted by hand in the console keeps working for up to 30 seconds.
 
 ### 4. `byArea` and `topProducts` changed meaning
 

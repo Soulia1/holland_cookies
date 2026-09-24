@@ -12,6 +12,7 @@
  */
 
 import { collections, settingsDoc, FieldValue } from '../firestore.js';
+import { live, refresh } from '../mirror.js';
 
 const now = () => FieldValue.serverTimestamp();
 const iso = (value) => (value?.toDate ? value.toDate().toISOString() : (value ?? null));
@@ -43,15 +44,22 @@ export const promoOut = (promo) => ({
 const promoFromDoc = (doc) => ({ code: doc.id, ...doc.data() });
 
 export async function listPromos() {
-  const snapshot = await collections.promos().get();
-  return snapshot.docs
-    .map(promoFromDoc)
+  const mirror = live('promos');
+  const rows = mirror
+    ? mirror.docs().map(([code, data]) => ({ code, ...data }))
+    : (await collections.promos().get()).docs.map(promoFromDoc);
+  return rows
     .sort((a, b) => String(iso(b.createdAt) ?? '').localeCompare(String(iso(a.createdAt) ?? '')));
 }
 
 export async function getPromo(code) {
   const id = normalizeCode(code);
   if (!isPromoCode(id)) return null;
+  const mirror = live('promos');
+  if (mirror) {
+    const data = mirror.get(id);
+    return data ? { code: id, ...data } : null;
+  }
   const doc = await collections.promos().doc(id).get();
   return doc.exists ? promoFromDoc(doc) : null;
 }
@@ -76,6 +84,7 @@ export async function createPromo(body) {
     if (error.code === 6) return { duplicate: true };
     throw error;
   }
+  await refresh('promos', code);
   return { duplicate: false, promo: promoOut({ code, ...document }) };
 }
 
@@ -101,6 +110,7 @@ export async function updatePromo(code, patch) {
     if (error.code === 5) return { found: false, changed: false };
     throw error;
   }
+  await refresh('promos', normalizeCode(code));
   return { found: true, changed: true };
 }
 
@@ -109,6 +119,7 @@ export async function deletePromo(code) {
   const ref = collections.promos().doc(normalizeCode(code));
   if (!(await ref.get()).exists) return false;
   await ref.delete();
+  await refresh('promos', ref.id);
   return true;
 }
 
@@ -123,6 +134,11 @@ export const DEFAULT_SETTINGS = {
 };
 
 export async function getSettings() {
+  const mirror = live('settings');
+  if (mirror) {
+    const data = mirror.get(settingsDoc().id);
+    return data ? { ...DEFAULT_SETTINGS, ...data } : { ...DEFAULT_SETTINGS };
+  }
   const doc = await settingsDoc().get();
   // A missing settings document must not take the shop down. It reads as the
   // defaults, which are "open, free delivery, no area restriction" — the same
@@ -140,6 +156,7 @@ export async function updateSettings(patch) {
   // merge:true so a patch of one field does not blank the others, and so the
   // document is created if it has never been written.
   await settingsDoc().set({ ...update, updatedAt: now() }, { merge: true });
+  await refresh('settings', settingsDoc().id);
 }
 
 export { iso };

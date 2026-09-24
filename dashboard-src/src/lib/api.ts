@@ -19,6 +19,10 @@
 
 export type { OrderStatus, FulfillmentType } from "@shared/orderStatus.mjs";
 import type { OrderStatus, FulfillmentType } from "@shared/orderStatus.mjs";
+import {
+  buildOrderSearchIndex, payloadSearchShape, queryOrders, type OrderSearchIndex,
+} from "@shared/orderSearch.mjs";
+import { clearSaved, loadSaved, remove, save } from "@/lib/persist";
 
 // ------------------------------------------------------------------ types ---
 // Scooby's contract, restated. Fields Holland cannot populate are optional and
@@ -344,6 +348,223 @@ export interface ShopSettings {
   emailEnabled?: boolean;
 }
 
+// -------------------------------------------------------------- the cache ---
+
+/**
+ * The last answer to each read, kept in memory for this tab.
+ *
+ * Stale-while-revalidate: a page opens on what it showed last time — no
+ * spinner, no blank table — and the fresh request it always makes replaces it
+ * a moment later. That is what makes moving between pages, paging back, and
+ * backspacing through a search feel instant. Nothing here is ever the final
+ * word: every read still goes to the server.
+ *
+ * A write clears what it affects before it is sent, so a page never opens on a
+ * figure the operator has just changed. Signing out, or losing the session,
+ * clears everything.
+ */
+const remembered = new Map<string, unknown>();
+const REMEMBER_LIMIT = 80;
+
+function keep<T>(key: string, value: T): T {
+  remembered.delete(key);
+  remembered.set(key, value);
+  save(key, value);
+  if (remembered.size > REMEMBER_LIMIT) {
+    const oldest = remembered.keys().next().value as string;
+    remembered.delete(oldest);
+    remove(oldest);
+  }
+  return value;
+}
+
+function recall<T>(key: string): T | undefined {
+  return remembered.get(key) as T | undefined;
+}
+
+function forget(...prefixes: string[]): void {
+  for (const key of [...remembered.keys()]) {
+    if (prefixes.some((prefix) => key.startsWith(prefix))) {
+      remembered.delete(key);
+      remove(key);
+    }
+  }
+}
+
+/** Everything, here and on disk: sign-out, or the session is gone. */
+function forgetAll(): void {
+  remembered.clear();
+  book = null;
+  clearSaved();
+}
+
+/**
+ * Put back what the last visit saved, so the first page drawn after a reload
+ * is the one the operator left rather than a spinner. The session gate calls
+ * this while it asks whether there is a session, and waits for both; it calls
+ * `forgetSaved` if the answer is no.
+ *
+ * A value already fetched during this visit is newer than the saved one and wins.
+ */
+export async function restoreSaved(): Promise<void> {
+  const saved = await loadSaved();
+  for (const [key, value] of saved) {
+    if (key !== BOOK_KEY && !remembered.has(key)) remembered.set(key, value);
+  }
+  const savedBook = saved.get(BOOK_KEY) as SavedBook | undefined;
+  if (savedBook && !book) {
+    // Area names from the saved settings, so rows do not flash their ids.
+    const settings = recall<ShopSettings>("settings");
+    adoptBook(savedBook, new Map(settings?.areas.map((area) => [area.id, area.name]) ?? []));
+  }
+}
+
+/** No session: nothing saved on this device may outlive it. */
+export function forgetSaved(): void {
+  forgetAll();
+}
+
+/** Everything an order write can change the answer to. */
+const forgetOrders = () => forget("orders?", "order:", "stats:", "users");
+
+// --------------------------------------------------------- the order book ---
+
+/**
+ * The newest orders, whole, held in the browser (`GET /api/orders/book`).
+ *
+ * With it the Orders page searches, filters and pages without a request: a
+ * keystroke is a pass over memory with the same `queryOrders` the server runs,
+ * so the answer is the one the server would give, a frame after typing.
+ *
+ * It is revalidated with its ETag, so keeping it current costs a bodiless 304
+ * while nothing has changed. `complete` is false only when the shop has more
+ * orders than the server sends; the page then still asks the server, and shows
+ * the local answer only until the server's arrives.
+ */
+export interface OrderBook {
+  orders: Order[];
+  total: number;
+  complete: boolean;
+}
+
+interface BookEntry {
+  order: Order;
+  raw: HollandOrder;
+  status: string;
+  fulfilment: string;
+}
+
+interface SavedBook {
+  tag: string | null;
+  orders: HollandOrder[];
+  total: number;
+  complete: boolean;
+}
+
+const BOOK_KEY = "book";
+
+let book: (OrderBook & { tag: string | null; entries: BookEntry[] }) | null = null;
+let bookLoading: Promise<OrderBook> | null = null;
+const bookListeners = new Set<(book: OrderBook) => void>();
+const searchIndexes = new WeakMap<HollandOrder, OrderSearchIndex>();
+
+/** Keyed on the raw order, which is replaced when it changes, so an index is built once per version. */
+function indexOf(entry: BookEntry): OrderSearchIndex {
+  let index = searchIndexes.get(entry.raw);
+  if (!index) {
+    index = buildOrderSearchIndex(payloadSearchShape(entry.raw));
+    searchIndexes.set(entry.raw, index);
+  }
+  return index;
+}
+
+function adoptBook(saved: SavedBook, areas: Map<string, string> = new Map()): void {
+  const entries = saved.orders.map((raw) => ({
+    order: toOrder(raw, areas), raw, status: raw.status, fulfilment: raw.fulfilment,
+  }));
+  book = {
+    tag: saved.tag,
+    entries,
+    orders: entries.map((entry) => entry.order),
+    total: saved.total,
+    complete: saved.complete,
+  };
+  for (const listener of bookListeners) listener(book);
+}
+
+/**
+ * Change one order in the book the moment the server has accepted the change —
+ * or, with no reference, re-read every row's area name after the areas changed.
+ */
+function patchBook(reference: string | null, change: (raw: HollandOrder) => HollandOrder): void {
+  const current = book;
+  if (!current) return;
+  void areaNames().then((areas) => {
+    if (book !== current) return;
+    adoptBook({
+      // No longer the server's exact answer: the next revalidation must be a full one.
+      tag: null,
+      orders: current.entries.map((entry) => (reference === null || entry.raw.reference === reference ? change(entry.raw) : entry.raw)),
+      total: current.total,
+      complete: current.complete,
+    }, areas);
+  });
+}
+
+/**
+ * Revalidate the order book. Concurrent callers share one request; an unchanged
+ * book is a 304 and the held copy is returned as it is.
+ */
+function loadBook(): Promise<OrderBook> {
+  bookLoading ??= (async () => {
+    const held = book;
+    const response = await apiFetch("/api/orders/book", {
+      headers: held?.tag ? { "If-None-Match": held.tag } : {},
+    });
+    if (response.status === 304 && held && book === held) return held;
+    const [body, areas] = await Promise.all([
+      json<{ orders: HollandOrder[]; total: number; complete: boolean }>(response, "load orders"),
+      areaNames(),
+    ]);
+    const saved: SavedBook = {
+      tag: response.headers.get("ETag"),
+      orders: body.orders,
+      total: body.total,
+      complete: body.complete,
+    };
+    adoptBook(saved, areas);
+    save(BOOK_KEY, saved);
+    return book!;
+  })().finally(() => {
+    bookLoading = null;
+  });
+  return bookLoading;
+}
+
+/** The overview's default window, which is what hovering its link prefetches. */
+const OVERVIEW_DAYS = 30;
+
+const prefetchedAt = new Map<string, number>();
+
+/**
+ * Warm the cache for a page before it is opened: hover, focus or touch on its
+ * link. At most once every few seconds per page, so running a pointer up and
+ * down the sidebar is not a burst of requests.
+ */
+export function prefetch(href: string): void {
+  const now = Date.now();
+  if (now - (prefetchedAt.get(href) ?? 0) < 5000) return;
+  prefetchedAt.set(href, now);
+  const quietly = (work: Promise<unknown>) => { work.catch(() => {}); };
+  switch (href) {
+    case "/": quietly(ordersApi.stats(OVERVIEW_DAYS * 2, OVERVIEW_DAYS)); quietly(ordersApi.list(1, 8)); break;
+    case "/orders": quietly(ordersApi.book()); break;
+    case "/users": quietly(usersApi.list()); break;
+    case "/menu": quietly(menuApi.list()); quietly(menuApi.categories()); break;
+    case "/promos": quietly(promosApi.list()); break;
+  }
+}
+
 // ------------------------------------------------------------- the fetches ---
 
 /** Called when a request comes back 401, so the gate can re-appear. */
@@ -373,7 +594,10 @@ async function apiFetch(path: string, init: RequestInit = {}): Promise<Response>
     // ("Failed to fetch", "Load failed") would be shown as if it were a reason.
     throw new Error("Could not reach the server. Check the connection and try again.", { cause: error });
   }
-  if (response.status === 401) sessionLost?.();
+  if (response.status === 401) {
+    forgetAll();
+    sessionLost?.();
+  }
   return response;
 }
 
@@ -430,6 +654,7 @@ export async function signIn(key: string): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
+  forgetAll();
   await apiFetch("/api/admin/session", { method: "DELETE" }).catch(() => {});
 }
 
@@ -555,10 +780,30 @@ function toOrder(order: HollandOrder, areas: Map<string, string> = new Map()): O
 
 // -------------------------------------------------------------------- apis ---
 
+/** The list's query string: also its key in the cache. */
+function listQuery(page: number, pageSize: number, query: string, filters: OrderFilters): URLSearchParams {
+  const search = new URLSearchParams({
+    page: String(page),
+    perPage: String(pageSize),
+  });
+  if (query) search.set("q", query);
+  if (filters.status) search.set("status", filters.status);
+  // Both filters are applied by the server's query. Filtering a page after it
+  // arrives would leave the page short and the total counting everything.
+  if (filters.fulfillmentType) search.set("fulfilment", filters.fulfillmentType);
+  return search;
+}
+
 export const ordersApi = {
   /** `topDays`: how many of the latest `days` best sellers and areas cover. */
   async stats(days = 30, topDays = days): Promise<OrderStats> {
-    return json(await apiFetch(`/api/orders/stats?days=${days}&topDays=${topDays}`), "load statistics");
+    return keep(`stats:${days}:${topDays}`,
+      await json<OrderStats>(await apiFetch(`/api/orders/stats?days=${days}&topDays=${topDays}`), "load statistics"));
+  },
+
+  /** What `stats` last returned for these arguments, if anything. */
+  peekStats(days = 30, topDays = days): OrderStats | undefined {
+    return recall(`stats:${days}:${topDays}`);
   },
 
   /**
@@ -573,15 +818,7 @@ export const ordersApi = {
     filters: OrderFilters = {},
     signal?: AbortSignal,
   ): Promise<OrdersPage> {
-    const search = new URLSearchParams({
-      page: String(page),
-      perPage: String(pageSize),
-    });
-    if (query) search.set("q", query);
-    if (filters.status) search.set("status", filters.status);
-    // Both filters are applied by the server's query. Filtering a page after it
-    // arrives would leave the page short and the total counting everything.
-    if (filters.fulfillmentType) search.set("fulfilment", filters.fulfillmentType);
+    const search = listQuery(page, pageSize, query, filters);
 
     const [body, areas] = await Promise.all([
       json<{
@@ -590,13 +827,54 @@ export const ordersApi = {
       areaNames(),
     ]);
 
-    return {
+    return keep(`orders?${search}`, {
       orders: body.orders.map((order) => toOrder(order, areas)),
       page: body.page,
       pageSize: body.perPage,
       total: body.total,
       totalPages: body.pages,
       hasMore: body.page < body.pages,
+    });
+  },
+
+  /** What `list` last returned for exactly these arguments, if anything. */
+  peekList(page = 1, pageSize = 25, query = "", filters: OrderFilters = {}): OrdersPage | undefined {
+    return recall(`orders?${listQuery(page, pageSize, query, filters)}`);
+  },
+
+  /** Revalidate the order book: a 304 when nothing has changed. */
+  book(): Promise<OrderBook> {
+    return loadBook();
+  },
+
+  /** Called with the book whenever it changes. Returns the unsubscribe. */
+  onBook(listener: (book: OrderBook) => void): () => void {
+    bookListeners.add(listener);
+    return () => { bookListeners.delete(listener); };
+  },
+
+  /**
+   * One page of the list, answered from the order book with no request: the
+   * same filtering, ranking and paging as `list`, because it is the same
+   * `queryOrders` the server runs. Undefined until the book has loaded.
+   */
+  localList(page = 1, pageSize = 25, query = "", filters: OrderFilters = {}): (OrdersPage & { complete: boolean }) | undefined {
+    if (!book) return undefined;
+    const result = queryOrders(book.entries, {
+      page,
+      perPage: pageSize,
+      q: query,
+      status: filters.status || null,
+      fulfilment: filters.fulfillmentType || null,
+    }, indexOf);
+    return {
+      orders: result.rows.map((entry) => entry.order),
+      page,
+      pageSize,
+      total: result.total,
+      totalPages: result.pages,
+      hasMore: page < result.pages,
+      complete: book.complete,
     };
   },
 
@@ -620,7 +898,11 @@ export const ordersApi = {
       note: entry.note,
       createdAt: isoOf(entry.created_at),
     }));
-    return order;
+    return keep(`order:${reference}`, order);
+  },
+
+  peekOrder(reference: string): OrderDetail | undefined {
+    return recall(`order:${reference}`);
   },
 
   /**
@@ -630,19 +912,23 @@ export const ordersApi = {
    * no payment provider exists and nothing here implies one.
    */
   async updatePayment(reference: string, paymentStatus: "paid" | "unpaid"): Promise<void> {
+    forgetOrders();
     const response = await apiFetch(`/api/orders/${encodeURIComponent(reference)}/payment`, {
       method: "PATCH",
       body: JSON.stringify({ paymentStatus }),
     });
     await json(response, "record the cash collection");
+    patchBook(reference, (raw) => ({ ...raw, paymentStatus }));
   },
 
   async updateStatus(reference: string, status: OrderStatus, note = ""): Promise<void> {
+    forgetOrders();
     const response = await apiFetch(`/api/orders/${encodeURIComponent(reference)}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status, note }),
     });
     await json(response, "update the status");
+    patchBook(reference, (raw) => ({ ...raw, status }));
   },
 };
 
@@ -651,16 +937,25 @@ export const menuApi = {
     const body = await json<{ products: HollandProduct[] }>(
       await apiFetch("/api/menu/admin/products"), "load the menu",
     );
-    return body.products.map(toMenuItem);
+    return keep("menu:products", body.products.map(toMenuItem));
+  },
+
+  peek(): MenuItem[] | undefined {
+    return recall("menu:products");
+  },
+
+  peekCategories(): { id: string; name: string; nameAr: string; group: string }[] | undefined {
+    return recall("menu:categories");
   },
 
   async categories(): Promise<{ id: string; name: string; nameAr: string; group: string }[]> {
-    return (await json<{ categories: { id: string; name: string; nameAr: string; group: string }[] }>(
+    return keep("menu:categories", (await json<{ categories: { id: string; name: string; nameAr: string; group: string }[] }>(
       await apiFetch("/api/menu/admin/categories"), "load categories",
-    )).categories;
+    )).categories);
   },
 
   async create(item: Partial<MenuItem>): Promise<MenuItem> {
+    forget("menu:");
     // The id is required by the server and is permanent — cart lines and past
     // orders key on it. Made from the English name when the form left it blank,
     // and cleaned either way, so "Pistachio Cookie" files as pistachio-cookie
@@ -683,6 +978,7 @@ export const menuApi = {
   },
 
   async update(id: string, patch: Partial<MenuItem>): Promise<MenuItem> {
+    forget("menu:");
     const body = await json<{ product: HollandProduct }>(
       await apiFetch(`/api/menu/admin/products/${encodeURIComponent(id)}`, {
         method: "PATCH",
@@ -694,6 +990,7 @@ export const menuApi = {
   },
 
   async remove(id: string): Promise<void> {
+    forget("menu:");
     const response = await apiFetch(`/api/menu/admin/products/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
@@ -706,6 +1003,7 @@ export const menuApi = {
 
   /** The id is permanent — products key on it — so it is derived from the name once. */
   async createCategory(name: string, nameAr = "", group = "cookies"): Promise<{ id: string; name: string }> {
+    forget("menu:");
     const id = slugify(name) || `category-${Date.now().toString(36)}`;
     const body = await json<{ category: { id: string; name: string } }>(
       await apiFetch("/api/menu/admin/categories", {
@@ -724,6 +1022,7 @@ export const menuApi = {
    * products is refused. Returns how many products went with it.
    */
   async removeCategory(id: string, withProducts = false): Promise<number> {
+    forget("menu:");
     const query = withProducts ? "?withProducts=1" : "";
     const response = await apiFetch(
       `/api/menu/admin/categories/${encodeURIComponent(id)}${query}`,
@@ -760,19 +1059,25 @@ export const promosApi = {
     const body = await json<{ promos: Omit<Promo, "id">[] }>(
       await apiFetch("/api/admin/promos"), "load discount codes",
     );
-    return body.promos.map((promo) => ({ ...promo, id: promo.code }));
+    return keep("promos", body.promos.map((promo) => ({ ...promo, id: promo.code })));
+  },
+  peek(): Promo[] | undefined {
+    return recall("promos");
   },
   async create(promo: Partial<Promo> & { code: string }): Promise<void> {
+    forget("promos");
     await json(await apiFetch("/api/admin/promos", {
       method: "POST", body: JSON.stringify(promo),
     }), "create the code");
   },
   async update(code: string, patch: Partial<Promo>): Promise<void> {
+    forget("promos");
     await json(await apiFetch(`/api/admin/promos/${encodeURIComponent(code)}`, {
       method: "PATCH", body: JSON.stringify(patch),
     }), "update the code");
   },
   async remove(code: string): Promise<void> {
+    forget("promos");
     const response = await apiFetch(`/api/admin/promos/${encodeURIComponent(code)}`, {
       method: "DELETE",
     });
@@ -802,7 +1107,7 @@ export const usersApi = {
     // The backend stamps `YYYY-MM-DD HH:MM:SS` in UTC with no marker; the page
     // formats these with `new Date()`, which would read them as local time.
     const iso = (stamp: string | null) => (stamp ? isoOf(stamp) : null);
-    return {
+    return keep("users", {
       ...directory,
       users: directory.users.map((user) => ({
         ...user,
@@ -813,7 +1118,11 @@ export const usersApi = {
           ...order, area: areaName(order.area), createdAt: iso(order.createdAt),
         })),
       })),
-    };
+    });
+  },
+
+  peek(): UserDirectory | undefined {
+    return recall("users");
   },
 };
 
@@ -822,7 +1131,11 @@ export const settingsApi = {
     const body = await json<{ settings: ShopSettings }>(
       await apiFetch("/api/admin/settings"), "load settings",
     );
-    return body.settings;
+    return keep("settings", body.settings);
+  },
+
+  peek(): ShopSettings | undefined {
+    return recall("settings");
   },
 
   /** Saves, then reads back — so what the page shows is what was stored. */
@@ -836,6 +1149,9 @@ export const settingsApi = {
     // replaced. Left cached, an area renamed here would keep printing its old
     // name on every order detail until the page was reloaded.
     areaNamesPending = null;
+    // Area names are printed on orders and customers too.
+    forget("settings", "orders?", "order:", "users");
+    patchBook(null, (raw) => raw);
     return settingsApi.get();
   },
 };

@@ -218,6 +218,27 @@ router.get('/', requireAdmin, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+/**
+ * GET /api/orders/book — the newest orders, whole, for the dashboard to search
+ * in the browser. Revalidated with If-None-Match: an unchanged book is a bodiless
+ * 304, decided before the book is built. The check is done here rather than by
+ * Express's `fresh`, because a fetch that sets its own If-None-Match is sent
+ * with `Cache-Control: no-cache`, which `fresh` reads as "never 304".
+ */
+router.get('/book', requireAdmin, async (req, res, next) => {
+  try {
+    const version = orders.orderBookVersion();
+    const tag = version && `"${version}"`;
+    if (tag && req.get('if-none-match') === tag) {
+      res.set('ETag', tag);
+      return res.status(304).end();
+    }
+    const book = await orders.orderBook();
+    if (book.version) res.set('ETag', `"${book.version}"`);
+    return res.json({ orders: book.orders, total: book.total, complete: book.complete, limit: orders.ORDER_BOOK_LIMIT });
+  } catch (error) { return next(error); }
+});
+
 /** GET /api/orders/stats?days=N&topDays=M — the aggregates the overview is built on. */
 router.get('/stats', requireAdmin, async (req, res, next) => {
   try {

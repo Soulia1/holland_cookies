@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 
 const { default: app } = await import('../server.js');
 const fsdb = await import('../firestore.js');
+const { syncAll } = await import('../mirror.js');
 
 let server;
 let base;
@@ -96,6 +97,7 @@ beforeEach(async () => {
     fsdb.orderCounterDoc().set({ value: 1000 }),
     fsdb.settingsDoc().set({ deliveryFee: 0, freeDeliveryOver: 0, acceptingOrders: true, areas: [] }),
   ]);
+  await syncAll();
 });
 
 after(async () => {

@@ -232,8 +232,43 @@ export interface CheckoutBody {
 
 // ----------------------------------------------------------------- public ---
 
+declare global {
+  interface Window {
+    /** The menu request index.html starts before this bundle has even downloaded. */
+    __hollandMenu?: Promise<unknown>;
+  }
+}
+
+/**
+ * The menu, taking over the request index.html already started.
+ *
+ * Without that head start the menu was fetched only after the page's JavaScript
+ * had downloaded, parsed and rendered: two waits end to end. index.html fires
+ * the request while the bundle is still on its way, so by the time anything asks
+ * the answer is usually already here. It is used once — the first load of the
+ * page — and only when the API is this origin; anything else, including a
+ * failed early request, goes the ordinary way.
+ */
+const EARLY_MENU_FRESH_MS = 15_000;
+
+function menu(): Promise<{ categories: ApiCategory[] }> {
+  const early = typeof window === "undefined" || BASE ? undefined : window.__hollandMenu;
+  if (early) window.__hollandMenu = undefined;
+  // Only while the page is still loading. A visitor who landed on a page that
+  // never read the menu and clicks through to one later wants today's menu,
+  // not the one from when they arrived.
+  if (early && performance.now() < EARLY_MENU_FRESH_MS) {
+    return early.then((body) => (
+      body && Array.isArray((body as { categories?: unknown }).categories)
+        ? body as { categories: ApiCategory[] }
+        : request<{ categories: ApiCategory[] }>("/api/menu")
+    ));
+  }
+  return request<{ categories: ApiCategory[] }>("/api/menu");
+}
+
 export const api = {
-  menu: () => request<{ categories: ApiCategory[] }>("/api/menu"),
+  menu,
 
   settings: () => request<{ settings: Settings }>("/api/admin/settings"),
 

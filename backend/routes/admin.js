@@ -18,6 +18,7 @@ import {
 import * as people from '../repo/people.js';
 import * as shop from '../repo/shop.js';
 import * as orderRepo from '../repo/orders.js';
+import { versionOf } from '../mirror.js';
 
 const router = Router();
 validateParams(router);
@@ -105,8 +106,19 @@ router.get('/customers/:phone', requireAdmin, async (req, res, next) => {
  * collection — so it is rate limited as a `report` class and is the first
  * candidate for a maintained aggregate if the shop outgrows it.
  */
+/**
+ * The last directory built from the mirrors, and the version of customers and
+ * orders it was built from. Rebuilt only when either changes.
+ */
+let directory = null;
+
 router.get('/users', requireAdmin, async (_req, res, next) => {
   try {
+    const version = versionOf('customers', 'orders');
+    // Held as the serialised text: at a few thousand customers, turning the
+    // object into JSON was most of what was left of this request.
+    if (version && directory?.version === version) return res.type('json').send(directory.json);
+
     // The embedded order list is capped so one customer with four hundred
     // orders cannot make this response enormous. The counts and totals below
     // are computed over all of them regardless, and `truncatedOrders` says how
@@ -171,7 +183,7 @@ router.get('/users', requireAdmin, async (_req, res, next) => {
     const known = new Set(customers.map((customer) => customer.phone));
     const anonymousOrders = orderDocs.filter((order) => !known.has(order.phone)).length;
 
-    return res.json({
+    const body = {
       users,
       totals: {
         users: users.length,
@@ -187,7 +199,11 @@ router.get('/users', requireAdmin, async (_req, res, next) => {
           .reduce((sum, order) => sum + (order.total ?? 0), 0)),
         anonymousOrders,
       },
-    });
+    };
+    // Kept only if nothing changed while it was being built.
+    const json = JSON.stringify(body);
+    if (version && versionOf('customers', 'orders') === version) directory = { version, json };
+    return res.type('json').send(json);
   } catch (error) { return next(error); }
 });
 

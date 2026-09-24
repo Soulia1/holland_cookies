@@ -234,7 +234,15 @@ export function currentTarget() {
 }
 
 /** Drop the handle. Used by tests between suites; the server never calls it. */
+const closeHooks = [];
+
+/** Run `hook` before the client is terminated — listeners must stop first. */
+export function onClose(hook) {
+  closeHooks.push(hook);
+}
+
 export async function close() {
+  for (const hook of closeHooks) hook();
   if (!firestore) return;
   const handle = firestore;
   firestore = null;

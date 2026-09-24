@@ -37,7 +37,7 @@ export async function readSessionRecord(tokenHash, kind) {
   // Expiry is enforced on read, not by a sweeper. A sweeper that fails leaves
   // sessions valid forever; a read-time check cannot fail open.
   if (session.expiresAt.toMillis() <= Date.now()) return null;
-  return { subject: session.subject };
+  return { subject: session.subject, expiresAtMs: session.expiresAt.toMillis() };
 }
 
 export async function deleteSession(tokenHash) {

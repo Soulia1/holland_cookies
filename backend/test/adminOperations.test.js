@@ -26,6 +26,9 @@ import { randomUUID } from 'node:crypto';
 
 const { default: app } = await import('../server.js');
 const fsdb = await import('../firestore.js');
+// Fixtures are written straight into Firestore; the API reads a live mirror of
+// it, so each direct write is followed by a sync before the API is asked.
+const { syncAll } = await import('../mirror.js');
 
 let server;
 let base;
@@ -124,6 +127,7 @@ beforeEach(async () => {
     deliveryFee: 40, freeDeliveryOver: 0, acceptingOrders: true,
     areas: [{ id: 'nasr-city', name: 'Nasr City', nameAr: 'مدينة نصر' }],
   });
+  await syncAll();
 });
 
 after(async () => {
@@ -683,6 +687,7 @@ test('promo expiry is a timestamp or nothing, and the server decides the discoun
   await fsdb.collections.promos().doc('OLD').set({
     type: 'percent', value: 10, minSubtotal: 0, maxUses: 0, usedCount: 0, active: true, expiresAt: '2001-01-01T00:00:00.000Z',
   });
+  await syncAll();
   assert.equal((await validate('OLD')).data.message, 'That code has expired.');
   assert.equal((await place({ promoCode: 'OLD' })).data.error, 'INVALID_PROMO');
 });
@@ -731,8 +736,11 @@ test('the delivery / pickup filter is applied by the query, and the total counts
 test('the overview counts days in Cairo, and best sellers cover only the range asked for', async () => {
   const { shopDays } = await import('../../shared/cairoTime.mjs');
   const today = shopDays(1);
-  const backdate = async (reference, iso) => fsdb.collections.orders().doc(reference)
-    .update({ createdAt: fsdb.Timestamp.fromDate(new Date(iso)) });
+  const backdate = async (reference, iso) => {
+    await fsdb.collections.orders().doc(reference)
+      .update({ createdAt: fsdb.Timestamp.fromDate(new Date(iso)) });
+    await syncAll();
+  };
 
   // Thirty minutes after midnight in Cairo: the previous day in UTC.
   const early = await place({ items: [{ productId: 'percent-off', qty: 2 }] });

@@ -216,8 +216,9 @@ function bodyFrom(draft: Draft): Partial<MenuItem> {
 }
 
 export default function Menu() {
-  const [items, setItems] = useState<MenuItem[] | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
+  // Opened on the menu as last seen, if it was; load() refreshes it.
+  const [items, setItems] = useState<MenuItem[] | null>(() => menuApi.peek() ?? null);
+  const [categories, setCategories] = useState<Category[]>(() => menuApi.peekCategories() ?? []);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [editing, setEditing] = useState<Draft | null>(null);

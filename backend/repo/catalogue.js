@@ -22,6 +22,7 @@
  */
 
 import { collections, FieldValue, get as firestore } from '../firestore.js';
+import { live, refresh } from '../mirror.js';
 import { effectivePrice, money } from '../../shared/pricing.mjs';
 
 const now = () => FieldValue.serverTimestamp();
@@ -156,11 +157,13 @@ export async function listCategories({ visibleOnly = false } = {}) {
   // filtered query needs a composite index for every filter combination, and
   // this collection is seventeen documents — sorting them here costs nothing and
   // keeps firestore.indexes.json honest about what is actually needed at scale.
-  const snapshot = visibleOnly
-    ? await collections.categories().where('visible', '==', true).get()
-    : await collections.categories().get();
-  return snapshot.docs
-    .map((doc) => ({ id: doc.id, ...doc.data() }))
+  const mirror = live('categories');
+  const rows = mirror
+    ? mirror.docs().map(([id, data]) => ({ id, ...data })).filter((row) => !visibleOnly || row.visible === true)
+    : (visibleOnly
+      ? await collections.categories().where('visible', '==', true).get()
+      : await collections.categories().get()).docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  return rows
     .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || String(a.name).localeCompare(String(b.name)));
 }
 
@@ -193,6 +196,7 @@ export async function createCategory(body) {
     if (error.code === 6 /* ALREADY_EXISTS */) return { duplicate: true };
     throw error;
   }
+  await refresh('categories', body.id);
   return { duplicate: false, category: { id: body.id, ...body } };
 }
 
@@ -208,6 +212,7 @@ export async function updateCategory(id, patch) {
     if (error.code === 5 /* NOT_FOUND */) return { changed: false, found: false };
     throw error;
   }
+  await refresh('categories', id);
   return { changed: true, found: true };
 }
 
@@ -246,15 +251,21 @@ export async function deleteCategory(id, { withProducts = false } = {}) {
   for (const product of products) batch.delete(collections.products().doc(product.id));
   batch.delete(ref);
   await batch.commit();
+  await Promise.all([
+    refresh('categories', id),
+    refresh('products', products.map((product) => product.id)),
+  ]);
   return { found: true, deletedProducts: products.length };
 }
 
 // -------------------------------------------------------------- products ----
 
 export async function listProducts() {
-  const snapshot = await collections.products().get();
-  return snapshot.docs
-    .map(productFromDoc)
+  const mirror = live('products');
+  const rows = mirror
+    ? mirror.docs().map(([id, data]) => ({ id, ...data }))
+    : (await collections.products().get()).docs.map(productFromDoc);
+  return rows
     .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || String(a.name).localeCompare(String(b.name)));
 }
 
@@ -328,6 +339,7 @@ export async function createProduct(body) {
     if (error.code === 6) return { duplicate: true };
     throw error;
   }
+  await refresh('products', body.id);
   return { duplicate: false, product: { id: body.id, ...document } };
 }
 
@@ -359,6 +371,7 @@ export async function updateProduct(id, patch) {
       throw error;
     }
   }
+  await refresh('products', id);
   const doc = await ref.get();
   return doc.exists ? productFromDoc(doc) : null;
 }
@@ -367,6 +380,7 @@ export async function deleteProduct(id) {
   const ref = collections.products().doc(id);
   if (!(await ref.get()).exists) return false;
   await ref.delete();
+  await refresh('products', id);
   return true;
 }
 

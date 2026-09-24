@@ -36,6 +36,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 
 const fsdb = await import('../firestore.js');
+const { syncAll } = await import('../mirror.js');
 const { default: app } = await import('../server.js');
 const mailer = await import('../mailer.js');
 
@@ -106,6 +107,7 @@ before(async () => {
     deliveryFee: 40, freeDeliveryOver: 0, acceptingOrders: true,
     areas: [{ id: 'nasr-city', name: 'Nasr City', city: 'Cairo', fee: null }],
   });
+  await syncAll();
 
   server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));

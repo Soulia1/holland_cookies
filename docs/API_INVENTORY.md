@@ -48,6 +48,7 @@ for why the split is drawn where it is.
 | `tracking` | 15min | 20 | **yes** | `/api/orders/track/*` |
 | `coupon` | 15min | 20 | **yes** | `POST /api/admin/promos/validate` |
 | `report` | 60s | 60 | no | `/api/orders/stats`, `/api/admin/users` |
+| `book` | 60s | 120 | no | `/api/orders/book` (mostly bodiless 304s) |
 | `admin-write` | 60s | 60 | **yes** | admin `PATCH`/`DELETE`, and `POST /api/menu/admin/*` |
 | `otp-request` | 60min | 20 | **yes** | `POST /api/account/request-code` |
 | `otp-verify` | 15min | 30 | **yes** | `POST /api/account/verify-code` |
@@ -95,7 +96,8 @@ cutting the price tomorrow each pass alone, and together they sell at zero.
 |---|---|---|---|---|---|---|---|
 | POST | `/api/orders` | PUBLIC | `checkoutBody` | `{order,duplicate}` 201/200 | **transaction**: 6 reads, then order + customer + promo + counter + idempotency | checkout | orderTransaction, security, e2e |
 | GET | `/api/orders/track/:reference` | PUBLIC + phone | `?phone=` | redacted order + history | read `orders` | tracking | security, e2e |
-| GET | `/api/orders` | ADMIN | `?page&perPage&status&q` | paginated | indexed query, or bounded scan when searching | public | security, e2e |
+| GET | `/api/orders` | ADMIN | `?page&perPage&status&q` | paginated | read mirror (fallback: indexed query / bounded scan) | public | security, e2e |
+| GET | `/api/orders/book` | ADMIN | `If-None-Match` | `{orders,total,complete,limit}`, newest 3,000; **304** when unchanged | read mirror (fallback: count + ordered read) | book | mirror |
 | GET | `/api/orders/stats` | ADMIN | `?days` | aggregates | 5 aggregation queries + 11 counts + 1 windowed read | report | boot, e2e |
 | GET | `/api/orders/:reference` | ADMIN | — | order + history | direct get | public | boot |
 | PATCH | `/api/orders/:reference/status` | ADMIN | `{status,note?}` | `{order}` / 409 | **transaction**: compare-and-set + history + audit | admin-write | boot, security |
@@ -118,7 +120,7 @@ staff notes are stripped from the response.
 | POST | `/api/admin/session` | PUBLIC | `{key}` | `{ok}` + HttpOnly cookie / 401 | write `sessions` | **login** | security |
 | DELETE | `/api/admin/session` | PUBLIC | — | `{ok}` | delete `sessions` | public | security |
 | GET | `/api/admin/session` | PUBLIC | — | `{signedIn}` | read `sessions` | public | boot |
-| GET | `/api/admin/customers` | ADMIN | `?page&perPage&q` | paginated | bounded scan + in-memory filter | public | security |
+| GET | `/api/admin/customers` | ADMIN | `?page&perPage&q` | paginated | read mirror + in-memory filter | public | security |
 | GET | `/api/admin/customers/:phone` | ADMIN | — | customer + orders | 2 queries | public | security |
 | GET | `/api/admin/users` | ADMIN | — | directory + lifetime totals | **whole orders collection** (capped 20k) | report | boot, security |
 | GET | `/api/admin/promos` | ADMIN | — | `{promos}` | read `promos` | public | security |

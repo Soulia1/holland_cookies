@@ -20,6 +20,7 @@
  */
 
 import { collections, FieldValue } from '../firestore.js';
+import { live } from '../mirror.js';
 import { money } from '../../shared/pricing.mjs';
 
 const now = () => FieldValue.serverTimestamp();
@@ -41,11 +42,18 @@ export const customerOut = (customer) => ({
 const customerFromDoc = (doc) => ({ phone: doc.id, ...doc.data() });
 
 export async function getCustomer(phone) {
+  const mirror = live('customers');
+  if (mirror) {
+    const data = mirror.get(phone);
+    return data ? { phone: String(phone), ...data } : null;
+  }
   const doc = await collections.customers().doc(String(phone)).get();
   return doc.exists ? customerFromDoc(doc) : null;
 }
 
 export async function allCustomers() {
+  const mirror = live('customers');
+  if (mirror) return mirror.docs().map(([phone, data]) => ({ phone, ...data }));
   const snapshot = await collections.customers().get();
   return snapshot.docs.map(customerFromDoc);
 }

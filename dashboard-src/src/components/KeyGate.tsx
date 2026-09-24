@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { hasValidSession, setSessionLostHandler, signIn } from "@/lib/api";
+import { forgetSaved, hasValidSession, prefetch, restoreSaved, setSessionLostHandler, signIn } from "@/lib/api";
 
 export default function KeyGate({ children }: { children: ReactNode }) {
   const [unlocked, setUnlocked] = useState(false);
@@ -14,8 +14,17 @@ export default function KeyGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    hasValidSession()
-      .then((valid) => active && setUnlocked(valid))
+    // Three things at once, not one after another: the session check, putting
+    // back what the last visit saved (so the page opens on it), and the fetch
+    // for the page being opened. When the session is good — the usual case —
+    // the page's data is already on its way by the time the gate opens.
+    prefetch(window.location.pathname);
+    Promise.all([hasValidSession(), restoreSaved().catch(() => {})])
+      .then(([valid]) => {
+        // No session: whatever this device saved from the last one goes.
+        if (!valid) forgetSaved();
+        if (active) setUnlocked(valid);
+      })
       .catch(() => active && setUnlocked(false))
       .finally(() => active && setChecking(false));
     return () => {

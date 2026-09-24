@@ -125,6 +125,11 @@ await fsdb.collections.promos().doc('E2E10').set({
  */
 const { default: app } = await import('../server.js');
 
+// The API reads live mirrors of these collections. Fill them from the fixtures
+// just written, before the first request, as production boot would.
+const { syncAll } = await import('../mirror.js');
+await syncAll();
+
 const port = Number(process.env.PORT) || 3100;
 const listener = app.listen(port, '127.0.0.1', () => {
   console.info(JSON.stringify({ event: 'e2e-server-started', port, datastore: fsdb.currentTarget() }));

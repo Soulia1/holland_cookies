@@ -12,6 +12,7 @@ process.env.JWT_SECRET = 'bundle-suite-0123456789abcdef-0123456789';
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fsdb from '../firestore.js';
+import { syncAll } from '../mirror.js';
 import { createOrder } from '../orderTransaction.js';
 import { orderPayload } from '../repo/orders.js';
 import { deleteCategory, listProducts, lookupOf, publicProduct } from '../repo/catalogue.js';
@@ -61,6 +62,7 @@ async function seed() {
     fsdb.orderCounterDoc().set({ value: 1000 }),
     fsdb.settingsDoc().set({ deliveryFee: 0, freeDeliveryOver: 0, acceptingOrders: true, areas: [] }),
   ]);
+  await syncAll();
 }
 
 function payload(items) {

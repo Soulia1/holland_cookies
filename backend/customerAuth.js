@@ -1,4 +1,5 @@
 import { collections, FieldValue } from './firestore.js';
+import { refresh } from './mirror.js';
 import { createSession, readStoredSession, revokeSession, cookieOptions } from './sessionStore.js';
 import { getProfile, profileOut } from './repo/people.js';
 
@@ -62,7 +63,9 @@ export async function claimProfile(email) {
   const profileRef = collections.profiles().doc(address);
   const db = collections.profiles().firestore;
 
-  return db.runTransaction(async (tx) => {
+  const claimed = [];
+  const result = await db.runTransaction(async (tx) => {
+    claimed.length = 0;
     const profileSnap = await tx.get(profileRef);
 
     const unclaimed = await tx.get(
@@ -89,13 +92,19 @@ export async function claimProfile(email) {
     };
 
     tx.set(profileRef, profile, { merge: true });
-    for (const doc of unclaimed.docs) tx.update(doc.ref, { profileId: address });
+    for (const doc of unclaimed.docs) {
+      tx.update(doc.ref, { profileId: address });
+      claimed.push(doc.id);
+    }
 
     return {
       profile: { email: address, ...existing, ...profile },
       linkedOrders: unclaimed.size,
     };
   });
+  // The account page reads orders from the mirror.
+  await refresh('orders', claimed);
+  return result;
 }
 
 export { SESSION_COOKIE };
