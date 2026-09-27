@@ -228,6 +228,8 @@ export default function Menu() {
   const [saving, setSaving] = useState(false);
   const [newCategory, setNewCategory] = useState<NewCategory | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<{ id: string; name: string; nameAr: string } | null>(null);
+  const [savingCategoryEdit, setSavingCategoryEdit] = useState(false);
   const [deleting, setDeleting] = useState<{ id: string; name: string; count: number } | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const [deletingBusy, setDeletingBusy] = useState(false);
@@ -258,6 +260,23 @@ export default function Menu() {
       setError(caught instanceof Error ? caught.message : "Could not create the category.");
     } finally {
       setSavingCategory(false);
+    }
+  }
+
+  async function saveCategoryEdit(draft: { id: string; name: string; nameAr: string }) {
+    setSavingCategoryEdit(true);
+    setError(null);
+    try {
+      await menuApi.updateCategory(draft.id, draft.name, draft.nameAr);
+      invalidateCategories();
+      await loadCategories();
+      await load();
+      setEditingCategory(null);
+      setNotice(`Saved category “${draft.name.trim()}”. The shop shows the change on its next page load.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save the category.");
+    } finally {
+      setSavingCategoryEdit(false);
     }
   }
 
@@ -448,6 +467,37 @@ export default function Menu() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={editingCategory !== null} onOpenChange={(open) => { if (!open && !savingCategoryEdit) setEditingCategory(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit category name</DialogTitle>
+            <DialogDescription>Products stay in this category when you change its name.</DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-3">
+            <Field label="Name (English)" htmlFor="edit-category-name">
+              <TextInput id="edit-category-name" autoFocus maxLength={120}
+                value={editingCategory?.name ?? ""}
+                onChange={(event) => setEditingCategory((current) => current && { ...current, name: event.target.value })}
+              />
+            </Field>
+            <Field label="Name (Arabic)" htmlFor="edit-category-name-ar" hint="Optional. Falls back to English on the site.">
+              <TextInput id="edit-category-name-ar" dir="rtl" maxLength={120}
+                value={editingCategory?.nameAr ?? ""}
+                onChange={(event) => setEditingCategory((current) => current && { ...current, nameAr: event.target.value })}
+              />
+            </Field>
+            {error && editingCategory !== null && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          </DialogBody>
+          <DialogFooter>
+            <Btn variant="ghost" disabled={savingCategoryEdit} onClick={() => setEditingCategory(null)}>Cancel</Btn>
+            <Btn disabled={savingCategoryEdit || !editingCategory?.name.trim()}
+              onClick={() => editingCategory && void saveCategoryEdit(editingCategory)}>
+              {savingCategoryEdit ? "Saving…" : "Save category"}
+            </Btn>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* The one irreversible action on this screen, so it asks the operator to
           type the name when there is anything to lose. */}
       <Dialog
@@ -534,7 +584,7 @@ export default function Menu() {
         </p>
       )}
 
-      {error && editing === null && newCategory === null && deleting === null && (
+      {error && editing === null && newCategory === null && editingCategory === null && deleting === null && (
         <p className="text-sm text-destructive" role="alert">{error}</p>
       )}
 
@@ -557,6 +607,18 @@ export default function Menu() {
                     <span className="tabular-nums text-xs text-muted-foreground">
                       {byCategory.get(category.id)?.length ?? 0}
                     </span>
+                    <Btn
+                      variant="ghost"
+                      aria-label={`Edit the ${category.name} category name`}
+                      title={`Edit the ${category.name} category name`}
+                      onClick={() => {
+                        setError(null);
+                        setNotice(null);
+                        setEditingCategory({ id: category.id, name: category.name, nameAr: category.nameAr });
+                      }}
+                    >
+                      <Pencil className="size-4" />
+                    </Btn>
                     <Btn
                       variant="ghost"
                       aria-label={`Delete the ${category.name} category`}

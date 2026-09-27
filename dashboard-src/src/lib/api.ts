@@ -1017,6 +1017,17 @@ export const menuApi = {
     return body.category;
   },
 
+  async updateCategory(id: string, name: string, nameAr: string): Promise<void> {
+    await json(
+      await apiFetch(`/api/menu/admin/categories/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: name.trim(), nameAr: nameAr.trim() }),
+      }),
+      "save the category",
+    );
+    forget("menu:");
+  },
+
   /**
    * Delete a category. `withProducts` is opt-in: without it a category holding
    * products is refused. Returns how many products went with it.
