@@ -654,7 +654,6 @@ export default function CheckoutPage() {
                           </span>
                           <PayBrands />
                         </span>
-                        {payingOnline && <span className="ed-pay-hint">{t.ckPayOnlineHint}</span>}
                       </label>
                     )}
                     <label className={`ed-pay-opt ${!payingOnline ? "is-active" : ""}`}>
