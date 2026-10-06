@@ -140,6 +140,13 @@ export interface Settings {
   freeDeliveryOver: number;
   acceptingOrders: boolean;
   areas: { id: string; name: string; nameAr?: string; city?: string; cityAr?: string }[];
+  /** Whether checkout may offer paying by card or wallet through Paymob. */
+  onlinePaymentEnabled?: boolean;
+}
+
+/** The popup to open: Paymob's hosted page, or the local mock in development. */
+export interface PaymentSession {
+  checkoutUrl: string;
 }
 
 export interface OrderTotals {
@@ -154,6 +161,8 @@ export interface Order {
   status: string;
   paymentMethod: string;
   paymentStatus: string;
+  refundedAmount?: number;
+  remainingAmount?: number;
   fulfilment: "delivery" | "pickup";
   createdAt: string;
   customer: { firstName: string; lastName: string; phone: string; email: string };
@@ -220,6 +229,7 @@ export interface CheckoutBody {
   landmark?: string;
   notes?: string;
   promoCode?: string;
+  paymentMethod?: "cash" | "online";
   lang?: "en" | "ar";
   /**
    * The total the customer was shown.
@@ -273,10 +283,22 @@ export const api = {
   settings: () => request<{ settings: Settings }>("/api/admin/settings"),
 
   placeOrder: (body: CheckoutBody) =>
-    request<{ order: Order; duplicate: boolean }>("/api/orders", {
+    request<{ order: Order; duplicate: boolean; payment?: PaymentSession | null }>("/api/orders", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  /** A fresh payment popup for an online order that is still unpaid. */
+  paymentSession: (reference: string, phone: string) =>
+    request<{ payment: PaymentSession }>("/api/payments/session", {
+      method: "POST",
+      body: JSON.stringify({ reference, phone }),
+    }),
+
+  paymentStatus: (reference: string, phone: string) =>
+    request<{ paymentStatus: string; status: string; paymentOutcome: string }>(
+      `/api/payments/status/${encodeURIComponent(reference)}?phone=${encodeURIComponent(phone)}`,
+    ),
 
   trackOrder: (reference: string, phone: string) =>
     request<{ order: Order; history: StatusEvent[] }>(

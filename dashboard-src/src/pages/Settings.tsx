@@ -394,16 +394,27 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <CardTitle><Banknote className="w-4 h-4" /> Payment</CardTitle>
-          <CardDescription>Cash only.</CardDescription>
+          <CardDescription>
+            {saved.onlinePaymentEnabled ? "Cash, or online through Paymob" : "Cash only"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <p>
-            Customers pay cash on delivery or at the counter on pickup. No online payment
-            is connected.
-          </p>
+          {saved.onlinePaymentEnabled ? (
+            <p>
+              Customers choose cash (on delivery or at the counter) or pay online by card or
+              mobile wallet through Paymob. An online order is marked paid automatically when
+              Paymob confirms it; one showing <strong>Awaiting payment</strong> has not been
+              paid — do not bake it. Refunds are made from the Paymob dashboard.
+            </p>
+          ) : (
+            <p>
+              Customers pay cash on delivery or at the counter on pickup. Online payment is
+              switched off in the server environment.
+            </p>
+          )}
           <p className="text-muted-foreground">
-            Once an order is completed, mark its cash as collected from the Orders page. That
-            is an internal record for the shop, not a payment.
+            Once a cash order is completed, mark its cash as collected from the Orders page.
+            That is an internal record for the shop, not a payment.
           </p>
         </CardContent>
       </Card>

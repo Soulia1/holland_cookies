@@ -33,7 +33,15 @@ serviceAccount.json
 serviceAccount*.json
 *-firebase-adminsdk-*.json
 
+# Paymob merchant KYC documents (ID, tax card, commercial register)
+/PayMob/
+
 # Local agent/tooling state — not project source
 .claude-flow/
 .claude/proven-config.json
 .claude/.proven-config-version
+
+# Local integration workspace and PDF review images
+/.worktrees/
+/tmp/pdfs/
+debug.log

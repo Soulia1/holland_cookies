@@ -1,7 +1,7 @@
 import { cloneElement, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, api, newIdempotencyKey,
-  type ApiProduct, type Order, type Settings,
+  type ApiProduct, type Order, type PaymentSession, type Settings,
 } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { lineKey } from "@/lib/cart-core";
@@ -35,6 +35,18 @@ import ReceiptPrinter from "@/components/ReceiptPrinter";
  */
 
 const FULFILMENTS = ["delivery", "pickup"] as const;
+const PENDING_PAYMENT = "holland.pending-payment";
+
+function rememberPayment(reference: string, phone: string) {
+  sessionStorage.setItem(PENDING_PAYMENT, JSON.stringify({ reference, phone }));
+}
+
+function openHostedCheckout(session: PaymentSession) {
+  const url = new URL(session.checkoutUrl, window.location.origin);
+  const mock = url.origin === window.location.origin && url.pathname === "/api/payments/mock/checkout";
+  if (!mock && url.origin !== "https://eg.checkout.paymob.com") throw new Error("Invalid payment URL");
+  window.location.assign(url.href);
+}
 
 export default function CheckoutPage() {
   const { t, lang } = useLang();
@@ -56,6 +68,77 @@ export default function CheckoutPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
+  const [restoringPayment, setRestoringPayment] = useState(() => !!sessionStorage.getItem(PENDING_PAYMENT));
+  const [payMethod, setPayMethod] = useState<"cash" | "online">("cash");
+  /**
+   * An online order that exists but is not paid yet. From here the form is
+   * gone: the order is committed, and a second submit would be a second order.
+   */
+  const [awaiting, setAwaiting] = useState<{
+    order: Order; phone: string; session: PaymentSession | null; open: boolean; error: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const raw = sessionStorage.getItem(PENDING_PAYMENT);
+    if (!raw) { setRestoringPayment(false); return; }
+    let saved: { reference: string; phone: string };
+    try {
+      saved = JSON.parse(raw);
+      if (!/^HC-\d{1,16}$/.test(saved.reference) || typeof saved.phone !== "string") throw new Error("Invalid saved order");
+    } catch {
+      sessionStorage.removeItem(PENDING_PAYMENT);
+      setRestoringPayment(false);
+      return;
+    }
+    api.trackOrder(saved.reference, saved.phone).then(({ order }) => {
+      if (!active) return;
+      const declined = new URLSearchParams(window.location.search).get("payment_result") === "declined";
+      setAwaiting({ order, phone: saved.phone, session: null, open: false, error: declined ? t.payDeclined : null });
+      setRestoringPayment(false);
+      // Remove provider result hints once the tab has resumed the saved order.
+      if (new URLSearchParams(window.location.search).has("payment_return")) {
+        window.history.replaceState(null, "", "/checkout");
+      }
+    }).catch(() => {
+      // Keep the saved reference: retrying the lookup must not place a second order.
+      if (active) setLoadError(true);
+    });
+    return () => { active = false; };
+  }, [t.payDeclined]);
+
+  useEffect(() => {
+    if (!awaiting) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = async () => {
+      try {
+        const result = await api.paymentStatus(awaiting.order.reference, awaiting.phone);
+        if (!active) return;
+        if (result.paymentStatus === "paid") {
+          clear();
+          sessionStorage.removeItem(PENDING_PAYMENT);
+          setPlaced({ ...awaiting.order, paymentStatus: "paid" });
+          setAwaiting(null);
+          return;
+        }
+        if (result.paymentStatus === "refunded" || result.status === "cancelled") {
+          setAwaiting((current) => current && current.order.paymentStatus === result.paymentStatus
+            && current.order.status === result.status ? current : current && {
+            ...current, order: { ...current.order, paymentStatus: result.paymentStatus, status: result.status },
+            error: result.paymentStatus === "refunded" ? t.payRefunded : t.payCancelled,
+          });
+          return;
+        }
+        if (result.paymentOutcome === "declined") {
+          setAwaiting((current) => current && current.error === null ? { ...current, error: t.payDeclined } : current);
+        }
+      } catch { /* The next poll retries a missed request. */ }
+      if (active) timer = setTimeout(check, 3000);
+    };
+    void check();
+    return () => { active = false; clearTimeout(timer); };
+  }, [awaiting, clear, t.payDeclined, t.payRefunded, t.payCancelled]);
 
   const [promoInput, setPromoInput] = useState("");
   const [promo, setPromo] = useState<{ code: string; discount: number } | null>(null);
@@ -239,13 +322,18 @@ export default function CheckoutPage() {
     // not catch this: the cart is genuinely full, it is the *priced* cart that
     // is not ready.
     if (!catalogue) return;
+    const online = payMethod === "online" && !!settings?.onlinePaymentEnabled;
+    if (online && !form.email.trim()) {
+      setFieldErrors({ email: t.ckPayOnlineEmail });
+      return;
+    }
     submittingRef.current = true;
     setSubmitting(true);
     setFormError(null);
     setFieldErrors({});
 
     try {
-      const { order } = await api.placeOrder({
+      const { order, payment } = await api.placeOrder({
         idempotencyKey: idempotencyKey.current,
         // Identity and quantity only. Nothing about money leaves this page
         // except `expectedTotal`, which can only cause a refusal.
@@ -276,9 +364,22 @@ export default function CheckoutPage() {
         landmark: form.landmark.trim() || undefined,
         notes: form.notes.trim() || undefined,
         promoCode: promo?.code,
+        paymentMethod: online ? "online" : "cash",
         lang,
         expectedTotal: totals.total,
       });
+      if (order.paymentMethod === "online" && order.paymentStatus !== "paid") {
+        // The basket stays until the money does: an order abandoned at the
+        // payment page should not also cost the customer their cart.
+        setAwaiting({
+          order, phone: form.phone.trim(), session: payment ?? null,
+          open: !!payment, error: payment ? null : t.payOpenFailed,
+        });
+        rememberPayment(order.reference, form.phone.trim());
+        if (payment) openHostedCheckout(payment);
+        window.scrollTo({ top: 0 });
+        return;
+      }
       // Cleared only once the order exists. Clearing optimistically would
       // destroy the basket of anyone whose order was refused.
       clear();
@@ -309,9 +410,75 @@ export default function CheckoutPage() {
     }
   }
 
+  function paid() {
+    if (!awaiting) return;
+    clear();
+    sessionStorage.removeItem(PENDING_PAYMENT);
+    setPlaced({ ...awaiting.order, paymentStatus: "paid" });
+    setAwaiting(null);
+    window.scrollTo({ top: 0 });
+  }
+
+  /** A fresh Paymob session: after a decline, a closed popup, or a failed open. */
+  async function retryPayment() {
+    if (!awaiting) return;
+    const { order, phone } = awaiting;
+    setAwaiting({ ...awaiting, session: null, open: true, error: null });
+    try {
+      const { payment } = await api.paymentSession(order.reference, phone);
+      setAwaiting((current) => current && { ...current, session: payment });
+      rememberPayment(order.reference, phone);
+      openHostedCheckout(payment);
+    } catch (error) {
+      // Paid in the meantime — by the webhook, or in another tab.
+      if (error instanceof ApiError && error.code === "NOTHING_TO_PAY") {
+        const status = await api.paymentStatus(order.reference, phone).catch(() => null);
+        if (status?.paymentStatus === "paid") return paid();
+      }
+      setAwaiting((current) => current && {
+        ...current, open: false,
+        error: error instanceof ApiError ? error.message : t.payOpenFailed,
+      });
+    }
+  }
+
+  if (restoringPayment) return (
+    <main className="ed-page"><div className="ed-shell"><div className="ed-empty">
+      <p className="ed-note" role="status">{loadError ? t.payOpenFailed : t.payConfirming}</p>
+      {loadError && <button type="button" className="ed-btn" onClick={() => window.location.reload()}>{t.payRetry}</button>}
+    </div></div></main>
+  );
   if (placed) return <ReceiptPrinter order={placed} />;
 
+  if (awaiting) {
+    return (
+      <main className="ed-page">
+        <div className="ed-shell">
+          <div className="ed-empty">
+            <span className="ed-tag">{t.ckTitle}</span>
+            <h1 className="ed-title">{t.payPendingTitle(awaiting.order.reference)}</h1>
+            <p className="ed-note">{t.payPendingBody}</p>
+            {awaiting.error && <p className="ed-alert" role="alert">{awaiting.error}</p>}
+            {awaiting.order.paymentStatus !== "refunded" && awaiting.order.status !== "cancelled" && <button type="button" className="ed-btn"
+              disabled={awaiting.open && !awaiting.session}
+              onClick={() => void retryPayment()}>
+              {t.payContinue}
+            </button>}
+            {(awaiting.order.paymentStatus === "refunded" || awaiting.order.status === "cancelled") && (
+              <button type="button" className="ed-btn" onClick={() => {
+                sessionStorage.removeItem(PENDING_PAYMENT);
+                setAwaiting(null);
+              }}>{t.payNewOrder}</button>
+            )}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const delivering = form.fulfilment === "delivery";
+  const onlineOffered = !!settings?.onlinePaymentEnabled;
+  const payingOnline = onlineOffered && payMethod === "online";
 
   return (
     <main className="ed-page">
@@ -351,7 +518,7 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="ed-2col">
-                  <Field id="email" label={t.ckEmail} error={fieldErrors.email}>
+                  <Field id="email" label={t.ckEmail} error={fieldErrors.email} required={payingOnline}>
                     <input id="email" className="ed-input" type="email" inputMode="email" dir="ltr"
                       autoComplete="email" value={form.email}
                       onChange={(e) => set("email", e.target.value)} />
@@ -454,20 +621,47 @@ export default function CheckoutPage() {
 
                 <div className="ed-field" style={{ marginBlockStart: 34 }}>
                   <span className="ed-label">{t.ckPayment}</span>
-                  {/* One method, and it is stated rather than offered as a
-                      choice between one thing. A card option that opened
-                      nothing would be a lie. */}
-                  <div className="ed-pay">
-                    <label className="active">
-                      <input type="radio" name="payment" value="cash" checked readOnly />
-                      {/* Delivery is paid to the driver, pickup at the counter.
-                          Saying "cash on delivery" over a pickup order names a
-                          person who is never going to turn up. */}
-                      <span className="ed-pay-label">
-                        {delivering ? t.ckPayCash : t.ckPayPickup}
-                      </span>
-                      <span className="ed-pay-sub">
-                        {delivering ? t.ckPayCashNote : t.ckPayPickupNote}
+                  {/* Online appears only when the server says Paymob is
+                      configured: a card option that opened nothing would be a
+                      lie. Until then cash is stated, not offered. */}
+                  <div className={`ed-pay ${onlineOffered ? "is-choice" : ""}`}
+                    role={onlineOffered ? "radiogroup" : undefined}
+                    aria-label={onlineOffered ? t.ckPayment : undefined}>
+                    {/* Online first, because it is the one being offered; cash
+                        stays selected by default, which is what most orders
+                        still are. */}
+                    {onlineOffered && (
+                      <label className={`ed-pay-opt ${payingOnline ? "is-active" : ""}`}>
+                        <span className="ed-pay-row">
+                          <input type="radio" name="payment" value="online" checked={payingOnline}
+                            onChange={() => setPayMethod("online")} />
+                          <span className="ed-pay-text">
+                            <span className="ed-pay-label">{t.ckPayOnline}</span>
+                            <span className="ed-pay-sub">{t.ckPayOnlineNote}</span>
+                          </span>
+                          <PayBrands more={t.ckPayWallets} />
+                        </span>
+                        {/* Only under the selected option, as the reference
+                            checkout does: an explanation of what the button is
+                            about to do, where it is about to be needed. */}
+                        {payingOnline && <span className="ed-pay-hint">{t.ckPayOnlineHint}</span>}
+                      </label>
+                    )}
+                    <label className={`ed-pay-opt ${payingOnline ? "" : "is-active"}`}>
+                      <span className="ed-pay-row">
+                        <input type="radio" name="payment" value="cash" checked={!payingOnline}
+                          onChange={() => setPayMethod("cash")} />
+                        <span className="ed-pay-text">
+                          {/* Delivery is paid to the driver, pickup at the counter.
+                              Saying "cash on delivery" over a pickup order names a
+                              person who is never going to turn up. */}
+                          <span className="ed-pay-label">
+                            {delivering ? t.ckPayCash : t.ckPayPickup}
+                          </span>
+                          <span className="ed-pay-sub">
+                            {delivering ? t.ckPayCashNote : t.ckPayPickupNote}
+                          </span>
+                        </span>
                       </span>
                     </label>
                   </div>
@@ -482,7 +676,7 @@ export default function CheckoutPage() {
                 <button type="submit" className="ed-btn"
                   disabled={submitting || !catalogue || !!blocked.length
                     || settings?.acceptingOrders === false}>
-                  {submitting ? t.ckPlacing : t.ckPlaceOrder}
+                  {submitting ? t.ckPlacing : payingOnline ? t.ckPlaceOrderPay : t.ckPlaceOrder}
                 </button>
                 <p className="ed-fine">{t.cartHandoffNote}</p>
               </form>
@@ -586,6 +780,42 @@ export default function CheckoutPage() {
         )}
       </div>
     </main>
+  );
+}
+
+/**
+ * What the online option accepts, as small marks on the right of the row —
+ * the reassurance the reference checkout gives at exactly this moment.
+ *
+ * Drawn inline rather than fetched: the content policy allows images from this
+ * origin only, and four tiny marks are not worth four requests or four files.
+ * Which methods are actually live is decided by the integrations on the Paymob
+ * account, so this stays at the level of "cards and wallets" and does not
+ * promise a particular scheme.
+ */
+function PayBrands({ more }: { more: string }) {
+  return (
+    <span className="ed-pay-brands" aria-hidden="true">
+      <span className="ed-pay-brand" title="Visa">
+        <svg viewBox="0 0 34 12" width="30" height="11">
+          <text x="17" y="10" textAnchor="middle" fontSize="11" fontWeight="700"
+            fontStyle="italic" fontFamily="Georgia, serif" fill="#1434CB">VISA</text>
+        </svg>
+      </span>
+      <span className="ed-pay-brand" title="Mastercard">
+        <svg viewBox="0 0 34 20" width="30" height="18">
+          <circle cx="14" cy="10" r="6.5" fill="#EB001B" />
+          <circle cx="20" cy="10" r="6.5" fill="#F79E1B" fillOpacity="0.85" />
+        </svg>
+      </span>
+      <span className="ed-pay-brand" title="Meeza">
+        <svg viewBox="0 0 34 12" width="30" height="11">
+          <text x="17" y="9.5" textAnchor="middle" fontSize="9" fontWeight="700"
+            fontFamily="Georgia, serif" fill="#0B4E8A">meeza</text>
+        </svg>
+      </span>
+      <span className="ed-pay-more">{more}</span>
+    </span>
   );
 }
 

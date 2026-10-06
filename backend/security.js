@@ -143,6 +143,9 @@ export function requestContext(req, res, next) {
  */
 export function originGuard(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  // Paymob's server, not a browser: it sends no Origin and cannot be asked to.
+  // It is not a CSRF target either — nothing is done unless its HMAC verifies.
+  if (req.method === 'POST' && req.path === '/payments/paymob/webhook') return next();
   const origin = req.get('origin');
   const expected = process.env.APP_ORIGIN || `${req.protocol}://${req.get('host')}`;
   // APP_ORIGIN is the shop's; the dashboard is the same scheme and port on its own host.

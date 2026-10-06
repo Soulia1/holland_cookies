@@ -38,6 +38,7 @@ import { validateStatusTransition } from '../../shared/orderStatus.mjs';
 import { shopDateOf, shopDays } from '../../shared/cairoTime.mjs';
 import { buildOrderSearchIndex, parseSearchQuery, queryOrders } from '../../shared/orderSearch.mjs';
 import { live, refresh } from '../mirror.js';
+import { paymentDecision } from '../paymentState.js';
 
 const now = () => FieldValue.serverTimestamp();
 const iso = (value) => (value?.toDate ? value.toDate().toISOString() : (value ?? null));
@@ -66,6 +67,8 @@ export function orderPayload(order) {
     status: order.status,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+    refundedAmount: money((order.paymob?.refundedCents ?? 0) / 100),
+    remainingAmount: order.paymentStatus === 'unpaid' ? 0 : money(order.total - (order.paymob?.refundedCents ?? 0) / 100),
     fulfilment: order.fulfilment,
     createdAt: iso(order.createdAt),
     customer: {
@@ -397,6 +400,9 @@ export async function changeOrderStatus(reference, nextStatus, note, { actor = '
     const order = orderFromDoc(snapshot);
 
     const transition = validateStatusTransition(order.status, nextStatus, order.fulfilment);
+    if (order.paymentMethod === 'online' && order.paymentStatus !== 'paid' && nextStatus !== 'cancelled') {
+      return { found: true, rejected: 'Online payment must be confirmed before preparing this order.' };
+    }
     if (!transition.valid) return { found: true, rejected: transition.reason };
 
     const update = { status: nextStatus, updatedAt: now() };
@@ -469,6 +475,72 @@ export async function setCashCollected(reference, collected, { actor = 'admin', 
   }));
 }
 
+// ---------------------------------------------------------- online payment ----
+
+/**
+ * Remember the payment session opened for an order. Every attempt is kept, so
+ * a transaction can be traced back to the order even when it names only
+ * Paymob's own order id.
+ */
+export async function attachPaymentSession(reference, session) {
+  await collections.orders().doc(String(reference).toUpperCase()).update({
+    'paymob.intentionId': session.intentionId,
+    'paymob.specialReference': session.specialReference,
+    'paymob.references': FieldValue.arrayUnion(session.specialReference),
+    ...(session.paymobOrderId ? { 'paymob.orderIds': FieldValue.arrayUnion(session.paymobOrderId) } : {}),
+    'paymob.openedAt': now(),
+    'paymob.lastResult': 'pending',
+  });
+  await refresh('orders', String(reference).toUpperCase());
+}
+
+export async function findReferenceByPaymobOrder(paymobOrderId) {
+  if (!paymobOrderId) return null;
+  const snapshot = await collections.orders()
+    .where('paymob.orderIds', 'array-contains', String(paymobOrderId)).limit(1).get();
+  return snapshot.empty ? null : snapshot.docs[0].id;
+}
+
+/**
+ * Apply a transaction Paymob signed. The caller has already verified the
+ * signature; this decides whether it pays *this* order.
+ *
+ * Paymob may deliver the same webhook more than once —
+ * so a second copy is an answer, not an error. Money is compared to the order
+ * as the server priced it: a signed transaction for a different amount is
+ * somebody else's payment, or a bug, and neither pays for these cookies.
+ */
+export async function recordOnlinePayment(reference, txn, { requestId = '' } = {}) {
+  const ref = collections.orders().doc(String(reference).toUpperCase());
+  const db = collections.orders().firestore;
+
+  return afterOrderWrite(ref.id, db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) return { found: false };
+    const order = orderFromDoc(snapshot);
+
+    const decision = paymentDecision(order, txn);
+    if (!decision.update) {
+      if (['pending', 'declined'].includes(decision.outcome) && order.paymentStatus === 'unpaid') {
+        tx.update(ref, { 'paymob.lastResult': decision.outcome });
+        return { found: true, ...decision, order };
+      }
+      return { found: true, ...decision };
+    }
+    const update = { ...decision.update, 'paymob.lastResult': decision.outcome, updatedAt: now() };
+    assertOrderUpdate(order, update);
+    tx.update(ref, update);
+    tx.create(collections.auditEvents().doc(), {
+      actor: 'paymob',
+      action: `online:${decision.outcome}`,
+      resource: order.reference,
+      requestId,
+      createdAt: now(),
+    });
+    return { found: true, outcome: decision.outcome, order: { ...order, ...update } };
+  }));
+}
+
 // ------------------------------------------------------------------ stats ----
 
 /**
@@ -516,6 +588,10 @@ function statsFromMemory(orders, windowStart) {
     value: rows.reduce((sum, order) => sum + (typeof order.total === 'number' ? order.total : 0), 0),
     count: rows.length,
   });
+  const paidSum = (rows) => {
+    const gross = sumOf(rows);
+    return { ...gross, grossValue: gross.value, value: gross.value - rows.reduce((sum, order) => sum + (order.paymob?.refundedCents ?? 0) / 100, 0) };
+  };
   const countsFor = (field, values) => Object.fromEntries(values
     .map((value) => [value, orders.filter((order) => order[field] === value).length])
     .filter(([, count]) => count > 0));
@@ -523,10 +599,10 @@ function statsFromMemory(orders, windowStart) {
   const startMs = windowStart.getTime();
   return {
     all: sumOf(orders),
-    paid: sumOf(orders.filter((order) => order.paymentStatus === 'paid')),
+    paid: paidSum(orders.filter((order) => order.paymentStatus === 'paid')),
     fulfilled: sumOf(orders.filter((order) => order.status === 'completed')),
     cancelled: sumOf(cancelledRows),
-    cancelledPaid: sumOf(cancelledRows.filter((order) => order.paymentStatus === 'paid')),
+    cancelledPaid: paidSum(cancelledRows.filter((order) => order.paymentStatus === 'paid')),
     byStatus: countsFor('status', STATUS_KEYS),
     byPaymentStatus: countsFor('paymentStatus', PAYMENT_KEYS),
     byFulfillmentRaw: countsFor('fulfilment', FULFILMENT_KEYS),
@@ -542,20 +618,23 @@ function statsFromMemory(orders, windowStart) {
 async function statsFromFirestore(windowStart) {
   const orders = collections.orders();
 
-  const sumOf = async (query) => {
-    const result = await query.aggregate({
+  const sumOf = async (query, net = false) => {
+    const [result, refund] = await Promise.all([query.aggregate({
       value: AggregateField.sum('total'),
       count: AggregateField.count(),
-    }).get();
-    return { value: result.data().value ?? 0, count: result.data().count ?? 0 };
+    }).get(), net ? query.aggregate({ value: AggregateField.sum('paymob.refundedCents') }).get() : null]);
+    // Separate aggregation: old/cash orders have no refund field. Combining
+    // sums would exclude those documents from the gross total and count.
+    const grossValue = result.data().value ?? 0;
+    return { value: grossValue - (refund?.data().value ?? 0) / 100, grossValue, count: result.data().count ?? 0 };
   };
 
   const [all, paid, fulfilled, cancelled, cancelledPaid] = await Promise.all([
     sumOf(orders),
-    sumOf(orders.where('paymentStatus', '==', 'paid')),
+    sumOf(orders.where('paymentStatus', '==', 'paid'), true),
     sumOf(orders.where('status', '==', 'completed')),
     sumOf(orders.where('status', '==', 'cancelled')),
-    sumOf(orders.where('status', '==', 'cancelled').where('paymentStatus', '==', 'paid')),
+    sumOf(orders.where('status', '==', 'cancelled').where('paymentStatus', '==', 'paid'), true),
   ]);
 
   const countsFor = async (field, values) => Object.fromEntries(
@@ -601,7 +680,7 @@ function summarise(figures, span, days, topDays) {
   } = figures;
 
   const liveValue = money(all.value - cancelled.value);
-  const pendingValue = money(Math.max(0, liveValue - paid.value));
+  const pendingValue = money(Math.max(0, liveValue - (paid.grossValue ?? paid.value)));
   const refundDueValue = money(Math.max(0, cancelledPaid.value));
 
   // The dashboard asks for twice its range so it can compare with the period
@@ -618,7 +697,7 @@ function summarise(figures, span, days, topDays) {
     const day = byDate.get(key);
     day.orders += 1;
     day.orderValue += order.total ?? 0;
-    if (order.paymentStatus === 'paid') day.paidRevenue += order.total ?? 0;
+    if (order.paymentStatus === 'paid') day.paidRevenue += (order.total ?? 0) - (order.paymob?.refundedCents ?? 0) / 100;
 
     if (!topDates.has(key)) continue;
     if (order.fulfilment === 'delivery' && order.area) {

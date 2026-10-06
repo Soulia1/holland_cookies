@@ -16,6 +16,7 @@ import ordersRoute from './routes/orders.js';
 import adminRoute from './routes/admin.js';
 import imagesRoute from './routes/images.js';
 import accountRoute from './routes/account.js';
+import paymentsRoute from './routes/payments.js';
 import { validateEnvironment, adminHostname } from './config.js';
 import { limit, originGuard, requestContext, logEvent } from './security.js';
 import { validateEnvelope, rejectDangerousKeys } from './validation.js';
@@ -73,6 +74,9 @@ app.use('/api',(req,res,next)=>{
 app.post('/api/admin/session',limit('login',15*60000,10));
 app.post('/api/orders',limit('checkout',10*60000,20));
 app.use('/api/orders/track',limit('tracking',15*60000,20));
+app.post('/api/payments/session',limit('payment-session',10*60000,20));
+// The popup polls this every few seconds while it is open.
+app.use('/api/payments/status',limit('payment-status',60000,40));
 app.post('/api/admin/promos/validate',limit('coupon',15*60000,20));
 app.use(['/api/orders/stats','/api/admin/users'],limit('report',60000,60));
 // Its own budget: an open Orders page revalidates every 15s and on every return
@@ -101,7 +105,7 @@ app.get('/api/ready',async(_req,res)=>{
   try{await db.get().collection('_health').doc('probe').get();res.json({ok:true});}
   catch{res.status(503).json({ok:false});}
 });
-app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);
+app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);app.use('/api/payments',paymentsRoute);
 app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No such endpoint.'}));
 const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\\/]assets[\\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
 // Old bookmarks: the dashboard used to live under /dashboard on the shop's host.
@@ -120,7 +124,7 @@ const serveDashboard=express.static(dashboardDist,staticOptions);const serveShop
 app.use((req,res,next)=>(isAdminHost(req)?serveDashboard:serveShop)(req,res,next));
 app.get(['/','/orders','/orders/:id','/menu','/users','/promos','/settings'],(req,res,next)=>{
   if(!isAdminHost(req))return next();
-  res.set('Cache-Control','no-cache');res.sendFile(path.join(dashboardDist,'index.html'));
+  res.set('Cache-Control','no-cache');res.sendFile('index.html',{root:dashboardDist});
 });
 // `/menu/:slug` is not decoration: the menu is a page per group, so `/menu/cookies`
 // is what every "Menu" link on the site produces, and `/menu/<category>` is the
@@ -131,7 +135,7 @@ app.get(['/','/orders','/orders/:id','/menu','/users','/promos','/settings'],(re
 // why the dashboard's parameterised routes above were remembered and this was not.
 app.get(['/','/menu','/menu/:slug','/checkout','/account','/track'],(req,res,next)=>{
   if(isAdminHost(req))return next();
-  res.set('Cache-Control','no-cache');res.sendFile(path.join(dist,'index.html'));
+  res.set('Cache-Control','no-cache');res.sendFile('index.html',{root:dist});
 });
 app.use((_req,res)=>res.status(404).type('text').send('Not found.'));
 app.use((error,req,res,_next)=>{

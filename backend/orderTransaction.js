@@ -128,8 +128,10 @@ export async function createOrder(payload, { profileId = null } = {}) {
   const phone = normalizePhone(payload.phone);
   if (!phone) throw fail(400, 'INVALID_PHONE', 'That phone number does not look right.');
 
-  if (payload.paymentMethod && payload.paymentMethod !== 'cash') {
-    throw fail(400, 'PAYMENT_UNAVAILABLE', 'Only cash orders are currently supported.');
+  // Whether online payment is switched on is the route's decision; this only
+  // refuses a method that does not exist.
+  if (payload.paymentMethod && !['cash', 'online'].includes(payload.paymentMethod)) {
+    throw fail(400, 'PAYMENT_UNAVAILABLE', 'That payment method is not available.');
   }
   if (!Array.isArray(payload.items) || !payload.items.length || payload.items.length > 60
     || payload.items.some((i) => !Number.isInteger(i.qty) || i.qty < 1 || i.qty > 50)

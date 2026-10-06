@@ -20,6 +20,11 @@ Inventory from all Express route registrations and both frontend routers. Every 
 | PATCH | `/api/menu/admin/categories/:id` | A | ID + writable fields | Success | Update | No | admin-write | Category patch | Mass assignment |
 | DELETE | `/api/menu/admin/categories/:id` | A | ID | 204 | Delete if empty | No | admin-write | ID + FK | Data integrity |
 | POST | `/api/orders` | P | Cart/contact/fulfillment/idempotency | Own new order | Atomic multi-table write | No | checkout | Strict checkout + catalogue/coupon/area | PII, replay, price/quantity manipulation |
+| POST | `/api/payments/paymob/webhook` | Paymob HMAC | Transaction + signature | Acknowledgement or retry response | Atomic payment/audit update | Paymob inquiry; Brevo after settlement | Envelope/body bounds | HMAC, stored Paymob order ID, amount/currency/integration | Signed fields only; refund totals read via authenticated inquiry |
+| GET | `/api/payments/paymob/return` | Paymob HMAC | Flat result fields | Redirect to checkout | Lookup only for real payments | No | public | HMAC, stored Paymob order ID | UX only; cannot mark a real order paid |
+| POST | `/api/payments/session` | P + matching phone | Reference/phone | Hosted checkout URL | Remember intention/order ID | Paymob | payment-session | Strict lookup + unpaid online order | Merchant secrets remain on server |
+| GET | `/api/payments/status/:reference` | P + matching phone | Reference/phone | Payment/fulfillment state only | Read | No | payment-status | Strict reference/phone | No customer details or provider credentials |
+| GET | `/api/payments/mock/checkout` | Local mock mode only | Reference/amount | Test checkout page | No | No | public | Bounded query | Production rejects mock mode |
 | GET | `/api/orders/track/:reference` | P + matching phone | Reference/phone | Redacted tracking/history | Read | No | tracking | Reference + phone | Guessable credentials; residual privacy risk |
 | GET | `/api/orders` | A | page/perPage/q/status | Order page | Read orders/items | No | public | Bounded pagination/search enum | Customer PII/BOLA |
 | GET | `/api/orders/stats` | A | days | Aggregates | Read aggregates | No | report | Integer 1–365 | Expensive queries |
@@ -47,7 +52,7 @@ Inventory from all Express route registrations and both frontend routers. Every 
 
 ## Absent interfaces
 
-No server-side cart/search API (cart and menu filtering are browser-local), server actions/RPC, GraphQL, WebSocket, password/reset endpoint, payment/webhook, contact/newsletter, upload/multipart, remote-image fetch, arbitrary redirect, export/download, job trigger, XML or debug route. Attempts to access nonexistent API routes return 404. HEAD is intentionally supported for read routes; TRACE and unsupported methods are rejected. No old payment implementation was found to remove.
+No server-side cart/search API (cart and menu filtering are browser-local), server actions/RPC, GraphQL, WebSocket, password/reset endpoint, contact/newsletter, upload/multipart, remote-image fetch, arbitrary redirect, export/download, job trigger, XML or debug route. Attempts to access nonexistent API routes return 404. HEAD is intentionally supported for read routes; TRACE and unsupported methods are rejected. Paymob callbacks and hosted checkout endpoints are listed above; browser return/error pages use redirects or HTML instead of JSON.
 
 ## Storage and information flows
 

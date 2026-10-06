@@ -3320,18 +3320,34 @@ html[dir="rtl"] .ed-select {
 
 html[dir="rtl"] .ed-choice button { letter-spacing: 0; }
 
-.ed-pay { margin-block-start: 4px; }
+/* Each method is a bordered row that holds its own explanation, rather than a
+   line in a list: with two of them the choice carries money, and the selected
+   one has to be unmistakable at a glance. */
+.ed-pay { margin-block-start: 8px; display: grid; gap: 10px; }
 
-.ed-pay label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 0;
-  border-block-end: 1px solid rgb(93 16 29 / 0.12);
+.ed-pay-opt {
+  display: block;
+  border: 1px solid rgb(93 16 29 / 0.14);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.4);
   cursor: default;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.ed-pay input { accent-color: var(--color-deep-burgundy); }
+.ed-pay.is-choice .ed-pay-opt { cursor: pointer; }
+.ed-pay.is-choice .ed-pay-opt:hover { border-color: rgb(93 16 29 / 0.32); }
+
+.ed-pay-opt.is-active {
+  border-color: var(--color-deep-burgundy);
+  background: rgb(93 16 29 / 0.045);
+  box-shadow: inset 0 0 0 1px rgb(93 16 29 / 0.35);
+}
+
+.ed-pay-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+
+.ed-pay input { accent-color: var(--color-deep-burgundy); flex-shrink: 0; }
+
+.ed-pay-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 
 .ed-pay-label {
   font-size: 14px;
@@ -3339,13 +3355,44 @@ html[dir="rtl"] .ed-choice button { letter-spacing: 0; }
   color: rgb(93 16 29 / 0.75);
 }
 
-.ed-pay label.active .ed-pay-label { color: var(--color-deep-burgundy); font-weight: 600; }
+.ed-pay-opt.is-active .ed-pay-label { color: var(--color-deep-burgundy); font-weight: 600; }
 
-.ed-pay-sub {
-  margin-inline-start: auto;
-  font-size: 12px;
-  color: rgb(93 16 29 / 0.4);
-  text-align: end;
+.ed-pay-sub { font-size: 12px; color: rgb(93 16 29 / 0.45); }
+
+/* The accepted marks, right-aligned like a card reader's sticker. */
+.ed-pay-brands { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+
+.ed-pay-brand {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 24px;
+  border: 1px solid rgb(93 16 29 / 0.12);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.ed-pay-more {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgb(93 16 29 / 0.45);
+  white-space: nowrap;
+}
+
+.ed-pay-hint {
+  display: block;
+  padding: 11px 16px 13px;
+  border-block-start: 1px solid rgb(93 16 29 / 0.12);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgb(93 16 29 / 0.6);
+}
+
+/* Below the narrowest phones the marks would squeeze the label to one word
+   per line; the row keeps the name and drops the stickers. */
+@media (max-width: 380px) {
+  .ed-pay-brands { display: none; }
 }
 
 /* --- Summary items + promo ------------------------------------------------ */

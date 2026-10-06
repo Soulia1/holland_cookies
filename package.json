@@ -32,6 +32,8 @@
     "seed:prod:new": "node backend/seed.js --add-new",
     "test:chromium": "playwright test --project=storefront-chromium-desktop --project=storefront-chromium-phone --project=commerce-chromium-desktop --project=commerce-chromium-phone",
     "mail:check": "node scripts/mail-check.mjs",
+    "paymob:check": "node scripts/paymob-check.mjs",
+    "test:paymob:e2e": "playwright test --config e2e/paymob.config.ts",
     "dev:vite": "vite",
     "verify": "node scripts/verify-dev.mjs",
     "firebase:deploy": "node scripts/deploy-firestore-config.mjs",

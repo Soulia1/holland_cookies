@@ -274,7 +274,11 @@ function orderModel(order, arabic = false) {
     reference: order.reference,
     firstName: order.firstName || '',
     totalLabel: arabic ? 'الإجمالي' : 'Total',
-    paymentNote: delivery
+    paymentNote: order.paymentMethod === 'online'
+      ? (order.paymentStatus === 'paid'
+        ? (arabic ? 'تم الدفع أونلاين عن طريق Paymob.' : 'Paid online through Paymob.')
+        : (arabic ? 'في انتظار تأكيد الدفع أونلاين.' : 'Awaiting online payment confirmation.'))
+      : delivery
       ? (arabic ? 'الدفع كاش عند الاستلام.' : 'Payment is cash on delivery.')
       : (arabic ? 'الدفع كاش عند الاستلام من الفرع.' : 'Payment is cash on pickup.'),
   };
@@ -427,7 +431,7 @@ export async function sendAdminOrderAlert(order) {
           ['Email', order.email || ''],
           ['Fulfilment', model.delivery ? 'Delivery' : 'Pickup'],
           ['Address', model.address],
-          ['Payment', order.paymentMethod === 'online' ? 'Paid online' : 'Cash'],
+          ['Payment', order.paymentMethod === 'online' ? (order.paymentStatus === 'paid' ? 'Paid online' : 'Awaiting payment - do not prepare') : 'Cash'],
           ['Notes', order.notes || ''],
         ],
       }),

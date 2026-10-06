@@ -58,6 +58,8 @@ export interface Order {
   paymentMethod: string;
   /** Cash on delivery only: whether staff have recorded the cash as collected. */
   paymentStatus?: "unpaid" | "paid" | "refunded";
+  refundedAmount?: number;
+  remainingAmount?: number;
   items: OrderItem[];
   total: number;
   status: OrderStatus;
@@ -346,6 +348,8 @@ export interface ShopSettings {
   areas: DeliveryArea[];
   /** Read-only: whether the server has an email provider switched on. */
   emailEnabled?: boolean;
+  /** Read-only: whether checkout offers paying online through Paymob. */
+  onlinePaymentEnabled?: boolean;
 }
 
 // -------------------------------------------------------------- the cache ---
@@ -665,6 +669,8 @@ interface HollandOrder {
   status: string;
   paymentMethod: string;
   paymentStatus: string;
+  refundedAmount?: number;
+  remainingAmount?: number;
   fulfilment: "delivery" | "pickup";
   createdAt: string;
   customer: { firstName: string; lastName: string; phone: string; email: string };
@@ -749,6 +755,8 @@ function toOrder(order: HollandOrder, areas: Map<string, string> = new Map()): O
     deliveryFee: order.totals.delivery,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus as Order["paymentStatus"],
+    refundedAmount: order.refundedAmount,
+    remainingAmount: order.remainingAmount,
     items: order.items.map((item) => ({
       name: item.name,
       price: item.unitPrice,
