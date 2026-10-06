@@ -66,6 +66,7 @@ export function orderPayload(order) {
     reference: order.reference,
     status: order.status,
     paymentMethod: order.paymentMethod,
+    onlineMethod: order.onlineMethod ?? (order.paymob?.lastMethod === 'wallet' ? 'wallet' : (order.paymob?.lastMethod === 'card' ? 'card' : null)),
     paymentStatus: order.paymentStatus,
     refundedAmount: money((order.paymob?.refundedCents ?? 0) / 100),
     remainingAmount: order.paymentStatus === 'unpaid' ? 0 : money(order.total - (order.paymob?.refundedCents ?? 0) / 100),

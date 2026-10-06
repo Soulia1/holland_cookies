@@ -20,8 +20,11 @@ export function paymentDecision(order, txn) {
   if (order.paymentStatus === paymentStatus && refundedCents === previousRefund) {
     return { outcome: 'already_paid', order };
   }
+  const methodUpdate = txn.method ? { 'paymob.lastMethod': txn.method } : {};
+  const source = txn.method?.toLowerCase();
+  const onlineMethodUpdate = source === 'wallet' || source === 'card' ? { onlineMethod: source } : {};
   return {
     outcome: refundedCents > 0 ? (paymentStatus === 'refunded' ? 'refunded' : 'partially_refunded') : 'paid',
-    update: { paymentStatus, paymentRef: txn.id, 'paymob.refundedCents': refundedCents },
+    update: { paymentStatus, paymentRef: txn.id, 'paymob.refundedCents': refundedCents, ...methodUpdate, ...onlineMethodUpdate },
   };
 }

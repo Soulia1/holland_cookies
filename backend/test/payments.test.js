@@ -115,6 +115,8 @@ before(async () => {
 
 beforeEach(async () => {
   process.env.PAYMENTS_ONLINE = 'mock';
+  delete process.env.PAYMOB_CARD_INTEGRATION_ID;
+  delete process.env.PAYMOB_WALLET_INTEGRATION_ID;
   attempts.clear();
   await wipe(['orders', 'orderIdempotency', 'customers', 'products', 'categories',
     'rateLimits', 'auditEvents', 'counters', 'settings', 'mailLog']);
@@ -133,6 +135,29 @@ after(async () => {
 });
 
 // ------------------------------------------------------------- signatures ----
+
+test('wallet availability needs an explicit distinct wallet gateway; all IDs are deduplicated', () => {
+  const env = { PAYMENTS_ONLINE: 'paymob', PAYMOB_SECRET_KEY: 'fixture', PAYMOB_PUBLIC_KEY: 'fixture', PAYMOB_HMAC_SECRET: 'fixture', PAYMOB_INTEGRATION_IDS: '111,111,222' };
+  assert.equal(paymob.walletPaymentEnabled(env), false);
+  assert.deepEqual(paymob.methodsFor('wallet', env), []);
+  env.PAYMOB_CARD_INTEGRATION_ID = '111';
+  env.PAYMOB_WALLET_INTEGRATION_ID = '111';
+  assert.equal(paymob.walletPaymentEnabled(env), false);
+  env.PAYMOB_WALLET_INTEGRATION_ID = '222';
+  assert.equal(paymob.walletPaymentEnabled(env), true);
+  assert.deepEqual(paymob.integrationIds(env), [111, 222]);
+});
+
+test('signed wallet settlement records the actual method even after a card preference', async () => {
+  const { order } = (await place({ paymentMethod: 'card' })).data;
+  const signed = callback(`${order.reference}-wallet`, { source_data: { type: 'wallet', sub_type: 'Vodafone Cash', pan: PHONE } });
+  assert.equal((await postWebhook(signed)).status, 200);
+  const paid = await stored(order.reference);
+  assert.equal(paid.paymentStatus, 'paid');
+  assert.equal(paid.onlineMethod, 'wallet');
+  assert.equal(paid.paymob.lastMethod, 'wallet');
+  assert.equal((await postWebhook(signed)).status, 200);
+});
 
 test('a signed transaction verifies, and any edited field or other key does not', () => {
   const { obj, hmac } = callback('HC-1-abc');
@@ -177,7 +202,7 @@ test('an online order is saved unpaid and comes back with a popup to open', asyn
   assert.equal(placed.status, 201, JSON.stringify(placed.data));
   assert.equal(placed.data.order.paymentMethod, 'online');
   assert.equal(placed.data.order.paymentStatus, 'unpaid');
-  assert.match(placed.data.payment.checkoutUrl, /\/api\/payments\/mock\/checkout\?ref=HC-\d+-[a-f0-9]{8}&amount_cents=20000$/);
+  assert.match(placed.data.payment.checkoutUrl, /\/api\/payments\/mock\/checkout\?ref=HC-\d+-[a-f0-9]{8}&amount_cents=20000&method=all$/);
   const doc = await stored(placed.data.order.reference);
   assert.equal(doc.paymob.references.length, 1);
 });
@@ -187,7 +212,7 @@ test('the return page pays the order once, and a replay changes nothing', async 
   const checkout = await fetch(new URL(payment.checkoutUrl.replace(/^https?:\/\/[^/]+/, base)));
   assert.equal(checkout.status, 200);
   assert.match(checkout.headers.get('content-security-policy'), /frame-ancestors 'self'/);
-  const payLink = /href="([^"]+)"/.exec(await checkout.text())[1].replaceAll('&amp;', '&');
+  const payLink = /class="pay" href="([^"]+)"/.exec(await checkout.text())[1].replaceAll('&amp;', '&');
 
   const first = await fetch(base + payLink, { redirect: 'manual' });
   assert.equal(first.status, 303);
@@ -293,7 +318,7 @@ test('with Paymob configured, the intention carries the server-priced amount', a
   };
   try {
     // A price written into the payload is stripped; the server's is sent.
-    const placed = await place({ items: [{ productId: 'plain', qty: 3 }] });
+    const placed = await place({ paymentMethod: 'card', items: [{ productId: 'plain', qty: 3 }] });
     assert.equal(placed.status, 201, JSON.stringify(placed.data));
     assert.equal(sent.url, 'https://accept.paymob.com/v1/intention/');
     assert.equal(sent.headers.Authorization, 'Token egy_sk_test_fixture_0123456789');

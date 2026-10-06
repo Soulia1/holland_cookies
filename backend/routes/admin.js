@@ -10,7 +10,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { money } from '../../shared/pricing.mjs';
 import { mailConfigured } from '../mailer.js';
-import { onlinePaymentEnabled } from '../paymob.js';
+import { onlinePaymentEnabled, walletPaymentEnabled } from '../paymob.js';
 import { logEvent } from '../security.js';
 import { validateParams, amount } from '../validation.js';
 import {
@@ -338,6 +338,7 @@ router.get('/settings', async (_req, res, next) => {
         areas: settings.areas ?? [],
         emailEnabled: mailConfigured(),
         onlinePaymentEnabled: onlinePaymentEnabled(),
+        walletPaymentEnabled: walletPaymentEnabled(),
       },
     });
   } catch (error) { next(error); }

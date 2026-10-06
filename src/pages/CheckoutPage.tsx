@@ -37,8 +37,8 @@ import ReceiptPrinter from "@/components/ReceiptPrinter";
 const FULFILMENTS = ["delivery", "pickup"] as const;
 const PENDING_PAYMENT = "holland.pending-payment";
 
-function rememberPayment(reference: string, phone: string) {
-  sessionStorage.setItem(PENDING_PAYMENT, JSON.stringify({ reference, phone }));
+function rememberPayment(reference: string, phone: string, method?: "card" | "wallet") {
+  sessionStorage.setItem(PENDING_PAYMENT, JSON.stringify({ reference, phone, method }));
 }
 
 function openHostedCheckout(session: PaymentSession) {
@@ -69,20 +69,20 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
   const [restoringPayment, setRestoringPayment] = useState(() => !!sessionStorage.getItem(PENDING_PAYMENT));
-  const [payMethod, setPayMethod] = useState<"cash" | "online">("cash");
+  const [payMethod, setPayMethod] = useState<"cash" | "card" | "wallet">("cash");
   /**
    * An online order that exists but is not paid yet. From here the form is
    * gone: the order is committed, and a second submit would be a second order.
    */
   const [awaiting, setAwaiting] = useState<{
-    order: Order; phone: string; session: PaymentSession | null; open: boolean; error: string | null;
+    order: Order; phone: string; session: PaymentSession | null; open: boolean; error: string | null; method?: "card" | "wallet";
   } | null>(null);
 
   useEffect(() => {
     let active = true;
     const raw = sessionStorage.getItem(PENDING_PAYMENT);
     if (!raw) { setRestoringPayment(false); return; }
-    let saved: { reference: string; phone: string };
+    let saved: { reference: string; phone: string; method?: "card" | "wallet" };
     try {
       saved = JSON.parse(raw);
       if (!/^HC-\d{1,16}$/.test(saved.reference) || typeof saved.phone !== "string") throw new Error("Invalid saved order");
@@ -94,7 +94,21 @@ export default function CheckoutPage() {
     api.trackOrder(saved.reference, saved.phone).then(({ order }) => {
       if (!active) return;
       const declined = new URLSearchParams(window.location.search).get("payment_result") === "declined";
-      setAwaiting({ order, phone: saved.phone, session: null, open: false, error: declined ? t.payDeclined : null });
+      // The authenticated order lookup already carries settlement. Show it
+      // immediately rather than waiting for another (possibly throttled) poll.
+      if (order.paymentStatus === "paid") {
+        clear();
+        sessionStorage.removeItem(PENDING_PAYMENT);
+        setPlaced(order);
+        setAwaiting(null);
+        setRestoringPayment(false);
+        window.history.replaceState(null, "", "/checkout");
+        return;
+      }
+      setAwaiting({
+        order, phone: saved.phone, session: null, open: false,
+        error: declined ? t.payDeclined : null, method: saved.method,
+      });
       setRestoringPayment(false);
       // Remove provider result hints once the tab has resumed the saved order.
       if (new URLSearchParams(window.location.search).has("payment_return")) {
@@ -105,7 +119,7 @@ export default function CheckoutPage() {
       if (active) setLoadError(true);
     });
     return () => { active = false; };
-  }, [t.payDeclined]);
+  }, [t.payDeclined, clear]);
 
   useEffect(() => {
     if (!awaiting) return;
@@ -322,11 +336,12 @@ export default function CheckoutPage() {
     // not catch this: the cart is genuinely full, it is the *priced* cart that
     // is not ready.
     if (!catalogue) return;
-    const online = payMethod === "online" && !!settings?.onlinePaymentEnabled;
-    if (online && !form.email.trim()) {
+    const payingOnline = (payMethod === "card" || payMethod === "wallet") && !!settings?.onlinePaymentEnabled;
+    if (payingOnline && !form.email.trim()) {
       setFieldErrors({ email: t.ckPayOnlineEmail });
       return;
     }
+    const chosenOnlineMethod = payMethod === "wallet" ? "wallet" : (payMethod === "card" ? "card" : undefined);
     submittingRef.current = true;
     setSubmitting(true);
     setFormError(null);
@@ -364,7 +379,7 @@ export default function CheckoutPage() {
         landmark: form.landmark.trim() || undefined,
         notes: form.notes.trim() || undefined,
         promoCode: promo?.code,
-        paymentMethod: online ? "online" : "cash",
+        paymentMethod: payingOnline ? chosenOnlineMethod : "cash",
         lang,
         expectedTotal: totals.total,
       });
@@ -374,8 +389,9 @@ export default function CheckoutPage() {
         setAwaiting({
           order, phone: form.phone.trim(), session: payment ?? null,
           open: !!payment, error: payment ? null : t.payOpenFailed,
+          method: chosenOnlineMethod,
         });
-        rememberPayment(order.reference, form.phone.trim());
+        rememberPayment(order.reference, form.phone.trim(), chosenOnlineMethod);
         if (payment) openHostedCheckout(payment);
         window.scrollTo({ top: 0 });
         return;
@@ -422,12 +438,12 @@ export default function CheckoutPage() {
   /** A fresh Paymob session: after a decline, a closed popup, or a failed open. */
   async function retryPayment() {
     if (!awaiting) return;
-    const { order, phone } = awaiting;
+    const { order, phone, method } = awaiting;
     setAwaiting({ ...awaiting, session: null, open: true, error: null });
     try {
-      const { payment } = await api.paymentSession(order.reference, phone);
+      const { payment } = await api.paymentSession(order.reference, phone, method);
       setAwaiting((current) => current && { ...current, session: payment });
-      rememberPayment(order.reference, phone);
+      rememberPayment(order.reference, phone, method);
       openHostedCheckout(payment);
     } catch (error) {
       // Paid in the meantime — by the webhook, or in another tab.
@@ -478,7 +494,8 @@ export default function CheckoutPage() {
 
   const delivering = form.fulfilment === "delivery";
   const onlineOffered = !!settings?.onlinePaymentEnabled;
-  const payingOnline = onlineOffered && payMethod === "online";
+  const walletOffered = onlineOffered && !!settings?.walletPaymentEnabled;
+  const payingOnline = onlineOffered && (payMethod === "card" || payMethod === "wallet");
 
   return (
     <main className="ed-page">
@@ -627,27 +644,38 @@ export default function CheckoutPage() {
                   <div className={`ed-pay ${onlineOffered ? "is-choice" : ""}`}
                     role={onlineOffered ? "radiogroup" : undefined}
                     aria-label={onlineOffered ? t.ckPayment : undefined}>
-                    {/* Online first, because it is the one being offered; cash
-                        stays selected by default, which is what most orders
-                        still are. */}
+                    {/* Card first, then wallet — both online methods above the
+                        cash option. Cash stays selected by default, which is
+                        what most orders still are. */}
                     {onlineOffered && (
-                      <label className={`ed-pay-opt ${payingOnline ? "is-active" : ""}`}>
+                      <label className={`ed-pay-opt ${payMethod === "card" ? "is-active" : ""}`}>
                         <span className="ed-pay-row">
-                          <input type="radio" name="payment" value="online" checked={payingOnline}
-                            onChange={() => setPayMethod("online")} />
+                          <input type="radio" name="payment" value="card" checked={payMethod === "card"}
+                            onChange={() => setPayMethod("card")} />
                           <span className="ed-pay-text">
-                            <span className="ed-pay-label">{t.ckPayOnline}</span>
-                            <span className="ed-pay-sub">{t.ckPayOnlineNote}</span>
+                            <span className="ed-pay-label">{t.ckPayCard}</span>
+                            <span className="ed-pay-sub">{t.ckPayCardNote}</span>
                           </span>
-                          <PayBrands more={t.ckPayWallets} />
+                          <PayBrands />
                         </span>
-                        {/* Only under the selected option, as the reference
-                            checkout does: an explanation of what the button is
-                            about to do, where it is about to be needed. */}
-                        {payingOnline && <span className="ed-pay-hint">{t.ckPayOnlineHint}</span>}
+                        {payMethod === "card" && <span className="ed-pay-hint">{t.ckPayCardHint}</span>}
                       </label>
                     )}
-                    <label className={`ed-pay-opt ${payingOnline ? "" : "is-active"}`}>
+                    {walletOffered && (
+                      <label className={`ed-pay-opt ${payMethod === "wallet" ? "is-active" : ""}`}>
+                        <span className="ed-pay-row">
+                          <input type="radio" name="payment" value="wallet" checked={payMethod === "wallet"}
+                            onChange={() => setPayMethod("wallet")} />
+                          <span className="ed-pay-text">
+                            <span className="ed-pay-label">{t.ckPayWallet}</span>
+                            <span className="ed-pay-sub">{t.ckPayWalletNote}</span>
+                          </span>
+                          <WalletBrands />
+                        </span>
+                        {payMethod === "wallet" && <span className="ed-pay-hint">{t.ckPayWalletHint}</span>}
+                      </label>
+                    )}
+                    <label className={`ed-pay-opt ${!payingOnline ? "is-active" : ""}`}>
                       <span className="ed-pay-row">
                         <input type="radio" name="payment" value="cash" checked={!payingOnline}
                           onChange={() => setPayMethod("cash")} />
@@ -784,16 +812,12 @@ export default function CheckoutPage() {
 }
 
 /**
- * What the online option accepts, as small marks on the right of the row —
- * the reassurance the reference checkout gives at exactly this moment.
+ * Card scheme marks beside the card option — Visa, Mastercard, Meeza.
  *
  * Drawn inline rather than fetched: the content policy allows images from this
- * origin only, and four tiny marks are not worth four requests or four files.
- * Which methods are actually live is decided by the integrations on the Paymob
- * account, so this stays at the level of "cards and wallets" and does not
- * promise a particular scheme.
+ * origin only, and three tiny marks are not worth three requests or three files.
  */
-function PayBrands({ more }: { more: string }) {
+function PayBrands() {
   return (
     <span className="ed-pay-brands" aria-hidden="true">
       <span className="ed-pay-brand" title="Visa">
@@ -814,7 +838,24 @@ function PayBrands({ more }: { more: string }) {
             fontFamily="Georgia, serif" fill="#0B4E8A">meeza</text>
         </svg>
       </span>
-      <span className="ed-pay-more">{more}</span>
+    </span>
+  );
+}
+
+/**
+ * Wallet marks beside the wallet option — Vodafone Cash (the dominant one in
+ * Egypt), plus the other three mobile money networks.
+ */
+function WalletBrands() {
+  return (
+    <span className="ed-pay-brands" aria-hidden="true">
+      <span className="ed-pay-brand" title="Vodafone Cash" style={{ borderColor: "#e6000033" }}>
+        <svg viewBox="0 0 34 12" width="30" height="11">
+          <text x="17" y="9.5" textAnchor="middle" fontSize="7.5" fontWeight="700"
+            fontFamily="system-ui, sans-serif" fill="#e60000">VCash</text>
+        </svg>
+      </span>
+      <span className="ed-pay-more">{"\u00b7 Orange \u00b7 Etisalat \u00b7 WE"}</span>
     </span>
   );
 }

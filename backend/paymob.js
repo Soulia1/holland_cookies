@@ -46,8 +46,52 @@ export function paymentMode(env = process.env) {
 export const onlinePaymentEnabled = () => paymentMode() !== null;
 
 export function integrationIds(env = process.env) {
-  return String(env.PAYMOB_INTEGRATION_IDS ?? '').split(',')
+  const ids = String(env.PAYMOB_INTEGRATION_IDS ?? '').split(',')
     .map((value) => value.trim()).filter((value) => /^\d{1,12}$/.test(value)).map(Number);
+  if (env.PAYMOB_CARD_INTEGRATION_ID && /^\d{1,12}$/.test(env.PAYMOB_CARD_INTEGRATION_ID.trim())) {
+    const cardId = Number(env.PAYMOB_CARD_INTEGRATION_ID.trim());
+    if (!ids.includes(cardId)) ids.push(cardId);
+  }
+  if (env.PAYMOB_WALLET_INTEGRATION_ID && /^\d{1,12}$/.test(env.PAYMOB_WALLET_INTEGRATION_ID.trim())) {
+    const walletId = Number(env.PAYMOB_WALLET_INTEGRATION_ID.trim());
+    if (!ids.includes(walletId)) ids.push(walletId);
+  }
+  return [...new Set(ids)];
+}
+
+export function cardIntegrationId(env = process.env) {
+  if (env.PAYMOB_CARD_INTEGRATION_ID && /^\d{1,12}$/.test(env.PAYMOB_CARD_INTEGRATION_ID.trim())) {
+    return Number(env.PAYMOB_CARD_INTEGRATION_ID.trim());
+  }
+  const ids = integrationIds(env);
+  return ids[0] ?? null;
+}
+
+export function walletIntegrationId(env = process.env) {
+  if (env.PAYMOB_WALLET_INTEGRATION_ID && /^\d{1,12}$/.test(env.PAYMOB_WALLET_INTEGRATION_ID.trim())) {
+    return Number(env.PAYMOB_WALLET_INTEGRATION_ID.trim());
+  }
+  // Integration order does not identify a gateway. Never use a card ID for wallets.
+  return null;
+}
+
+export function walletPaymentEnabled(env = process.env) {
+  const mode = paymentMode(env);
+  if (!mode) return false;
+  if (mode === 'mock') return true;
+  return Boolean(walletIntegrationId(env) && walletIntegrationId(env) !== cardIntegrationId(env));
+}
+
+export function methodsFor(method, env = process.env) {
+  if (method === 'wallet') {
+    const wId = walletIntegrationId(env);
+    return walletPaymentEnabled(env) && wId ? [wId] : [];
+  }
+  if (method === 'card') {
+    const cId = cardIntegrationId(env);
+    return cId ? [cId] : integrationIds(env);
+  }
+  return integrationIds(env);
 }
 
 const hmacSecret = () => (paymentMode() === 'mock'
@@ -183,15 +227,23 @@ function providerError(message) {
  * reused `special_reference` and a customer who left checkout, or whose card
  * was declined, has to be able to try again.
  */
-export async function createCheckoutSession(order, { origin }) {
+export async function createCheckoutSession(order, { origin, method }) {
   const mode = paymentMode();
   if (!mode) throw providerError('Online payment is not configured.');
+  const chosenMethod = method || order.onlineMethod || 'all';
+  if (chosenMethod === 'wallet' && !walletPaymentEnabled()) {
+    throw providerError('Mobile wallet payment is not configured.');
+  }
   const specialReference = `${order.reference}-${randomBytes(4).toString('hex')}`;
   const amountCents = toCents(order.total);
   const returnUrl = `${origin}${RETURN_PATH}`;
 
   if (mode === 'mock') {
-    const params = new URLSearchParams({ ref: specialReference, amount_cents: String(amountCents) });
+    const params = new URLSearchParams({
+      ref: specialReference,
+      amount_cents: String(amountCents),
+      method: chosenMethod,
+    });
     return {
       checkoutUrl: `${origin}/api/payments/mock/checkout?${params}`,
       intentionId: `mock_${specialReference}`,
@@ -212,6 +264,8 @@ export async function createCheckoutSession(order, { origin }) {
     body: JSON.stringify({
       amount: amountCents,
       currency: 'EGP',
+      // Unified Checkout owns the picker: offer every configured gateway even
+      // when the customer expressed a preference on the shop's checkout.
       payment_methods: integrationIds(),
       // One line for the whole order: Paymob refuses an intention whose items
       // do not add up to its amount, and ours carries a discount and a fee.
@@ -263,7 +317,8 @@ export async function createCheckoutSession(order, { origin }) {
  * The mock's result links: exactly the query string Paymob would send back,
  * signed the same way, so the return handler cannot tell them apart.
  */
-export function mockResultQuery({ specialReference, amountCents, success }) {
+export function mockResultQuery({ specialReference, amountCents, success, method = 'card' }) {
+  const isWallet = method === 'wallet';
   const fields = {
     amount_cents: String(amountCents),
     created_at: new Date().toISOString(),
@@ -281,9 +336,9 @@ export function mockResultQuery({ specialReference, amountCents, success }) {
     order: specialReference,
     owner: '0',
     pending: 'false',
-    'source_data.pan': '2346',
-    'source_data.sub_type': 'MasterCard',
-    'source_data.type': 'card',
+    'source_data.pan': isWallet ? '01012345678' : '2346',
+    'source_data.sub_type': isWallet ? 'Vodafone Cash' : 'MasterCard',
+    'source_data.type': isWallet ? 'wallet' : 'card',
     success: success ? 'true' : 'false',
     merchant_order_id: specialReference,
   };

@@ -142,6 +142,7 @@ export interface Settings {
   areas: { id: string; name: string; nameAr?: string; city?: string; cityAr?: string }[];
   /** Whether checkout may offer paying by card or wallet through Paymob. */
   onlinePaymentEnabled?: boolean;
+  walletPaymentEnabled?: boolean;
 }
 
 /** The popup to open: Paymob's hosted page, or the local mock in development. */
@@ -160,6 +161,7 @@ export interface Order {
   reference: string;
   status: string;
   paymentMethod: string;
+  onlineMethod?: "card" | "wallet" | null;
   paymentStatus: string;
   refundedAmount?: number;
   remainingAmount?: number;
@@ -229,7 +231,7 @@ export interface CheckoutBody {
   landmark?: string;
   notes?: string;
   promoCode?: string;
-  paymentMethod?: "cash" | "online";
+  paymentMethod?: "cash" | "online" | "card" | "wallet";
   lang?: "en" | "ar";
   /**
    * The total the customer was shown.
@@ -289,10 +291,10 @@ export const api = {
     }),
 
   /** A fresh payment popup for an online order that is still unpaid. */
-  paymentSession: (reference: string, phone: string) =>
+  paymentSession: (reference: string, phone: string, method?: "card" | "wallet") =>
     request<{ payment: PaymentSession }>("/api/payments/session", {
       method: "POST",
-      body: JSON.stringify({ reference, phone }),
+      body: JSON.stringify({ reference, phone, ...(method ? { method } : {}) }),
     }),
 
   paymentStatus: (reference: string, phone: string) =>

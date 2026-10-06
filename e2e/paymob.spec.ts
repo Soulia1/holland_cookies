@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function checkout(page: Page) {
+async function checkout(page: Page, method = 'card') {
   await page.goto("/menu");
   await expect(page.locator("#boot-splash")).toHaveCount(0, { timeout: 20_000 });
   const add = page.getByRole("button", { name: "Add Vanilla, Lotus filling to cart" }).first();
@@ -12,7 +12,7 @@ async function checkout(page: Page) {
   await page.locator("#phone").fill("01016521650");
   await page.locator("#email").fill("noha@example.com");
   await page.getByRole("radio", { name: "Pickup", exact: true }).click();
-  await page.locator('input[name="payment"][value="online"]').check();
+  await page.locator(`input[name="payment"][value="${method}"]`).check();
   await page.getByRole("button", { name: "Pay now", exact: true }).click();
   await expect(page).toHaveURL(/\/api\/payments\/mock\/checkout\?/);
 }
@@ -24,6 +24,30 @@ test('hosted checkout returns to a confirmed receipt and clears the cart', async
   await expect(page.locator(".rcpt-barcode-text")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".rcpt-total-value")).toHaveText("60.00 EGP");
   await expect(page.locator(".cart-badge")).toHaveCount(0);
+});
+
+test('wallet success confirms the receipt and clears the cart', async ({ page }) => {
+  await checkout(page, 'wallet');
+  await expect(page.getByRole('link', { name: 'Wallet', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('link', { name: 'Confirm wallet payment (EGP 60.00)', exact: true }).click();
+  await expect(page.locator('.rcpt-barcode-text')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.rcpt-total-value')).toHaveText('60.00 EGP');
+  await expect(page.locator('.cart-badge')).toHaveCount(0);
+});
+
+test('hosted picker switches from card to wallet; decline and retry preserve the order', async ({ page }) => {
+  await checkout(page);
+  const reference = new URL(page.url()).searchParams.get('ref')!.split('-').slice(0, 2).join('-');
+  await page.getByRole('link', { name: 'Wallet', exact: true }).click();
+  await expect(page.getByText('Mobile wallet number (Vodafone Cash / Orange / Etisalat / WE)')).toBeVisible();
+  await page.getByRole('link', { name: 'Simulate a declined wallet transaction' }).click();
+  await expect(page.getByRole('alert')).toContainText('did not go through');
+  await expect(page.locator('.cart-badge')).toHaveText('1');
+  await page.reload();
+  await page.getByRole('button', { name: 'Continue to payment' }).click();
+  await page.getByRole('link', { name: 'Wallet', exact: true }).click();
+  await page.getByRole('link', { name: 'Confirm wallet payment (EGP 60.00)', exact: true }).click();
+  await expect(page.locator('.rcpt-barcode-text')).toHaveText(reference, { timeout: 15_000 });
 });
 
 test('decline and browser Back preserve the order, and retry uses the same reference', async ({ page }) => {
@@ -42,5 +66,5 @@ test('decline and browser Back preserve the order, and retry uses the same refer
   await expect(page.locator("#firstName")).toHaveCount(0);
   await page.getByRole("button", { name: "Continue to payment" }).click();
   await page.getByRole("link", { name: "Pay EGP 60.00", exact: true }).click();
-  await expect(page.locator(".rcpt-barcode-text")).toHaveText(reference);
+  await expect(page.locator(".rcpt-barcode-text")).toHaveText(reference, { timeout: 15_000 });
 });

@@ -28,7 +28,7 @@ export function validateEnvelope(req, res, next) {
   if (/^\/menu\/admin\/categories\/[^/]+$/.test(req.path)) schema = z.strictObject({withProducts:z.literal('1').optional()});
   if (/^\/payments\/status\//.test(req.path)) schema = z.strictObject({phone:z.string().min(6).max(24)});
   if (req.path === '/payments/paymob/webhook') schema = z.strictObject({hmac:z.string().max(200)});
-  if (req.path === '/payments/mock/checkout') schema = z.strictObject({ref:z.string().max(60),amount_cents:z.string().max(12)});
+  if (req.path === '/payments/mock/checkout') schema = z.strictObject({ref:z.string().max(60),amount_cents:z.string().max(12),method:z.enum(['card','wallet','all']).optional()});
   // Paymob's own field list, not ours to enumerate; every value is checked by
   // the HMAC over it, and only as flat strings.
   const paymobReturn = req.path === '/payments/paymob/return';

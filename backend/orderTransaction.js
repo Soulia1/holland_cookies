@@ -420,6 +420,7 @@ export async function createOrder(payload, { profileId = null } = {}) {
       promoCode,
       status: 'ordered',
       paymentMethod: payload.paymentMethod || 'cash',
+      onlineMethod: payload.onlineMethod || null,
       paymentStatus: 'unpaid',
       paymentRef: '',
       items,

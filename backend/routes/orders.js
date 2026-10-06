@@ -18,7 +18,7 @@ import {
 } from '../mailer.js';
 import { whatsappConfigured, sendWhatsappOrderAlert } from '../whatsapp.js';
 import { logEvent } from '../security.js';
-import { onlinePaymentEnabled } from '../paymob.js';
+import { onlinePaymentEnabled, walletPaymentEnabled } from '../paymob.js';
 import { openPayment } from './payments.js';
 // The status model is shared with the dashboard, which imports the same file
 // through its `@shared` alias — so the two cannot disagree about what a status
@@ -69,7 +69,7 @@ const checkoutBody = z.strictObject({
   landmark: z.string().max(200).optional(),
   notes: z.string().max(1000).optional(),
   promoCode: z.string().max(40).optional(),
-  paymentMethod: z.enum(['cash', 'online']).optional(),
+  paymentMethod: z.enum(['cash', 'online', 'card', 'wallet']).optional(),
   lang: z.enum(['en', 'ar']).optional(),
   expectedTotal: amount.optional(),
 }).superRefine((body, ctx) => {
@@ -103,7 +103,11 @@ router.post('/', async (req, res, next) => {
     return res.status(400).json({ error: 'INVALID', message: 'Check the form.', fields });
   }
 
-  const online = parsed.data.paymentMethod === 'online';
+  const online = ['online', 'card', 'wallet'].includes(parsed.data.paymentMethod);
+  const onlineMethod = ['card', 'wallet'].includes(parsed.data.paymentMethod) ? parsed.data.paymentMethod : null;
+  if (onlineMethod === 'wallet' && !walletPaymentEnabled()) {
+    return res.status(400).json({ error: 'PAYMENT_UNAVAILABLE', message: 'Mobile wallet payment is not available right now.' });
+  }
   if (online && !onlinePaymentEnabled()) {
     logEvent('order_rejected', req, { code: 'PAYMENT_UNAVAILABLE' });
     return res.status(400).json({ error: 'PAYMENT_UNAVAILABLE', message: 'Online payment is not available right now. Choose cash.' });
@@ -119,14 +123,19 @@ router.post('/', async (req, res, next) => {
   try {
     // The session, never the body, says whose account this is.
     const customer = await readCustomer(req);
-    const { order, duplicate } = await createOrder(parsed.data, { profileId: customer?.email ?? null });
+    const orderData = {
+      ...parsed.data,
+      paymentMethod: online ? 'online' : 'cash',
+      onlineMethod,
+    };
+    const { order, duplicate } = await createOrder(orderData, { profileId: customer?.email ?? null });
 
     // The order is committed before Paymob is asked for anything, so a slow or
     // failing provider can cost the popup but never the order: `payment: null`
     // tells the checkout to offer "try again", which opens a fresh session.
     let payment = null;
     if (order.paymentMethod === 'online' && order.paymentStatus === 'unpaid') {
-      payment = await openPayment(order, req).catch((error) => {
+      payment = await openPayment(order, req, { method: onlineMethod }).catch((error) => {
         logEvent('payment_session_failed', req, { reference: order.reference, code: error.code ?? 'UNKNOWN' });
         return null;
       });

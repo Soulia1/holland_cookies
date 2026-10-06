@@ -78,6 +78,8 @@ export function validateEnvironment(env = process.env) {
     PAYMOB_HMAC_SECRET: z.union([z.literal(''), z.string().min(16).max(200)]).optional(),
     PAYMOB_API_KEY: z.union([z.literal(''), z.string().min(20).max(2000)]).optional(),
     PAYMOB_INTEGRATION_IDS: z.union([z.literal(''), z.string().regex(/^\s*\d{1,12}\s*(,\s*\d{1,12}\s*)*$/)]).optional(),
+    PAYMOB_CARD_INTEGRATION_ID: z.union([z.literal(''), z.string().regex(/^\d{1,12}$/)]).optional(),
+    PAYMOB_WALLET_INTEGRATION_ID: z.union([z.literal(''), z.string().regex(/^\d{1,12}$/)]).optional(),
   }).safeParse(env);
 
   if (!parsed.success) {

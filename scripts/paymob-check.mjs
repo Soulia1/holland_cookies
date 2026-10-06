@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { paymentMode, integrationIds, RETURN_PATH, WEBHOOK_PATH } from '../backend/paymob.js';
+import { paymentMode, integrationIds, walletPaymentEnabled, walletIntegrationId, RETURN_PATH, WEBHOOK_PATH } from '../backend/paymob.js';
 
 const required = ['PAYMOB_SECRET_KEY', 'PAYMOB_PUBLIC_KEY', 'PAYMOB_HMAC_SECRET', 'PAYMOB_INTEGRATION_IDS', 'PAYMOB_API_KEY'];
 const missing = required.filter((key) => !process.env[key]?.trim());
@@ -19,6 +19,9 @@ if (secretMode && publicMode && secretMode !== publicMode) problems.push('Public
 console.log(JSON.stringify({
   configured: problems.length === 0 && paymentMode() === 'paymob',
   mode: secretMode ?? 'unknown',
+  integrationIds: integrationIds(),
+  walletConfigured: walletPaymentEnabled(),
+  walletIntegrationId: walletIntegrationId(),
   ...(origin ? { webhook: `${origin}${WEBHOOK_PATH}`, returnUrl: `${origin}${RETURN_PATH}` } : {}),
   problems,
 }, null, 2));
