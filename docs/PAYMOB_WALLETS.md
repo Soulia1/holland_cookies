@@ -1,8 +1,8 @@
 # Paymob cards and mobile wallets
 
 The hosted checkout receives all configured integration IDs, so customers can
-switch between Card and Wallet on Paymob's page. The shop's selection is a
-preference; the signed payment callback records the method actually used.
+switch between Card and Wallet on Paymob's page. The shop has one Paymob
+option alongside cash; the signed payment callback records the method used.
 
 For the Holland Cookies account, verified on 2026-10-06:
 

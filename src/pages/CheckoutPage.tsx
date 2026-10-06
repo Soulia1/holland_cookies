@@ -69,7 +69,7 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [placed, setPlaced] = useState<Order | null>(null);
   const [restoringPayment, setRestoringPayment] = useState(() => !!sessionStorage.getItem(PENDING_PAYMENT));
-  const [payMethod, setPayMethod] = useState<"cash" | "card" | "wallet">("cash");
+  const [payMethod, setPayMethod] = useState<"cash" | "online">("cash");
   /**
    * An online order that exists but is not paid yet. From here the form is
    * gone: the order is committed, and a second submit would be a second order.
@@ -336,12 +336,11 @@ export default function CheckoutPage() {
     // not catch this: the cart is genuinely full, it is the *priced* cart that
     // is not ready.
     if (!catalogue) return;
-    const payingOnline = (payMethod === "card" || payMethod === "wallet") && !!settings?.onlinePaymentEnabled;
+    const payingOnline = payMethod === "online" && !!settings?.onlinePaymentEnabled;
     if (payingOnline && !form.email.trim()) {
       setFieldErrors({ email: t.ckPayOnlineEmail });
       return;
     }
-    const chosenOnlineMethod = payMethod === "wallet" ? "wallet" : (payMethod === "card" ? "card" : undefined);
     submittingRef.current = true;
     setSubmitting(true);
     setFormError(null);
@@ -379,7 +378,7 @@ export default function CheckoutPage() {
         landmark: form.landmark.trim() || undefined,
         notes: form.notes.trim() || undefined,
         promoCode: promo?.code,
-        paymentMethod: payingOnline ? chosenOnlineMethod : "cash",
+        paymentMethod: payingOnline ? "online" : "cash",
         lang,
         expectedTotal: totals.total,
       });
@@ -389,9 +388,8 @@ export default function CheckoutPage() {
         setAwaiting({
           order, phone: form.phone.trim(), session: payment ?? null,
           open: !!payment, error: payment ? null : t.payOpenFailed,
-          method: chosenOnlineMethod,
         });
-        rememberPayment(order.reference, form.phone.trim(), chosenOnlineMethod);
+        rememberPayment(order.reference, form.phone.trim());
         if (payment) openHostedCheckout(payment);
         window.scrollTo({ top: 0 });
         return;
@@ -495,7 +493,7 @@ export default function CheckoutPage() {
   const delivering = form.fulfilment === "delivery";
   const onlineOffered = !!settings?.onlinePaymentEnabled;
   const walletOffered = onlineOffered && !!settings?.walletPaymentEnabled;
-  const payingOnline = onlineOffered && (payMethod === "card" || payMethod === "wallet");
+  const payingOnline = onlineOffered && payMethod === "online";
 
   return (
     <main className="ed-page">
@@ -644,35 +642,19 @@ export default function CheckoutPage() {
                   <div className={`ed-pay ${onlineOffered ? "is-choice" : ""}`}
                     role={onlineOffered ? "radiogroup" : undefined}
                     aria-label={onlineOffered ? t.ckPayment : undefined}>
-                    {/* Card first, then wallet — both online methods above the
-                        cash option. Cash stays selected by default, which is
-                        what most orders still are. */}
+                    {/* Paymob owns the card and wallet picker. */}
                     {onlineOffered && (
-                      <label className={`ed-pay-opt ${payMethod === "card" ? "is-active" : ""}`}>
+                      <label className={`ed-pay-opt ${payingOnline ? "is-active" : ""}`}>
                         <span className="ed-pay-row">
-                          <input type="radio" name="payment" value="card" checked={payMethod === "card"}
-                            onChange={() => setPayMethod("card")} />
+                          <input type="radio" name="payment" value="online" checked={payingOnline}
+                            onChange={() => setPayMethod("online")} />
                           <span className="ed-pay-text">
-                            <span className="ed-pay-label">{t.ckPayCard}</span>
-                            <span className="ed-pay-sub">{t.ckPayCardNote}</span>
+                            <span className="ed-pay-label">Paymob</span>
+                            <span className="ed-pay-sub">{walletOffered ? t.ckPayOnlineNote : t.ckPayCardNote}</span>
                           </span>
                           <PayBrands />
                         </span>
-                        {payMethod === "card" && <span className="ed-pay-hint">{t.ckPayCardHint}</span>}
-                      </label>
-                    )}
-                    {walletOffered && (
-                      <label className={`ed-pay-opt ${payMethod === "wallet" ? "is-active" : ""}`}>
-                        <span className="ed-pay-row">
-                          <input type="radio" name="payment" value="wallet" checked={payMethod === "wallet"}
-                            onChange={() => setPayMethod("wallet")} />
-                          <span className="ed-pay-text">
-                            <span className="ed-pay-label">{t.ckPayWallet}</span>
-                            <span className="ed-pay-sub">{t.ckPayWalletNote}</span>
-                          </span>
-                          <WalletBrands />
-                        </span>
-                        {payMethod === "wallet" && <span className="ed-pay-hint">{t.ckPayWalletHint}</span>}
+                        {payingOnline && <span className="ed-pay-hint">{t.ckPayOnlineHint}</span>}
                       </label>
                     )}
                     <label className={`ed-pay-opt ${!payingOnline ? "is-active" : ""}`}>
@@ -838,24 +820,6 @@ function PayBrands() {
             fontFamily="Georgia, serif" fill="#0B4E8A">meeza</text>
         </svg>
       </span>
-    </span>
-  );
-}
-
-/**
- * Wallet marks beside the wallet option — Vodafone Cash (the dominant one in
- * Egypt), plus the other three mobile money networks.
- */
-function WalletBrands() {
-  return (
-    <span className="ed-pay-brands" aria-hidden="true">
-      <span className="ed-pay-brand" title="Vodafone Cash" style={{ borderColor: "#e6000033" }}>
-        <svg viewBox="0 0 34 12" width="30" height="11">
-          <text x="17" y="9.5" textAnchor="middle" fontSize="7.5" fontWeight="700"
-            fontFamily="system-ui, sans-serif" fill="#e60000">VCash</text>
-        </svg>
-      </span>
-      <span className="ed-pay-more">{"\u00b7 Orange \u00b7 Etisalat \u00b7 WE"}</span>
     </span>
   );
 }

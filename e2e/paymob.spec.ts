@@ -12,9 +12,10 @@ async function checkout(page: Page, method = 'card') {
   await page.locator("#phone").fill("01016521650");
   await page.locator("#email").fill("noha@example.com");
   await page.getByRole("radio", { name: "Pickup", exact: true }).click();
-  await page.locator(`input[name="payment"][value="${method}"]`).check();
+  await page.locator('input[name="payment"][value="online"]').check();
   await page.getByRole("button", { name: "Pay now", exact: true }).click();
   await expect(page).toHaveURL(/\/api\/payments\/mock\/checkout\?/);
+  if (method === 'wallet') await page.getByRole('link', { name: 'Wallet', exact: true }).click();
 }
 
 test('hosted checkout returns to a confirmed receipt and clears the cart', async ({ page }) => {
