@@ -57,6 +57,12 @@ export function validateEnvironment(env = process.env) {
     ADMIN_ORDER_EMAIL: z.union([z.literal(''), z.string().max(320).refine(
       (v) => v.split(',').every((address) => z.email().safeParse(address.trim()).success),
     )]).optional(),
+    // The bakery's WhatsApp alert (CallMeBot). Both or neither: one without the
+    // other sends nothing and says nothing, which is the invisible kind of typo.
+    WHATSAPP_PHONE: z.union([z.literal(''), z.string().max(30).refine(
+      (v) => /^\+?[1-9]\d{9,14}$/.test(v.replace(/[\s()-]/g, '')),
+    )]).optional(),
+    CALLMEBOT_APIKEY: z.union([z.literal(''), z.string().regex(/^[A-Za-z0-9_-]{4,64}$/)]).optional(),
     DISABLE_ADMIN_AUTH: z.enum(['false', '']).optional(),
     ALLOWED_ORIGINS: z.literal('').optional(),
     // The mail client's base URL is pinned in code so a stray environment
@@ -91,6 +97,10 @@ export function validateEnvironment(env = process.env) {
     if (missing.length) {
       throw new Error(`Invalid production configuration: PAYMENTS_ONLINE=paymob needs ${missing.join(', ')}`);
     }
+  }
+
+  if (Boolean(env.WHATSAPP_PHONE) !== Boolean(env.CALLMEBOT_APIKEY)) {
+    throw new Error('Invalid production configuration: WHATSAPP_PHONE and CALLMEBOT_APIKEY go together');
   }
 
   assertFirebaseCredentials(env);

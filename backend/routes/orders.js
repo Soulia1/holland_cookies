@@ -16,6 +16,7 @@ import { validateParams, amount, identifier, email as emailSchema } from '../val
 import {
   mailConfigured, sendOrderConfirmation, sendAdminOrderAlert, sendOrderStatusUpdate,
 } from '../mailer.js';
+import { whatsappConfigured, sendWhatsappOrderAlert } from '../whatsapp.js';
 import { logEvent } from '../security.js';
 import { onlinePaymentEnabled } from '../paymob.js';
 import { openPayment } from './payments.js';
@@ -156,20 +157,26 @@ router.post('/', async (req, res, next) => {
     // the shop needs the phone, the address and a dashboard link, none of which
     // belong in the customer's copy, and one blocked address must not take the
     // other message down with it.
+    const note = (event) => (result) => {
+      if (result.delivered) logEvent(event, req, { reference: order.reference });
+    };
+    const blame = (event) => (error) => logEvent(event, req, {
+      reference: order.reference,
+      // The code, never the provider's message: it can quote the recipient
+      // address back and this goes to a shared log.
+      code: typeof error.code === 'string' ? error.code : 'UNKNOWN',
+    });
     if (!duplicate && order.paymentMethod !== 'online' && mailConfigured()) {
-      const note = (event) => (result) => {
-        if (result.delivered) logEvent(event, req, { reference: order.reference });
-      };
-      const blame = (event) => (error) => logEvent(event, req, {
-        reference: order.reference,
-        // The code, never the provider's message: it can quote the recipient
-        // address back and this goes to a shared log.
-        code: typeof error.code === 'string' ? error.code : 'UNKNOWN',
-      });
       sendOrderConfirmation(order, parsed.data.lang)
         .then(note('order_email_sent')).catch(blame('order_email_failed'));
       sendAdminOrderAlert(order)
         .then(note('admin_alert_sent')).catch(blame('admin_alert_failed'));
+    }
+    // The WhatsApp alert is its own channel with its own switch: it must keep
+    // working while email is off, and a mail outage must not silence it.
+    if (!duplicate && order.paymentMethod !== 'online' && whatsappConfigured()) {
+      sendWhatsappOrderAlert(order)
+        .then(note('whatsapp_alert_sent')).catch(blame('whatsapp_alert_failed'));
     }
 
     return res.status(duplicate ? 200 : 201)

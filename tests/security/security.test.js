@@ -552,6 +552,31 @@ test('production boots without an email provider, and email needs an explicit sw
   assert.throws(() => validateEnvironment({ ...base, MAIL_TRANSPORT: 'brevo' }), /MAIL_TRANSPORT=brevo/);
 });
 
+test('production refuses a WhatsApp alert configured by halves or with a bad number', () => {
+  const base = {
+    NODE_ENV: 'production',
+    ADMIN_KEY: 'a'.repeat(40), JWT_SECRET: 'b'.repeat(40),
+    APP_ORIGIN: 'https://hollandcookie.example', ADMIN_HOSTNAME: 'admin.hollandcookie.example',
+    FIREBASE_PROJECT_ID: 'holland-cookie-prod',
+    FIREBASE_CLIENT_EMAIL: 'sa@holland-cookie-prod.iam.gserviceaccount.com',
+    FIREBASE_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----${'x'.repeat(120)}`,
+    DEPLOYMENT_MODE: 'single-instance',
+  };
+  // Off (both unset) and on (both set) are the two valid states.
+  assert.doesNotThrow(() => validateEnvironment(base));
+  assert.doesNotThrow(() => validateEnvironment({
+    ...base, WHATSAPP_PHONE: '+20 12 10004315', CALLMEBOT_APIKEY: '1234567',
+  }));
+  // One without the other sends nothing and says nothing.
+  assert.throws(() => validateEnvironment({ ...base, WHATSAPP_PHONE: '+201210004315' }), /go together/);
+  assert.throws(() => validateEnvironment({ ...base, CALLMEBOT_APIKEY: '1234567' }), /go together/);
+  for (const bad of ['01210004315x', '12345', '+0201210004315']) {
+    assert.throws(() => validateEnvironment({
+      ...base, WHATSAPP_PHONE: bad, CALLMEBOT_APIKEY: '1234567',
+    }), /WHATSAPP_PHONE/, bad);
+  }
+});
+
 test('production refuses an address the bakery alert could never reach', () => {
   const base = {
     NODE_ENV: 'production',

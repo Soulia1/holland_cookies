@@ -233,7 +233,7 @@ export async function sendSignInCode(email, code, lang = 'en') {
  * with the dashboard. That was already the rule for the confirmation; keeping
  * one model is what stops the three messages drifting apart.
  */
-function orderModel(order, arabic = false) {
+export function orderModel(order, arabic = false) {
   const pick = (english, ar) => (arabic && ar ? ar : english);
   const lines = (order.items ?? []).map((item) => {
     const product = pick(item.name, item.nameAr);
@@ -304,7 +304,7 @@ function orderText(model, { intro, closing, arabic }) {
 const trackUrl = (reference) => `${shopOrigin()}/track?reference=${encodeURIComponent(reference)}`;
 
 /** The dashboard lives on its own host; see ADMIN_HOSTNAME in backend/config.js. */
-function dashboardOrderUrl(reference) {
+export function dashboardOrderUrl(reference) {
   const url = new URL(shopOrigin());
   url.hostname = adminHostname();
   return `${url.origin}/orders/${encodeURIComponent(reference)}`;
