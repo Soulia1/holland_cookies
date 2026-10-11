@@ -464,3 +464,54 @@ test('online receipts and bakery alerts wait for settlement and deduplicate webh
     process.env.BREVO_API_KEY = '';
   }
 });
+
+// ------------------------------------------------------ abandoned checkouts ----
+
+const repo = await import('../repo/orders.js');
+const HOUR = 60 * 60 * 1000;
+const backdate = (reference, ms) => fsdb.collections.orders().doc(reference)
+  .update({ createdAt: fsdb.Timestamp.fromMillis(Date.now() - ms) });
+
+test('an online order left unpaid for an hour is cancelled and gives its promo use back', async () => {
+  await wipe(['promos']);
+  await fsdb.collections.promos().doc('SAVE20').set({ code: 'SAVE20', type: 'fixed', value: 20, active: true, maxUses: 0, usedCount: 0, minSubtotal: 0 });
+  await syncAll();
+  const abandoned = (await place({ promoCode: 'SAVE20' })).data.order;
+  const fresh = (await place()).data.order;
+  const settled = (await place()).data.order;
+  await postWebhook(callback(`${settled.reference}-p1`));
+  await backdate(abandoned.reference, HOUR + 60_000);
+  await backdate(settled.reference, 2 * HOUR);
+  await syncAll();
+  assert.equal((await fsdb.collections.promos().doc('SAVE20').get()).data().usedCount, 1);
+
+  assert.deepEqual(await repo.expireUnpaidOnlineOrders(), [abandoned.reference]);
+  const cancelled = await stored(abandoned.reference);
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.paymentStatus, 'unpaid');
+  assert.match(cancelled.history.at(-1).note, /Payment not completed/);
+  assert.equal(cancelled.paymob.promoReleased, true);
+  assert.equal((await fsdb.collections.promos().doc('SAVE20').get()).data().usedCount, 0);
+  assert.equal((await stored(fresh.reference)).status, 'ordered', 'a recent checkout still has time to pay');
+  assert.equal((await stored(settled.reference)).status, 'ordered', 'a paid order is never touched');
+  assert.deepEqual(await repo.expireUnpaidOnlineOrders(), [], 'a second sweep finds nothing');
+});
+
+test('a payment that lands after the automatic cancellation restores the order', async () => {
+  await wipe(['promos']);
+  await fsdb.collections.promos().doc('SAVE20').set({ code: 'SAVE20', type: 'fixed', value: 20, active: true, maxUses: 0, usedCount: 0, minSubtotal: 0 });
+  await syncAll();
+  const { order } = (await place({ promoCode: 'SAVE20' })).data;
+  await backdate(order.reference, 2 * HOUR);
+  await syncAll();
+  await repo.expireUnpaidOnlineOrders();
+  assert.equal((await stored(order.reference)).status, 'cancelled');
+
+  assert.equal((await postWebhook(callback(`${order.reference}-late`, { amountCents: 18000 }))).status, 200);
+  const restored = await stored(order.reference);
+  assert.equal(restored.status, 'ordered');
+  assert.equal(restored.paymentStatus, 'paid');
+  assert.equal(restored.paymob.expiredAt, undefined);
+  assert.match(restored.history.at(-1).note, /order restored/);
+  assert.equal((await fsdb.collections.promos().doc('SAVE20').get()).data().usedCount, 1);
+});

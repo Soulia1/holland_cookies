@@ -247,6 +247,7 @@ router.get('/track/:reference', async (req, res, next) => {
 /** GET /api/orders — the dashboard list. */
 router.get('/', requireAdmin, async (req, res, next) => {
   try {
+    await orders.sweepAbandonedCheckouts();
     const query = req.validatedQuery ?? {};
     res.json(await orders.listOrders({
       page: Math.max(1, Number(query.page) || 1),
@@ -269,6 +270,7 @@ router.get('/', requireAdmin, async (req, res, next) => {
  */
 router.get('/book', requireAdmin, async (req, res, next) => {
   try {
+    await orders.sweepAbandonedCheckouts();
     const version = orders.orderBookVersion();
     const tag = version && `"${version}"`;
     if (tag && req.get('if-none-match') === tag) {
@@ -284,6 +286,7 @@ router.get('/book', requireAdmin, async (req, res, next) => {
 /** GET /api/orders/stats?days=N&topDays=M — the aggregates the overview is built on. */
 router.get('/stats', requireAdmin, async (req, res, next) => {
   try {
+    await orders.sweepAbandonedCheckouts();
     const days = Math.min(365, Math.max(1, Number(req.validatedQuery?.days) || 30));
     // How many of those days best sellers and areas cover; all of them by default.
     const topDays = Math.min(days, Math.max(1, Number(req.validatedQuery?.topDays) || days));

@@ -529,8 +529,21 @@ export async function recordOnlinePayment(reference, txn, { requestId = '' } = {
       return { found: true, ...decision };
     }
     const update = { ...decision.update, 'paymob.lastResult': decision.outcome, updatedAt: now() };
+    // Paid after the abandoned-checkout sweep cancelled it: the customer did pay,
+    // so the order is theirs again, with the promo use it gave back.
+    const restore = order.status === 'cancelled' && order.paymob?.expiredAt && update.paymentStatus === 'paid';
+    const promoRef = restore && order.paymob?.promoReleased && order.promoCode
+      ? collections.promos().doc(order.promoCode) : null;
+    const promo = promoRef ? await tx.get(promoRef) : null;
+    if (restore) update.status = 'ordered';
     assertOrderUpdate(order, update);
-    tx.update(ref, update);
+    tx.update(ref, restore ? {
+      ...update,
+      'paymob.expiredAt': FieldValue.delete(),
+      'paymob.promoReleased': FieldValue.delete(),
+      history: FieldValue.arrayUnion({ status: 'ordered', note: RESTORED_NOTE, at: Timestamp.now() }),
+    } : update);
+    if (promo?.exists) tx.update(promoRef, { usedCount: FieldValue.increment(1) });
     tx.create(collections.auditEvents().doc(), {
       actor: 'paymob',
       action: `online:${decision.outcome}`,
@@ -540,6 +553,92 @@ export async function recordOnlinePayment(reference, txn, { requestId = '' } = {
     });
     return { found: true, outcome: decision.outcome, order: { ...order, ...update } };
   }));
+}
+
+// ---------------------------------------------------- abandoned checkouts ----
+
+/**
+ * An online order is saved before the customer reaches Paymob, so everybody who
+ * opened the payment page and closed it left an "Ordered · Awaiting payment" row
+ * behind for ever. After this long unpaid it is an abandoned checkout, not an
+ * order: it is cancelled and its promo use handed back. A payment that still
+ * arrives later restores it (recordOnlinePayment above).
+ */
+export const UNPAID_ONLINE_TTL_MS = 60 * 60 * 1000;
+const EXPIRED_NOTE = 'Payment not completed — cancelled automatically after 1 hour';
+const RESTORED_NOTE = 'Payment received after the automatic cancellation — order restored';
+const SWEEP_EVERY_MS = 5 * 60 * 1000;
+
+const isAbandoned = (order, cutoffMs) => order.paymentMethod === 'online'
+  && order.paymentStatus === 'unpaid'
+  && order.status === 'ordered'
+  && typeof order.createdAt?.toMillis === 'function'
+  && order.createdAt.toMillis() <= cutoffMs;
+
+/** Cancel every abandoned online checkout now. Returns the references cancelled. */
+export async function expireUnpaidOnlineOrders({ nowMs = Date.now() } = {}) {
+  const cutoffMs = nowMs - UNPAID_ONLINE_TTL_MS;
+  const mirrored = mirroredOrders();
+  const candidates = mirrored ?? (await collections.orders()
+    .where('paymentMethod', '==', 'online').where('paymentStatus', '==', 'unpaid').get()).docs.map(orderFromDoc);
+  const db = collections.orders().firestore;
+  const expired = [];
+
+  for (const { reference } of candidates.filter((order) => isAbandoned(order, cutoffMs))) {
+    const ref = collections.orders().doc(reference);
+    const result = await afterOrderWrite(reference, db.runTransaction(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return {};
+      const order = orderFromDoc(snapshot);
+      // Re-checked inside the transaction: a payment may have landed since.
+      if (!isAbandoned(order, cutoffMs)) return {};
+      const promoRef = order.promoCode ? collections.promos().doc(order.promoCode) : null;
+      const promo = promoRef ? await tx.get(promoRef) : null;
+      const releasePromo = Boolean(promo?.exists && (promo.data().usedCount ?? 0) > 0);
+
+      const update = { status: 'cancelled', updatedAt: now() };
+      assertOrderUpdate(order, update);
+      tx.update(ref, {
+        ...update,
+        'paymob.expiredAt': now(),
+        'paymob.promoReleased': releasePromo,
+        history: FieldValue.arrayUnion({ status: 'cancelled', note: EXPIRED_NOTE, at: Timestamp.now() }),
+      });
+      if (releasePromo) tx.update(promoRef, { usedCount: FieldValue.increment(-1) });
+      tx.create(collections.auditEvents().doc(), {
+        actor: 'system',
+        action: 'order_status:ordered->cancelled',
+        resource: order.reference,
+        requestId: 'unpaid-online-expiry',
+        createdAt: now(),
+      });
+      return { order: { ...order, ...update }, promoCode: releasePromo ? order.promoCode : null };
+    }));
+    if (result.order) {
+      expired.push(reference);
+      if (result.promoCode) await refresh('promos', result.promoCode);
+      console.info(JSON.stringify({ event: 'unpaid_online_expired', reference }));
+    }
+  }
+  return expired;
+}
+
+let lastSweepMs = 0;
+let sweeping = null;
+
+/**
+ * Run the sweep at most every few minutes, from the dashboard's own reads. No
+ * timer: one would keep the service from ever sleeping on Railway. Never
+ * throws — a failed sweep is retried by a later read.
+ */
+export function sweepAbandonedCheckouts() {
+  if (sweeping) return sweeping;
+  if (Date.now() - lastSweepMs < SWEEP_EVERY_MS) return Promise.resolve();
+  lastSweepMs = Date.now();
+  sweeping = expireUnpaidOnlineOrders()
+    .catch((error) => console.warn(JSON.stringify({ event: 'unpaid_online_expiry_failed', code: error?.code ?? 'UNKNOWN' })))
+    .finally(() => { sweeping = null; });
+  return sweeping;
 }
 
 // ------------------------------------------------------------------ stats ----
