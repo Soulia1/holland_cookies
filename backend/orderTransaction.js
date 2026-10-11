@@ -435,15 +435,26 @@ export async function createOrder(payload, { profileId = null } = {}) {
     // `.create()` so a reference collision fails loudly instead of overwriting
     // an existing order. The counter makes that essentially impossible; this is
     // the belt to its braces, and it costs nothing.
-    tx.create(collections.orders().doc(reference), { ...order, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    // An online order is not a customer's order until Paymob settles it: the
+    // customer record and its totals wait for the payment (recordOnlinePayment),
+    // so an abandoned payment page never adds a customer to the dashboard.
+    const online = order.paymentMethod === 'online';
+    tx.create(collections.orders().doc(reference), {
+      ...order,
+      ...(online ? { customerPending: true } : {}),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
-    upsertCustomerInTransaction(tx, {
-      phone,
-      firstName: payload.firstName,
-      lastName: payload.lastName || '',
-      email: payload.email || '',
-      orderTotal: totals.total,
-    }, customerSnap.exists ? customerSnap.data() : null);
+    if (!online) {
+      upsertCustomerInTransaction(tx, {
+        phone,
+        firstName: payload.firstName,
+        lastName: payload.lastName || '',
+        email: payload.email || '',
+        orderTotal: totals.total,
+      }, customerSnap.exists ? customerSnap.data() : null);
+    }
 
     if (promo) {
       tx.update(collections.promos().doc(promo.code), {

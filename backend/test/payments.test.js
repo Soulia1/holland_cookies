@@ -515,3 +515,64 @@ test('a payment that lands after the automatic cancellation restores the order',
   assert.match(restored.history.at(-1).note, /order restored/);
   assert.equal((await fsdb.collections.promos().doc('SAVE20').get()).data().usedCount, 1);
 });
+
+test('an unpaid online order stays off the dashboard and out of customers until Paymob settles it', async () => {
+  const { order } = (await place()).data;
+  const cash = (await place({ paymentMethod: 'cash', phone: '01198765432' })).data.order;
+  await syncAll();
+  const visible = async () => {
+    const [list, book, stats] = await Promise.all([
+      request('/api/orders', { admin: true }),
+      request('/api/orders/book', { admin: true }),
+      request('/api/orders/stats', { admin: true }),
+    ]);
+    return {
+      list: list.data.orders.map((row) => row.reference),
+      book: book.data.orders.map((row) => row.reference),
+      total: book.data.total,
+      stats: stats.data,
+    };
+  };
+
+  const before = await visible();
+  assert.deepEqual(before.list, [cash.reference]);
+  assert.deepEqual(before.book, [cash.reference]);
+  assert.equal(before.total, 1);
+  assert.equal((await fsdb.collections.customers().doc(PHONE).get()).exists, false, 'no customer before payment');
+
+  assert.equal((await postWebhook(callback(`${order.reference}-pay`))).status, 200);
+  const afterPay = await visible();
+  assert.deepEqual(afterPay.list.sort(), [cash.reference, order.reference].sort());
+  assert.equal(afterPay.total, 2);
+  assert.notDeepEqual(afterPay.stats, before.stats);
+  const customer = (await fsdb.collections.customers().doc(PHONE).get()).data();
+  assert.equal(customer.ordersCount, 1);
+  assert.equal(customer.totalSpent, 200);
+  assert.equal((await stored(order.reference)).customerPending, undefined);
+
+  assert.equal((await postWebhook(callback(`${order.reference}-pay`))).status, 200);
+  assert.equal((await fsdb.collections.customers().doc(PHONE).get()).data().ordersCount, 1, 'a webhook retry counts nobody twice');
+});
+
+test('with the read mirror off, Firestore answers leave unpaid online orders out too', async () => {
+  const { order } = (await place()).data;
+  const cash = (await place({ paymentMethod: 'cash', phone: '01198765432' })).data.order;
+  process.env.READ_MIRROR = 'off';
+  try {
+    const [list, book, stats] = await Promise.all([
+      request('/api/orders', { admin: true }),
+      request('/api/orders/book', { admin: true }),
+      request('/api/orders/stats', { admin: true }),
+    ]);
+    assert.deepEqual(list.data.orders.map((row) => row.reference), [cash.reference]);
+    assert.deepEqual(book.data.orders.map((row) => row.reference), [cash.reference]);
+    assert.equal(book.data.total, 1);
+    process.env.READ_MIRROR = '';
+    await syncAll();
+    const mirrored = await request('/api/orders/stats', { admin: true });
+    assert.deepEqual(stats.data, mirrored.data, 'both paths count the same orders');
+    assert.ok(!JSON.stringify(stats.data).includes(order.reference));
+  } finally {
+    process.env.READ_MIRROR = '';
+  }
+});

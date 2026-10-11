@@ -36,9 +36,10 @@ import { money } from '../../shared/pricing.mjs';
 import { assertOrderUpdate } from '../invariants.js';
 import { validateStatusTransition } from '../../shared/orderStatus.mjs';
 import { shopDateOf, shopDays } from '../../shared/cairoTime.mjs';
-import { buildOrderSearchIndex, parseSearchQuery, queryOrders } from '../../shared/orderSearch.mjs';
+import { buildOrderSearchIndex, queryOrders } from '../../shared/orderSearch.mjs';
 import { live, refresh } from '../mirror.js';
 import { paymentDecision } from '../paymentState.js';
+import { upsertCustomerInTransaction } from './people.js';
 
 const now = () => FieldValue.serverTimestamp();
 const iso = (value) => (value?.toDate ? value.toDate().toISOString() : (value ?? null));
@@ -159,6 +160,25 @@ function mirroredOrders() {
  * the search index below survives other orders changing.
  */
 const wrappedOrders = new WeakMap();
+/**
+ * Whether the dashboard shows this order. An online order is saved before the
+ * customer reaches Paymob, so until a signed payment lands it is a checkout in
+ * progress (or abandoned), not an order the bakery should see or count. It
+ * appears the moment Paymob settles it.
+ */
+export const onDashboard = (order) => !(order.paymentMethod === 'online' && order.paymentStatus === 'unpaid');
+
+/** The mirror's orders the dashboard shows, newest first, or null if it cannot answer. */
+function dashboardOrders() {
+  const mirror = live('orders');
+  if (!mirror) return null;
+  return mirror.derive('dashboard', () => mirroredOrders().filter(onDashboard));
+}
+
+/** Never-paid online orders, for subtracting from Firestore aggregates. */
+const unpaidOnline = () => collections.orders()
+  .where('paymentMethod', '==', 'online').where('paymentStatus', '==', 'unpaid');
+
 function wrapOrder(reference, data) {
   let order = wrappedOrders.get(data);
   if (!order) {
@@ -248,36 +268,17 @@ export async function listOrders({ page = 1, perPage = 25, status = null, fulfil
     return { orders: result.rows.map(orderPayload), page, perPage, total: result.total, pages: result.pages };
   };
 
-  const mirrored = mirroredOrders();
+  const mirrored = dashboardOrders();
   if (mirrored) return answer(mirrored);
 
   // The mirror is not serving (booting, or its listener is reconnecting), so
-  // ask Firestore — the path this module used before the mirror existed.
-  const filtered = () => {
-    let query = collections.orders();
-    if (status) query = query.where('status', '==', status);
-    if (fulfilment) query = query.where('fulfilment', '==', fulfilment);
-    return query;
-  };
-
-  if (parseSearchQuery(q ?? '').empty) {
-    const total = (await filtered().count().get()).data().count;
-    const snapshot = await filtered()
-      .orderBy('seq', 'desc')
-      .offset((page - 1) * perPage)
-      .limit(perPage)
-      .get();
-    return {
-      orders: snapshot.docs.map((doc) => orderPayload(orderFromDoc(doc))),
-      page,
-      perPage,
-      total,
-      pages: Math.max(1, Math.ceil(total / perPage)),
-    };
-  }
-
-  const snapshot = await filtered().orderBy('seq', 'desc').limit(SEARCH_SCAN_CAP).get();
-  return answer(snapshot.docs.map(orderFromDoc));
+  // ask Firestore. A bounded scan filtered here rather than a paged query:
+  // "not an unpaid online order" is not a filter Firestore can page by.
+  let query = collections.orders();
+  if (status) query = query.where('status', '==', status);
+  if (fulfilment) query = query.where('fulfilment', '==', fulfilment);
+  const snapshot = await query.orderBy('seq', 'desc').limit(SEARCH_SCAN_CAP).get();
+  return answer(snapshot.docs.map(orderFromDoc).filter(onDashboard));
 }
 
 /**
@@ -309,7 +310,7 @@ export async function orderBook(limit = ORDER_BOOK_LIMIT) {
   const mirror = live('orders');
   if (mirror) {
     return mirror.derive(`book:${limit}`, () => {
-      const all = mirroredOrders();
+      const all = dashboardOrders();
       return {
         version: orderBookVersion(limit),
         orders: all.slice(0, limit).map(orderPayload),
@@ -318,14 +319,15 @@ export async function orderBook(limit = ORDER_BOOK_LIMIT) {
       };
     });
   }
-  const [count, snapshot] = await Promise.all([
+  const [count, hidden, snapshot] = await Promise.all([
     collections.orders().count().get(),
+    unpaidOnline().count().get(),
     collections.orders().orderBy('seq', 'desc').limit(limit).get(),
   ]);
-  const total = count.data().count;
+  const total = count.data().count - hidden.data().count;
   return {
     version: null,
-    orders: snapshot.docs.map((doc) => orderPayload(orderFromDoc(doc))),
+    orders: snapshot.docs.map(orderFromDoc).filter(onDashboard).map(orderPayload),
     total,
     complete: total <= limit,
   };
@@ -346,19 +348,19 @@ export async function orderBook(limit = ORDER_BOOK_LIMIT) {
  * shop's realistic order count.
  */
 export async function listAllOrdersForReporting(limit = REPORTING_CAP) {
-  const mirrored = mirroredOrders();
+  const mirrored = dashboardOrders();
   if (mirrored) return mirrored.slice(0, limit);
   const snapshot = await collections.orders().orderBy('seq', 'desc').limit(limit).get();
-  return snapshot.docs.map(orderFromDoc);
+  return snapshot.docs.map(orderFromDoc).filter(onDashboard);
 }
 
 /** Every order for one customer phone, newest first. */
 export async function ordersForPhone(phone, limit = 200) {
-  const mirrored = mirroredOrders();
+  const mirrored = dashboardOrders();
   if (mirrored) return mirrored.filter((order) => order.phone === phone).slice(0, limit);
   const snapshot = await collections.orders()
     .where('phone', '==', phone).orderBy('seq', 'desc').limit(limit).get();
-  return snapshot.docs.map(orderFromDoc);
+  return snapshot.docs.map(orderFromDoc).filter(onDashboard);
 }
 
 /** Every order attached to a proved account. */
@@ -515,7 +517,7 @@ export async function recordOnlinePayment(reference, txn, { requestId = '' } = {
   const ref = collections.orders().doc(String(reference).toUpperCase());
   const db = collections.orders().firestore;
 
-  return afterOrderWrite(ref.id, db.runTransaction(async (tx) => {
+  const result = await afterOrderWrite(ref.id, db.runTransaction(async (tx) => {
     const snapshot = await tx.get(ref);
     if (!snapshot.exists) return { found: false };
     const order = orderFromDoc(snapshot);
@@ -535,15 +537,32 @@ export async function recordOnlinePayment(reference, txn, { requestId = '' } = {
     const promoRef = restore && order.paymob?.promoReleased && order.promoCode
       ? collections.promos().doc(order.promoCode) : null;
     const promo = promoRef ? await tx.get(promoRef) : null;
+    // The customer record (with its order count and spend) waits for the money,
+    // as the dashboard does; see createOrder.
+    const countCustomer = Boolean(order.customerPending) && update.paymentStatus === 'paid';
+    const customerRef = countCustomer ? collections.customers().doc(order.phone) : null;
+    const customer = customerRef ? await tx.get(customerRef) : null;
     if (restore) update.status = 'ordered';
     assertOrderUpdate(order, update);
-    tx.update(ref, restore ? {
+    tx.update(ref, {
       ...update,
-      'paymob.expiredAt': FieldValue.delete(),
-      'paymob.promoReleased': FieldValue.delete(),
-      history: FieldValue.arrayUnion({ status: 'ordered', note: RESTORED_NOTE, at: Timestamp.now() }),
-    } : update);
+      ...(restore ? {
+        'paymob.expiredAt': FieldValue.delete(),
+        'paymob.promoReleased': FieldValue.delete(),
+        history: FieldValue.arrayUnion({ status: 'ordered', note: RESTORED_NOTE, at: Timestamp.now() }),
+      } : {}),
+      ...(countCustomer ? { customerPending: FieldValue.delete() } : {}),
+    });
     if (promo?.exists) tx.update(promoRef, { usedCount: FieldValue.increment(1) });
+    if (countCustomer) {
+      upsertCustomerInTransaction(tx, {
+        phone: order.phone,
+        firstName: order.firstName,
+        lastName: order.lastName || '',
+        email: order.email || '',
+        orderTotal: order.total,
+      }, customer.exists ? customer.data() : null);
+    }
     tx.create(collections.auditEvents().doc(), {
       actor: 'paymob',
       action: `online:${decision.outcome}`,
@@ -551,8 +570,10 @@ export async function recordOnlinePayment(reference, txn, { requestId = '' } = {
       requestId,
       createdAt: now(),
     });
-    return { found: true, outcome: decision.outcome, order: { ...order, ...update } };
+    return { found: true, outcome: decision.outcome, order: { ...order, ...update }, customerPhone: countCustomer ? order.phone : null };
   }));
+  if (result.customerPhone) await refresh('customers', result.customerPhone);
+  return result;
 }
 
 // ---------------------------------------------------- abandoned checkouts ----
@@ -729,18 +750,30 @@ async function statsFromFirestore(windowStart) {
     return { value: grossValue - (refund?.data().value ?? 0) / 100, grossValue, count: result.data().count ?? 0 };
   };
 
-  const [all, paid, fulfilled, cancelled, cancelledPaid] = await Promise.all([
+  // Aggregates cannot exclude never-paid online orders (onDashboard), so those
+  // are counted on their own and subtracted.
+  const hidden = unpaidOnline();
+  const minus = (a, b) => ({
+    ...a, value: a.value - b.value, grossValue: a.grossValue - b.grossValue, count: a.count - b.count,
+  });
+
+  const [all, paid, fulfilled, cancelled, cancelledPaid, hiddenAll, hiddenCancelled] = await Promise.all([
     sumOf(orders),
     sumOf(orders.where('paymentStatus', '==', 'paid'), true),
     sumOf(orders.where('status', '==', 'completed')),
     sumOf(orders.where('status', '==', 'cancelled')),
     sumOf(orders.where('status', '==', 'cancelled').where('paymentStatus', '==', 'paid'), true),
+    sumOf(hidden),
+    sumOf(hidden.where('status', '==', 'cancelled')),
   ]);
 
   const countsFor = async (field, values) => Object.fromEntries(
     (await Promise.all(values.map(async (value) => {
-      const result = await orders.where(field, '==', value).count().get();
-      return [value, result.data().count];
+      const [result, withinHidden] = await Promise.all([
+        orders.where(field, '==', value).count().get(),
+        hidden.where(field, '==', value).count().get(),
+      ]);
+      return [value, result.data().count - withinHidden.data().count];
     }))).filter(([, count]) => count > 0),
   );
 
@@ -752,8 +785,9 @@ async function statsFromFirestore(windowStart) {
   ]);
 
   return {
-    all, paid, fulfilled, cancelled, cancelledPaid, byStatus, byPaymentStatus, byFulfillmentRaw,
-    inWindow: windowed.docs.map(orderFromDoc),
+    all: minus(all, hiddenAll), paid, fulfilled, cancelled: minus(cancelled, hiddenCancelled), cancelledPaid,
+    byStatus, byPaymentStatus, byFulfillmentRaw,
+    inWindow: windowed.docs.map(orderFromDoc).filter(onDashboard),
   };
 }
 
@@ -762,7 +796,7 @@ export async function orderStats({ days = 30, topDays = days } = {}) {
   // 02:00/03:00 in Cairo was counted on the day before.
   const span = shopDays(days);
   const windowStart = new Date(span.start);
-  const mirrored = mirroredOrders();
+  const mirrored = dashboardOrders();
   // From the mirror, the figures only change when an order does (or the Cairo
   // day rolls over, which changes span.start), so they are computed once per
   // change rather than once per dashboard load.
