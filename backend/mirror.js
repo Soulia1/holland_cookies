@@ -31,11 +31,19 @@
  * is the code path this replaced. Slower, never wrong.
  *
  * READ_MIRROR=off switches the whole thing off.
+ *
+ * Idle shutdown: an open listener streams to Firestore forever, and Railway
+ * only sleeps a service after ten minutes without outbound traffic — so a
+ * permanently-mirrored site was billed for RAM around the clock even with no
+ * visitors. After IDLE_MS without a single mirrored read every listener is
+ * stopped; the next read restarts them and falls back to Firestore until they
+ * have caught up, exactly as at boot.
  */
 
 import { collections, onClose } from './firestore.js';
 
 const RETRY_MS = [1000, 2000, 5000, 15000, 30000];
+const IDLE_MS = 5 * 60 * 1000;
 
 const isOff = () => String(process.env.READ_MIRROR ?? '').toLowerCase() === 'off';
 
@@ -207,7 +215,28 @@ const mirrors = {
   orders: new Mirror('orders', () => collections.orders()),
 };
 
-onClose(() => { for (const mirror of Object.values(mirrors)) mirror.stop(); });
+let lastUse = 0;
+let idleCheck = null;
+
+function stopAll() {
+  for (const mirror of Object.values(mirrors)) mirror.stop();
+  if (idleCheck) clearInterval(idleCheck);
+  idleCheck = null;
+}
+
+/** Note a use, and arm the check that stops every listener once they go unused. */
+function touch() {
+  lastUse = Date.now();
+  if (idleCheck) return;
+  idleCheck = setInterval(() => {
+    if (Date.now() - lastUse < IDLE_MS) return;
+    console.info(JSON.stringify({ event: 'mirror_idle_stop', idleMs: IDLE_MS }));
+    stopAll();
+  }, 60 * 1000);
+  idleCheck.unref?.();
+}
+
+onClose(stopAll);
 
 /**
  * The mirror for `name` if it can answer right now, otherwise null — in which
@@ -216,6 +245,7 @@ onClose(() => { for (const mirror of Object.values(mirrors)) mirror.stop(); });
 export function live(name) {
   const mirror = mirrors[name];
   if (isOff()) return null;
+  touch();
   mirror.start();
   return mirror.ready ? mirror : null;
 }
@@ -242,6 +272,7 @@ export async function refresh(name, ids) {
 /** Start every listener. Called at boot so the first visitor is not the one who waits. */
 export function startAll() {
   if (isOff()) return;
+  touch();
   for (const mirror of Object.values(mirrors)) mirror.start();
 }
 
