@@ -213,12 +213,12 @@ export default function CheckoutPage() {
       const pickSoldOut = (item.selections ?? []).some((pick) =>
         product?.groups?.[pick.group]?.options
           .find((option) => option.productId === pick.productId)?.available === false);
-      const option = product?.choices?.find((entry) => entry.name === item.choice);
+      const option = product?.choices?.filter((entry) => [item.choice ?? []].flat().includes(entry.name));
       return {
         ...item,
         key: lineKey(item),
         name: product ? localized(lang, product.name, product.nameAr) : item.name,
-        choiceLabel: option ? localized(lang, option.name, option.nameAr) : item.choiceLabel,
+        choiceLabel: option?.length ? option.map((entry) => localized(lang, entry.name, entry.nameAr)).join(", ") : item.choiceLabel,
         note: product?.note ? localized(lang, product.note, product.noteAr) : item.note,
         // The photo the menu shows: one uploaded in the dashboard, else the
         // bundled menu photo, else what the cart kept. Only the upload was read,

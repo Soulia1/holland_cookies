@@ -98,7 +98,7 @@ export interface ApiProduct {
   regularPrice: number;
   discounted: boolean;
   available: boolean;
-  /** Options the customer picks exactly one of, each with what it adds to the price. */
+  /** Options the customer picks one or more of, each with what it adds to the price. */
   choices?: { name: string; nameAr?: string; priceDelta?: number }[];
   isBundle?: boolean;
   bundleType?: "fixed" | "choice";
@@ -175,7 +175,7 @@ export interface Order {
   items: {
     productId: string; name: string; nameAr?: string; note?: string;
     unitPrice: number; qty: number; lineTotal: number;
-    choice?: { name: string; nameAr?: string };
+    choice?: { name: string; nameAr?: string; names?: string[] };
     selections?: OrderSelection[];
     components?: { productId: string; name: string; nameAr?: string; quantity: number }[];
   }[];
@@ -206,7 +206,7 @@ export interface AccountOrder {
   totals: OrderTotals;
   items: {
     name: string; nameAr?: string; qty: number; unitPrice: number; lineTotal: number;
-    choice?: { name: string; nameAr?: string };
+    choice?: { name: string; nameAr?: string; names?: string[] };
   }[];
 }
 
@@ -215,7 +215,7 @@ export interface CheckoutBody {
   items: {
     productId: string;
     qty: number;
-    choice?: string;
+    choice?: string | string[];
     selections?: { group: number; productId: string; quantity: number }[];
   }[];
   firstName: string;

@@ -117,10 +117,11 @@ export function discountProblem(product) {
  */
 export function choiceSurcharge(product, choice) {
   const choices = Array.isArray(product?.choices) ? product.choices : [];
-  if (!choices.length || typeof choice !== "string" || !choice) return 0;
-  const picked = choices.find((entry) => entry?.name === choice);
-  const extra = Number(picked?.priceDelta);
-  return Number.isFinite(extra) && extra > 0 ? money(extra) : 0;
+  const names = new Set(Array.isArray(choice) ? choice : choice ? [choice] : []);
+  return money(choices.reduce((total, entry) => {
+    const extra = Number(entry?.priceDelta);
+    return total + (names.has(entry?.name) && Number.isFinite(extra) && extra > 0 ? extra : 0);
+  }, 0));
 }
 
 /**
@@ -185,15 +186,16 @@ export function selectionProblem(product, selections) {
 /**
  * Why this option is not a valid way to order this product, or null.
  *
- * A product with options needs exactly one of them, named as stored; a product
+ * A product with options needs at least one of them, named as stored; a product
  * without options takes none.
  */
 export function choiceProblem(product, choice) {
   const choices = Array.isArray(product?.choices) ? product.choices : [];
-  const picked = typeof choice === "string" ? choice : "";
-  if (!choices.length) return picked ? "This item has no options to choose from." : null;
-  if (!picked) return "Choose an option for this item.";
-  return choices.some((entry) => entry?.name === picked) ? null : "That option is no longer offered.";
+  const picked = Array.isArray(choice) ? choice : typeof choice === "string" && choice ? [choice] : [];
+  if (!choices.length) return picked.length ? "This item has no options to choose from." : null;
+  if (!picked.length) return "Choose an option for this item.";
+  if (new Set(picked).size !== picked.length) return "Choose each option only once.";
+  return picked.every((name) => choices.some((entry) => entry?.name === name)) ? null : "That option is no longer offered.";
 }
 
 /**
@@ -202,8 +204,11 @@ export function choiceProblem(product, choice) {
  */
 export function lineSignature(item) {
   const picks = Array.isArray(item?.selections) ? item.selections : [];
-  const choice = typeof item?.choice === "string" ? item.choice : "";
-  const product = choice ? `${item?.productId ?? ""}#${choice}` : String(item?.productId ?? "");
+  const names = Array.isArray(item?.choice) ? [...item.choice].sort() : item?.choice ? [item.choice] : [];
+  const choice = names.length > 1 ? JSON.stringify(names) : names[0] ?? "";
+  const product = names.length > 1
+    ? `${item?.productId ?? ""}|options:${choice}`
+    : choice ? `${item?.productId ?? ""}#${choice}` : String(item?.productId ?? "");
   if (!picks.length) return product;
   const parts = picks.map((pick) => `${pick.group}:${pick.productId}:${pick.quantity}`).sort();
   return `${product}|${parts.join(",")}`;

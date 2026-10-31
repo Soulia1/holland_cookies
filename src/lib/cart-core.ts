@@ -41,7 +41,7 @@ export interface CartItem {
   /** Display snapshot: the product photo's same-origin path, for the drawer. */
   image?: string;
   /** The option picked, by its stored English name. Identity: sent with the order. */
-  choice?: string;
+  choice?: string | string[];
   /** Display snapshot: the option as it read when it was added. */
   choiceLabel?: string;
   /** A choice bundle's picks. `name` is a display snapshot; the rest is identity. */
@@ -139,7 +139,8 @@ function isCartItem(value: unknown): value is CartItem {
     && typeof line.qty === "number"
     && Number.isFinite(line.qty)
     && line.qty >= 1
-    && (line.choice === undefined || (typeof line.choice === "string" && line.choice.length > 0))
+    && (line.choice === undefined || (typeof line.choice === "string" && line.choice.length > 0)
+      || (Array.isArray(line.choice) && line.choice.length > 0 && line.choice.every((name) => typeof name === "string" && name.length > 0)))
     && (line.selections === undefined
       || (Array.isArray(line.selections) && line.selections.every(isSelection)))
   );
@@ -184,7 +185,7 @@ export function loadCart(raw: string | null): CartItem[] {
     price: line.price,
     ...(line.note ? { note: line.note } : {}),
     ...(line.choice
-      ? { choice: line.choice, choiceLabel: typeof line.choiceLabel === "string" ? line.choiceLabel : line.choice }
+      ? { choice: line.choice, choiceLabel: typeof line.choiceLabel === "string" ? line.choiceLabel : [line.choice].flat().join(", ") }
       : {}),
     // A path on this origin only. Storage is user-writable, and the drawer puts
     // this straight into an `<img src>`; anything else is dropped and the

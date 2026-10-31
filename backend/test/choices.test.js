@@ -313,3 +313,21 @@ test('the dashboard cannot save a negative or absurd extra', async () => {
   assert.equal(absurd.status, 400, JSON.stringify(absurd.data));
   assert.equal((await menuProduct('scoop')).choices.length, 0, 'neither attempt was stored');
 });
+
+test('multiple options persist through the dashboard, pricing and order snapshot', async () => {
+  const saved = await request('/api/menu/admin/products/scoop', { method: 'PATCH', body: {
+    choices: [{ name: VANILLA, priceDelta: 20 }, { name: CHOCOLATE, priceDelta: 30 }],
+  } });
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+  assert.equal((await menuProduct('scoop')).choices.length, 2);
+  const placed = await place([{ productId: 'scoop', qty: 2, choice: [VANILLA, CHOCOLATE] }]);
+  assert.equal(placed.status, 201, JSON.stringify(placed.data));
+  const line = placed.data.order.items[0];
+  assert.deepEqual(line.choice.names, [VANILLA, CHOCOLATE]);
+  assert.equal(line.choice.priceDelta, 50);
+  assert.equal(line.lineTotal, 700);
+  for (const choice of [[], [VANILLA, VANILLA], [VANILLA, 'Removed']]) {
+    const rejected = await place([{ productId: 'scoop', qty: 1, choice }]);
+    assert.ok(rejected.status >= 400);
+  }
+});

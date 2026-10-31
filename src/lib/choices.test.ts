@@ -93,3 +93,26 @@ describe("an option that costs extra", () => {
     expect(unitPrice(halfPrice, undefined, "Large")).toBe(150);
   });
 });
+
+describe("multiple product options", () => {
+  const product = { price: 100, choices: [
+    { name: "Chocolate", priceDelta: 20 }, { name: "Vanilla", priceDelta: 30 },
+  ] };
+  it("requires at least one valid, distinct option", () => {
+    expect(choiceProblem(product, [])).not.toBeNull();
+    expect(choiceProblem(product, ["Chocolate"])).toBeNull();
+    expect(choiceProblem(product, ["Chocolate", "Vanilla"])).toBeNull();
+    expect(choiceProblem(product, ["Chocolate", "Chocolate"])).not.toBeNull();
+    expect(choiceProblem(product, ["Chocolate", "Removed"])).not.toBeNull();
+  });
+  it("adds every extra per unit and merges the same set regardless of selection order", () => {
+    expect(lineTotal(product, 2, [], ["Chocolate", "Vanilla"])).toBe(300);
+    const items = addItem(addItem([], { ...line, choice: ["Chocolate", "Vanilla"] }),
+      { ...line, choice: ["Vanilla", "Chocolate"] });
+    expect(items).toHaveLength(1);
+    expect(items[0].qty).toBe(2);
+    expect(loadCart(JSON.stringify(items))[0].choice).toEqual(["Vanilla", "Chocolate"]);
+    expect(lineSignature({ productId: "scoop", choice: ["Chocolate"] }))
+      .toBe(lineSignature({ productId: "scoop", choice: "Chocolate" }));
+  });
+});

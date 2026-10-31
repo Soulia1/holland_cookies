@@ -36,15 +36,15 @@ export interface BundleProduct extends DiscountableProduct {
 }
 
 export function lineTotal(
-  product: BundleProduct, qty: number, selections?: readonly Selection[], choice?: string,
+  product: BundleProduct, qty: number, selections?: readonly Selection[], choice?: string | string[],
 ): number;
 export function unitPrice(
-  product: BundleProduct, selections?: readonly Selection[], choice?: string,
+  product: BundleProduct, selections?: readonly Selection[], choice?: string | string[],
 ): number;
-export function choiceSurcharge(product: { choices?: readonly ProductChoice[] }, choice?: string): number;
+export function choiceSurcharge(product: { choices?: readonly ProductChoice[] }, choice?: string | string[]): number;
 export function selectionProblem(product: BundleProduct, selections?: readonly Selection[]): string | null;
-export function choiceProblem(product: { choices?: readonly { name: string }[] }, choice?: string): string | null;
-export function lineSignature(item: { productId: string; choice?: string; selections?: readonly Selection[] }): string;
+export function choiceProblem(product: { choices?: readonly { name: string }[] }, choice?: string | string[]): string | null;
+export function lineSignature(item: { productId: string; choice?: string | string[]; selections?: readonly Selection[] }): string;
 export function hasDiscount(product: DiscountableProduct): boolean;
 export function discountAmount(product: DiscountableProduct): number;
 export function discountPercentOff(product: DiscountableProduct): number;

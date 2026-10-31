@@ -100,6 +100,7 @@ export function orderPayload(order) {
         ? {
           choice: {
             name: item.choice.name,
+                names: item.choice.names,
             nameAr: item.choice.nameAr || undefined,
             priceDelta: Number(item.choice.priceDelta) || 0,
           },

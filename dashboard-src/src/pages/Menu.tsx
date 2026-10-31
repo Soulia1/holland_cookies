@@ -934,7 +934,7 @@ function ProductForm({
 }
 
 /**
- * Options the customer picks exactly one of before adding the product — a
+ * Options the customer chooses before adding the product — a
  * flavor, a size. The shop shows them as a required choice in the item's
  * dialog, and the order line records which one was picked.
  */
@@ -956,7 +956,7 @@ function OptionFields({
       <div>
         <p className="text-sm font-medium">Options</p>
         <p className="text-xs text-muted-foreground">
-          The customer must pick one before adding it to the cart — for example a flavor or a
+          Customers can select one or more options before adding it to the cart — for example a flavor or a
           size. “Extra” is what that option adds to the price above, so leave it at 0 for an
           option that costs the same. Leave the list empty for a product with no options.
         </p>

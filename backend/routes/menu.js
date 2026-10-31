@@ -64,7 +64,7 @@ const bundleFields = {
 };
 
 /**
- * Options the customer picks exactly one of, such as a flavor or a size.
+ * Options the customer picks one or more of, such as a flavor or a size.
  * Stored on the product.
  *
  * `priceDelta` is what picking that option adds to the product's price, so a

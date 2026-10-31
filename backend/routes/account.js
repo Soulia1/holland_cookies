@@ -177,6 +177,7 @@ router.get('/orders', requireCustomer, async (req, res, next) => {
             ? {
               choice: {
                 name: item.choice.name,
+                names: item.choice.names,
                 nameAr: item.choice.nameAr || undefined,
                 priceDelta: Number(item.choice.priceDelta) || 0,
               },

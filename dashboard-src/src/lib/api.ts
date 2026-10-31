@@ -146,7 +146,7 @@ export interface MenuItem {
   bundleCategory?: string;
   components?: { productId: string; name?: string; quantity: number }[];
   groups?: BundleGroup[];
-  /** Options the customer picks exactly one of before adding it, and what each adds to the price. */
+  /** Options the customer picks one or more of before adding it, and what each adds to the price. */
   choices?: ProductOption[];
 }
 
@@ -681,7 +681,7 @@ interface HollandOrder {
   items: {
     productId: string; name: string; nameAr?: string; note?: string;
     unitPrice: number; qty: number; lineTotal: number;
-    choice?: { name: string; nameAr?: string };
+    choice?: { name: string; nameAr?: string; names?: string[] };
     selections?: { group: number; label: string; productId: string; name: string; quantity: number }[];
     components?: { productId: string; name: string; quantity: number }[];
   }[];

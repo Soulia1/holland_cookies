@@ -53,7 +53,7 @@ export default function MenuItemDetail({
   // effect, so switching straight from one row's dialog to another's — the
   // trigger stays mounted, `selection` just changes — can never leak the
   // previous item's pick into this one.
-  const [flavorPick, setFlavorPick] = useState<{ itemId: string; flavor: string } | null>(null);
+  const [flavorPick, setFlavorPick] = useState<{ itemId: string; flavors: string[] } | null>(null);
   // A choice bundle's picks, keyed `group:productId`, and keyed off the item for
   // the same reason as the flavor above.
   const [picks, setPicks] = useState<{ itemId: string; counts: Record<string, number> } | null>(null);
@@ -89,8 +89,11 @@ export default function MenuItemDetail({
 
   const choices = item?.choices?.length ? item.choices : undefined;
   const chosen = choices && flavorPick?.itemId === item?.id
-    ? choices.find((choice) => choice.name === flavorPick?.flavor) ?? null
-    : null;
+    ? choices.filter((choice) => flavorPick?.flavors.includes(choice.name))
+    : [];
+  const choiceNames = chosen?.map((entry) => entry.name) ?? [];
+  const choiceValue = choiceNames;
+  const chooseLabel = (lang === "ar" ? "\u0627\u062e\u062a\u0631 \u062e\u064a\u0627\u0631\u0627 \u0648\u0627\u062d\u062f\u0627 \u0623\u0648 \u0623\u0643\u062b\u0631" : "Choose one or more options");
 
   const bundle = item?.bundle;
   const counts = bundle?.type === "choice" && picks && picks.itemId === item?.id ? picks.counts : {};
@@ -108,7 +111,7 @@ export default function MenuItemDetail({
   // order with rather than by adding it here, so the figure on the button and
   // the figure the order is refused against cannot drift apart.
   const shownPrice = item
-    ? unitPrice(pricing ?? { price: item.price, choices }, selections, chosen?.name)
+    ? unitPrice(pricing ?? { price: item.price, choices }, selections, choiceValue)
     : 0;
   const choicesIncomplete = pricing && bundle?.type === "choice"
     ? selectionProblem(pricing, selections) !== null
@@ -252,25 +255,28 @@ export default function MenuItemDetail({
                     {/* A choice, not a bare list, so the cart line it
                         produces names the one option the kitchen makes. */}
                     {choices && (
-                      <div className="mt-5" role="radiogroup" aria-label={t.menuDetailChooseFlavor}>
+                      <div className="mt-5" role="group" aria-label={chooseLabel}>
                         <p className="font-body text-[12px] font-semibold uppercase tracking-[0.15em] text-secondary mb-2">
-                          {t.menuDetailChooseFlavor}
+                          {chooseLabel}
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {choices.map((choice) => {
-                            const picked = chosen?.name === choice.name;
+                            const picked = choiceNames.includes(choice.name);
                             return (
                               <button
                                 key={choice.name}
                                 type="button"
-                                role="radio"
+                                role="checkbox"
                                 aria-checked={picked}
                                 className={`btn font-body text-[13px] font-semibold px-4 py-2 rounded-full border transition-colors ${
                                   picked
                                     ? "bg-primary text-on-primary border-primary"
                                     : "border-outline-variant text-primary hover:bg-surface-container-low"
                                 }`}
-                                onClick={() => setFlavorPick({ itemId: item.id, flavor: choice.name })}
+                                onClick={() => setFlavorPick({
+                                  itemId: item.id,
+                                  flavors: picked ? choiceNames.filter((name) => name !== choice.name) : [...choiceNames, choice.name],
+                                })}
                               >
                                 {localized(lang, choice.name, choice.nameAr)}
                                 {/* What this option adds, where it adds
@@ -374,7 +380,7 @@ export default function MenuItemDetail({
                     >
                       <span className="add-btn-label">{t.bundleMakeChoices}</span>
                     </button>
-                  ) : choices && !chosen ? (
+                  ) : choices && !choiceNames.length ? (
                     // Blocked until a flavor is picked, rather than adding
                     // the printed shorthand itself to the cart — the shop
                     // cannot bake "Vanilla, Red Velvet or Chocolate".
@@ -383,18 +389,18 @@ export default function MenuItemDetail({
                       className="add-btn btn menu-detail-add opacity-50 cursor-not-allowed"
                       disabled
                     >
-                      <span className="add-btn-label">{t.menuDetailChooseFlavor}</span>
+                      <span className="add-btn-label">{chooseLabel}</span>
                     </button>
                   ) : (
                     <AddToCart
-                      key={chosen?.name ?? item.id}
+                      key={JSON.stringify(choiceNames)}
                       className="menu-detail-add"
                       label={t.addToCart}
                       item={{
                         productId: item.id,
                         name,
-                        ...(chosen
-                          ? { choice: chosen.name, choiceLabel: localized(lang, chosen.name, chosen.nameAr) }
+                        ...(choiceNames.length
+                          ? { choice: choiceValue, choiceLabel: chosen?.map((entry) => localized(lang, entry.name, entry.nameAr)).join(", ") }
                           : {}),
                         price: shownPrice,
                         ...(note ? { note } : {}),

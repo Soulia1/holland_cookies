@@ -357,13 +357,15 @@ export async function createOrder(payload, { profileId = null } = {}) {
         lineTotal: money(unit * item.qty),
       };
       if (item.choice) {
-        const picked = product.choices.find((entry) => entry.name === item.choice);
+        const names = Array.isArray(item.choice) ? item.choice : [item.choice];
+        const picked = names.map((name) => product.choices.find((entry) => entry.name === name));
         // The extra is copied onto the line like the name and the price are, so
         // the order still reads correctly after the option is repriced.
         line.choice = {
-          name: picked.name,
-          nameAr: picked.nameAr ?? '',
-          priceDelta: money(Number(picked.priceDelta) || 0),
+          name: picked.map((entry) => entry.name).join(', '),
+          nameAr: picked.map((entry) => entry.nameAr || entry.name).join(', '),
+          names,
+          priceDelta: money(picked.reduce((sum, entry) => sum + (Number(entry.priceDelta) || 0), 0)),
         };
       }
       // What is actually inside, copied onto the line like the name and price

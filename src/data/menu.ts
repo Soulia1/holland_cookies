@@ -25,7 +25,7 @@
  * tray", "kraft box", "14 inch") and would otherwise be lost.
  */
 
-/** An option the customer picks exactly one of before adding an item. */
+/** An option the customer picks one or more of before adding an item. */
 export interface MenuChoice {
   name: string;
   nameAr?: string;
@@ -67,7 +67,7 @@ export interface MenuItem {
   note?: string;
   noteAr?: string;
   /**
-   * Options the customer must pick exactly one of before adding this item —
+   * Options the customer must pick one or more of before adding this item —
    * here, the flavors of a printed line that names several. This copy only
    * seeds the database; the dashboard edits the list from then on, and the
    * live catalogue's version is what the page shows.
