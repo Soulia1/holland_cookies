@@ -7,6 +7,7 @@ import {
 import { signOut } from "@/lib/api";
 
 const PAGE_TITLES: Record<string, string> = {
+  "/campaigns": "Campaigns",
   "/": "Overview",
   "/orders": "Orders",
   "/users": "Users",

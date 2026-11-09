@@ -14,6 +14,7 @@ import { startAll as startMirrors } from './mirror.js';
 import menuRoute from './routes/menu.js';
 import ordersRoute from './routes/orders.js';
 import adminRoute from './routes/admin.js';
+import mailRoute from './routes/mail.js';
 import imagesRoute from './routes/images.js';
 import accountRoute from './routes/account.js';
 import paymentsRoute from './routes/payments.js';
@@ -105,7 +106,7 @@ app.get('/api/ready',async(_req,res)=>{
   try{await db.get().collection('_health').doc('probe').get();res.json({ok:true});}
   catch{res.status(503).json({ok:false});}
 });
-app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);app.use('/api/payments',paymentsRoute);
+app.use('/api',imagesRoute);app.use('/api/menu',menuRoute);app.use('/api/orders',ordersRoute);app.use('/api/admin/mail',mailRoute);app.use('/api/admin',adminRoute);app.use('/api/account',accountRoute);app.use('/api/payments',paymentsRoute);
 app.use('/api',(_req,res)=>res.status(404).json({error:'NOT_FOUND',message:'No such endpoint.'}));
 const staticOptions={dotfiles:'deny',index:false,setHeaders(res,file){res.set('Cache-Control',/[\\/]assets[\\/].+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file)?'public, max-age=31536000, immutable':'no-cache');}};
 // Old bookmarks: the dashboard used to live under /dashboard on the shop's host.
@@ -122,7 +123,7 @@ app.use('/dashboard',(req,res,next)=>{
 app.use('/img',express.static(path.join(dist,'img'),staticOptions));
 const serveDashboard=express.static(dashboardDist,staticOptions);const serveShop=express.static(dist,staticOptions);
 app.use((req,res,next)=>(isAdminHost(req)?serveDashboard:serveShop)(req,res,next));
-app.get(['/','/orders','/orders/:id','/menu','/users','/promos','/settings'],(req,res,next)=>{
+app.get(['/','/orders','/orders/:id','/menu','/users','/promos','/campaigns','/settings'],(req,res,next)=>{
   if(!isAdminHost(req))return next();
   res.set('Cache-Control','no-cache');res.sendFile('index.html',{root:dashboardDist});
 });

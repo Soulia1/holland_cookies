@@ -4,6 +4,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   Cookie,
+  Megaphone,
   ExternalLink,
   LayoutGrid,
   LogOut,
@@ -25,6 +26,7 @@ type NavItem = {
 };
 
 const PLATFORM: NavItem[] = [
+  { label: "Campaigns", icon: Megaphone, href: "/campaigns" },
   { label: "Overview", icon: LayoutGrid, href: "/" },
   { label: "Orders", icon: Package, href: "/orders" },
   { label: "Users", icon: Users, href: "/users" },

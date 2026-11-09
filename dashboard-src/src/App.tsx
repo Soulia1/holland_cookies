@@ -9,6 +9,7 @@ import OrderDetail from "@/pages/OrderDetail";
 import Users from "@/pages/Users";
 import Menu from "@/pages/Menu";
 import Promos from "@/pages/Promos";
+import Campaigns from "@/pages/Campaigns";
 import Settings from "@/pages/Settings";
 import { ordersApi } from "@/lib/api";
 import { useIsDesktop } from "@/lib/useMediaQuery";
@@ -106,6 +107,7 @@ function Shell() {
               <Route path="/users" component={Users} />
               <Route path="/menu" component={Menu} />
                             <Route path="/promos" component={Promos} />
+              <Route path="/campaigns" component={Campaigns} />
               <Route path="/settings" component={Settings} />
               <Route>Not found</Route>
             </Switch>

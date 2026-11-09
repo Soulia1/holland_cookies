@@ -1174,3 +1174,15 @@ export const settingsApi = {
     return settingsApi.get();
   },
 };
+
+export interface CampaignCustomer { email: string; name: string; orders: number }
+export const mailApi = {
+  async customers(): Promise<CampaignCustomer[]> {
+    return json(await apiFetch('/api/admin/mail/customers'), 'load campaign customers');
+  },
+  async broadcast(payload: { subject: string; body: string }): Promise<{ sent: number; failed: number }> {
+    return json(await apiFetch('/api/admin/mail/broadcast', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    }), 'send campaign');
+  },
+};
