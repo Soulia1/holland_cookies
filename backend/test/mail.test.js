@@ -250,9 +250,6 @@ test('only two statuses are announced, and they read differently for pickup', as
       const quiet = await mailer.sendOrderStatusUpdate(stored, status, 'en');
       assert.equal(quiet.via, 'skipped-not-announced', `${status} must not email`);
     }
-    // And a cancellation is a conversation, not an automated mail.
-    const cancelled = await mailer.sendOrderStatusUpdate(stored, 'cancelled', 'en');
-    assert.equal(cancelled.via, 'skipped-not-announced');
 
     sent = [];
     await mailer.sendOrderStatusUpdate(stored, 'in_transit', 'en');
@@ -359,4 +356,56 @@ test('with mail switched off nothing is attempted at all', async () => {
   assert.equal(placed.status, 201);
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(sent.length, 0);
+});
+
+test('dashboard cancellation emails both customer and bakery without duplicate sends', async (t) => {
+  stubProvider(); t.after(unstubProvider);
+  const placed = await request('/api/orders', { method: 'POST', body: order({ firstName: 'Salma<script>' }) });
+  assert.equal(placed.status, 201);
+  await new Promise(resolve => setTimeout(resolve, 400)); sent = [];
+  const reference = placed.data.order.reference;
+  const cancelled = await request('/api/orders/' + reference + '/status', { method:'PATCH', cookie:admin, body:{status:'cancelled'} });
+  assert.equal(cancelled.status,200);
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.equal(sent.length, 1 + mailer.adminOrderRecipients().length);
+  assert.match(to('customer@example.test').subject, /cancelled/i);
+  assert.match(to('customer@example.test').textContent, /refund/);
+  assert.doesNotMatch(to('customer@example.test').htmlContent, /<script>/);
+  for (const address of mailer.adminOrderRecipients()) {
+    assert.match(to(address).subject, /cancelled/i);
+    assert.match(to(address).htmlContent, /Salma&lt;script&gt;/);
+    assert.match(to(address).textContent, /dashboard|admin\./);
+  }
+  const { getOrder } = await import('../repo/orders.js');
+  await mailer.sendOrderStatusUpdate(await getOrder(reference), 'cancelled');
+  assert.equal(sent.length, 1 + mailer.adminOrderRecipients().length);
+});
+
+test('cancellation still alerts the admin without customer email', async (t) => {
+  stubProvider(); t.after(unstubProvider);
+  const placed = await request('/api/orders', {method:'POST',body:order({email:''})});
+  await new Promise(resolve => setTimeout(resolve,400)); sent=[];
+  const { getOrder } = await import('../repo/orders.js');
+  await mailer.sendOrderCancellation(await getOrder(placed.data.order.reference));
+  assert.equal(sent.length,mailer.adminOrderRecipients().length);
+});
+
+test('failed customer cancellation does not block admin and retry only sends the failed notice', async (t) => {
+  stubProvider(); t.after(unstubProvider);
+  const placed = await request('/api/orders', {method:'POST',body:order({lang:'ar'})});
+  await new Promise(resolve => setTimeout(resolve,400)); sent=[];
+  const { getOrder } = await import('../repo/orders.js');
+  const stored = await getOrder(placed.data.order.reference);
+  const provider = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith('https://api.brevo.com') && JSON.parse(init.body).to[0].email === stored.email) return new Response('{}',{status:500});
+    return provider(url, init);
+  };
+  await assert.rejects(mailer.sendOrderCancellation(stored,'ar'));
+  assert.equal(sent.length,mailer.adminOrderRecipients().length);
+  sent=[]; globalThis.fetch=provider;
+  await mailer.sendOrderCancellation(stored,'ar');
+  assert.equal(sent.length,1);
+  assert.equal(sent[0].to[0].email,stored.email);
+  assert.match(sent[0].htmlContent,/dir="rtl"/);
 });

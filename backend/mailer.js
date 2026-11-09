@@ -459,6 +459,7 @@ export async function sendAdminOrderAlert(order) {
  * has with the customer, not an automated mail.
  */
 export async function sendOrderStatusUpdate(order, status, lang = 'en') {
+  if (status === 'cancelled') return sendOrderCancellation(order, lang);
   const to = order.email;
   if (!to) return { delivered: false, via: 'skipped-no-address' };
   if (status !== 'in_transit' && status !== 'completed') {
@@ -559,4 +560,49 @@ function milestoneCopy({ status, delivery, arabic, firstName }) {
         ? 'لو في أي حاجة مش مظبوطة، رد على الرسالة دي.'
         : 'If anything is not right, just reply to this email.',
     };
+}
+
+/** Cancellation notices have independent claims per recipient, so one failure
+ * cannot suppress the other message or duplicate a successful send on retry. */
+export async function sendOrderCancellation(order, lang = 'en') {
+  const tasks = [];
+  const arabic = lang === 'ar';
+  const model = orderModel(order, arabic);
+  if (order.email) {
+    const title = arabic ? 'تم إلغاء طلبك' : 'Your order has been cancelled';
+    const lead = arabic
+      ? 'تم إلغاء طلبك لدى هولاند كوكيز. إذا كنت قد دفعت بالفعل، يرجى التواصل معنا بخصوص استرداد المبلغ.'
+      : 'Your Holland Cookies order has been cancelled. If you have already paid, please contact us about your refund.';
+    const subject = title + ' — ' + order.reference;
+    tasks.push(sendOnce('cancellation:' + order.reference + ':customer:' + order.email.toLowerCase(), {
+      to: order.email, subject,
+      text: [title, lead, 'Order: ' + order.reference, model.totalLabel + ': ' + money(model.total)].join('\n\n'),
+      html: shell({ lang, title: subject, preheader: lead, blocks: [
+        heading({ lang, title, lead }), referenceBlock({ lang, reference: order.reference }),
+        factsBlock({ lang, title: arabic ? 'طلبك' : 'Your order', rows: [
+          [arabic ? 'الحالة' : 'Status', arabic ? 'ملغي' : 'Cancelled'],
+          [model.totalLabel, numeric(money(model.total))],
+        ] }),
+      ] }),
+    }));
+  }
+  for (const recipient of new Set(adminOrderRecipients())) {
+    const subject = 'Order cancelled — ' + order.reference;
+    const name = [order.firstName, order.lastName].filter(Boolean).join(' ');
+    const lead = 'This order has been cancelled. Stop preparation and fulfilment. Check whether a refund is due if payment was collected.';
+    const rows = [['Customer', name], ['Phone', order.phone || ''], ['Email', order.email || ''], ['Payment status', order.paymentStatus || 'unpaid'], ['Order total', money(order.total)]];
+    tasks.push(sendOnce('cancellation:' + order.reference + ':admin:' + recipient.toLowerCase(), {
+      to: recipient, subject,
+      text: [subject, lead, ...rows.map(([key, value]) => key + ': ' + value), dashboardOrderUrl(order.reference)].join('\n'),
+      html: shell({ title: subject, preheader: lead, blocks: [
+        heading({ title: subject, lead }), referenceBlock({ reference: order.reference }),
+        factsBlock({ title: 'Cancelled order', rows }),
+        buttonBlock({ href: dashboardOrderUrl(order.reference), label: 'Open in the dashboard' }),
+      ] }),
+    }));
+  }
+  const results = await Promise.allSettled(tasks);
+  const failure = results.find(result => result.status === 'rejected');
+  if (failure) throw failure.reason;
+  return { delivered: results.some(result => result.value.delivered), via: 'cancellation' };
 }
