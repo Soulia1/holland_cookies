@@ -125,7 +125,13 @@ export default function MenuPage({
    * would be dropped at the top of the document with no idea where they had
    * been.
    */
-  const [selection, setSelection] = useState<MenuSelection | null>(null);
+  const [requestedSelection, setSelection] = useState<MenuSelection | null>(null);
+  const selection = useMemo<MenuSelection | null>(() => {
+    if (!requestedSelection) return null;
+    const category = shown.categories.find((entry) => entry.items.some((item) => item.id === requestedSelection.item.id));
+    const item = category?.items.find((entry) => entry.id === requestedSelection.item.id);
+    return item && category ? { item, category } : null;
+  }, [requestedSelection, shown]);
   const everOpened = useOnceOpened(selection !== null);
   const trigger = useRef<HTMLElement | null>(null);
 
@@ -720,6 +726,9 @@ function Section({
                   {note ? <span className="menu-item-note">{note}</span> : null}
                 </span>
                 <span className="menu-item-price">
+                  {item.discounted && item.regularPrice != null && (
+                    <del className="me-2 opacity-60">{t.price(itemPriceFrom({ ...item, price: item.regularPrice }))}</del>
+                  )}
                   {/* "from" only where the options actually price it
                       differently; an item whose options all cost the same has
                       one price and saying otherwise would be noise. */}

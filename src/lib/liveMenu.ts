@@ -29,8 +29,7 @@ export type LiveMenuState =
   | { status: "ready"; menu: LiveMenu }
   | { status: "error"; retry: () => void };
 
-// Shared by every page that asks, so moving between menu pages is one request.
-// A failure is not kept: the next ask tries again.
+// Share in-flight reads only; completed responses must not freeze admin changes.
 let pending: Promise<LiveMenu> | null = null;
 
 function load(): Promise<LiveMenu> {
@@ -43,7 +42,7 @@ function load(): Promise<LiveMenu> {
       pending = null;
       throw error;
     },
-  );
+  ).finally(() => { pending = null; });
   return pending;
 }
 
@@ -52,23 +51,31 @@ export function useLiveMenu(): LiveMenuState {
   const [state, setState] = useState<LiveMenuState>({ status: "loading" });
   useEffect(() => {
     let active = true;
-    load().then(
-      (menu) => {
-        if (active) setState({ status: "ready", menu });
-      },
-      () => {
-        if (!active) return;
-        setState({
-          status: "error",
-          retry: () => {
-            setState({ status: "loading" });
-            setAttempt((count) => count + 1);
-          },
-        });
-      },
-    );
+    const refresh = () => {
+      if (document.visibilityState === "hidden") return;
+      load().then(
+        (menu) => { if (active) setState({ status: "ready", menu }); },
+        () => {
+          if (!active) return;
+          setState((previous) => previous.status === "ready" ? previous : {
+            status: "error",
+            retry: () => {
+              setState({ status: "loading" });
+              setAttempt((count) => count + 1);
+            },
+          });
+        },
+      );
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, [attempt]);
   return state;
@@ -78,10 +85,12 @@ function overlay(item: MenuItem, product: ApiProduct): MenuItem {
   return {
     ...item,
     name: product.name || item.name,
-    nameAr: product.nameAr || item.nameAr,
-    note: product.note || item.note,
-    noteAr: product.noteAr || item.noteAr,
+    nameAr: product.nameAr || undefined,
+    note: product.note || undefined,
+    noteAr: product.noteAr || undefined,
     price: product.price,
+    regularPrice: product.regularPrice,
+    discounted: product.discounted,
     image: product.image || undefined,
     description: product.description || undefined,
     descriptionAr: product.descriptionAr || undefined,
@@ -99,18 +108,14 @@ function overlay(item: MenuItem, product: ApiProduct): MenuItem {
 
 /** A category's rows: its printed items the database still has, then any added in the dashboard. */
 function liveItems(live: LiveMenu, categoryId: string, printed: readonly MenuItem[]): MenuItem[] {
-  const listed = new Set(printed.map((item) => item.id));
-  const items: MenuItem[] = [];
-  for (const item of printed) {
-    const product = live.products.get(item.id);
-    if (product) items.push(overlay(item, product));
-  }
-  for (const product of live.products.values()) {
-    // `--` ids are per-flavor products an earlier version wrote behind a printed line, not rows.
-    if (product.categoryId !== categoryId || listed.has(product.id) || product.id.includes("--")) continue;
-    items.push(overlay({ id: product.id, name: product.name, price: product.price }, product));
-  }
-  return items;
+  const templates = new Map(printed.map((item) => [item.id, item]));
+  // API order is the dashboard's sort order. Match category membership before
+  // applying a printed template, so moving a product never duplicates it.
+  return [...live.products.values()]
+    .filter((product) => product.categoryId === categoryId && !product.id.includes("--"))
+    .map((product) => overlay(templates.get(product.id) ?? {
+      id: product.id, name: product.name, price: product.price,
+    }, product));
 }
 
 /**
@@ -133,34 +138,19 @@ function homeGroup(group: string | undefined): string {
 }
 
 export function withLiveCatalogue(group: MenuGroup, live: LiveMenu): MenuGroup {
+  const templates = new Map(MENU_GROUPS.flatMap((entry) => entry.categories).map((category) => [category.id, category]));
   const categories: MenuCategory[] = [];
-  for (const category of group.categories) {
-    const stored = live.categories.get(category.id);
-    // Absent from the public menu means an admin hid the category.
-    if (!stored) continue;
-    const items = liveItems(live, category.id, category.items);
-    if (items.length) {
-      categories.push({
-        ...category,
-        name: stored.name || category.name,
-        nameAr: stored.nameAr || category.nameAr,
-        group: group.id,
-        items,
-      });
-    }
-  }
-  // Categories created in the dashboard. They are on no printed sheet, so no
-  // group's plan names them; before this they, and every product filed under
-  // them, never reached the page. Each goes on the page chosen for it, after
-  // the printed ones, in the order the dashboard sorts them.
   for (const [id, stored] of live.categories) {
-    if (GROUP_BY_CATEGORY_ID.has(id) || homeGroup(stored.group) !== group.id) continue;
-    const items = liveItems(live, id, []);
-    if (items.length) {
-      categories.push({
-        id, name: stored.name, nameAr: stored.nameAr ?? "", original: stored.name, group: group.id, items,
-      });
-    }
+    const template = templates.get(id);
+    const page = GROUP_BY_CATEGORY_ID.get(id)?.id ?? homeGroup(stored.group);
+    if (page !== group.id) continue;
+    const items = liveItems(live, id, template?.items ?? []);
+    if (!items.length) continue;
+    categories.push({
+      ...template, id, name: stored.name || template?.name || "",
+      nameAr: stored.nameAr || "", original: template?.original ?? stored.name,
+      group: group.id, items,
+    });
   }
   return { ...group, categories };
 }

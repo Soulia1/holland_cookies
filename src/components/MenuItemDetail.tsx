@@ -114,7 +114,8 @@ export default function MenuItemDetail({
     ? unitPrice(pricing ?? { price: item.price, choices }, selections, choiceValue)
     : 0;
   const choicesIncomplete = pricing && bundle?.type === "choice"
-    ? selectionProblem(pricing, selections) !== null
+    ? selectionProblem(pricing, selections) !== null || selections.some((pick) =>
+        bundle.groups[pick.group]?.options.find((option) => option.productId === pick.productId)?.available === false)
     : false;
   const cartSelections = selections.map((pick) => {
     const option = bundle?.groups[pick.group]?.options.find((entry) => entry.productId === pick.productId);
@@ -224,6 +225,9 @@ export default function MenuItemDetail({
                         {name}
                       </DialogPrimitive.Title>
                       <span className="font-body text-[14px] font-semibold text-deep-burgundy whitespace-nowrap mt-2 tabular-nums">
+                        {item.discounted && item.regularPrice != null && (
+                          <del className="me-2 opacity-60">{t.price(shownPrice + item.regularPrice - item.price)}</del>
+                        )}
                         {t.price(shownPrice)}
                       </span>
                     </div>

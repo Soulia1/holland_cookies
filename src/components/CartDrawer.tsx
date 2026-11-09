@@ -4,7 +4,9 @@ import { api } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { lineKey, type CartItem } from "@/lib/cart-core";
 import { itemImage } from "@/data/menuImages";
-import { useLang } from "@/lib/i18n";
+import { cartSubtotal } from "@/lib/cart-core";
+import { unitPrice } from "../../shared/productPricing.mjs";
+import { localized, useLang } from "@/lib/i18n";
 import { leadDaysForProduct, useLiveMenu } from "@/lib/liveMenu";
 import { Link, navigate } from "@/lib/router";
 
@@ -33,12 +35,25 @@ function lineImage(line: CartItem): string | undefined {
  */
 
 export default function CartDrawer() {
-  const { items, count, subtotal, open, setOpen, setQty, remove, clear } = useCart();
+  const { items: savedItems, count, open, setOpen, setQty, remove, clear } = useCart();
   // Read live rather than snapshotted onto the line when it was added: a lead
   // time is a fact about the shop, and a cart that has sat in storage since
   // before the shop set one must not promise what the kitchen no longer does.
   const live = useLiveMenu();
   const menu = live.status === "ready" ? live.menu : null;
+  const { t, lang } = useLang();
+  const items = savedItems.map((line) => {
+    const product = menu?.products.get(line.productId);
+    if (!product) return line;
+    const choices = product.choices?.filter((entry) => [line.choice ?? []].flat().includes(entry.name));
+    return { ...line, price: unitPrice(product, line.selections, line.choice),
+      name: localized(lang, product.name, product.nameAr),
+      note: product.note ? localized(lang, product.note, product.noteAr) : undefined,
+      image: product.image || undefined,
+      choiceLabel: choices?.map((entry) => localized(lang, entry.name, entry.nameAr)).join(", ") || undefined,
+    };
+  });
+  const subtotal = cartSubtotal(items);
 
   /**
    * The lines that hold the order up, each named once.
@@ -53,7 +68,6 @@ export default function CartDrawer() {
       .filter((line) => line.days > 0)
       .map((line) => [line.name, line] as const),
   ));
-  const { t, lang } = useLang();
   // Asked each time the cart opens, so a customer learns ordering is paused here
   // rather than after filling in the whole checkout form. The server refuses the
   // order either way; this is only the earlier, kinder place to say so.

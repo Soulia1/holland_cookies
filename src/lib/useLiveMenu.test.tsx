@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const menu = vi.fn();
 vi.mock("@/lib/api", () => ({ api: { menu: () => menu() } }));
@@ -14,6 +14,7 @@ const catalogue = {
 };
 
 describe("useLiveMenu", () => {
+  afterEach(() => cleanup());
   beforeEach(async () => {
     menu.mockReset();
     vi.resetModules();
@@ -27,6 +28,18 @@ describe("useLiveMenu", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
     if (result.current.status !== "ready") throw new Error("not ready");
     expect(result.current.menu.products.get("scoop-nutella-foil")?.choices).toEqual([]);
+  });
+
+  it("refreshes a saved dashboard discount when the customer returns to the page", async () => {
+    menu.mockResolvedValueOnce(catalogue).mockResolvedValue({ categories: [{ ...catalogue.categories[0], items: [{ ...catalogue.categories[0].items[0], price: 270, regularPrice: 300, discounted: true }] }] });
+    const { useLiveMenu } = await import("./liveMenu");
+    const { result, unmount } = renderHook(() => useLiveMenu());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => {
+      expect(result.current.status === "ready" && result.current.menu.products.get("scoop-nutella-foil")?.price).toBe(270);
+    });
+    unmount();
   });
 
   it("reports a failed request instead of falling back to the printed menu, and can retry", async () => {

@@ -259,11 +259,12 @@ test("an option that costs extra is priced the same way from the editor to the r
   await expect(detail.getByRole("heading", { name: OPTIONED.name })).toBeVisible();
   // Nothing is added until an option is picked, and the price follows the pick.
   await expect(detail.locator(".menu-detail-add")).toBeDisabled();
-  await expect(detail.getByRole("radio", { name: "Large" })).toContainText("+60.00 EGP");
+  await expect(detail.getByRole("checkbox", { name: "Large" })).toContainText("+60.00 EGP");
 
-  await detail.getByRole("radio", { name: "Regular" }).click();
+  await detail.getByRole("checkbox", { name: "Regular" }).click();
   await expect(detail.getByText("180.00 EGP").first()).toBeVisible();
-  await detail.getByRole("radio", { name: "Large" }).click();
+  await detail.getByRole("checkbox", { name: "Regular" }).click();
+  await detail.getByRole("checkbox", { name: "Large" }).click();
   await expect(detail.getByText("240.00 EGP").first()).toBeVisible();
   await detail.locator(".menu-detail-add").click();
   await expect(page.locator(".cart-badge")).toHaveText("1");
@@ -329,8 +330,8 @@ test("the seeded Special Edition page sells its two items with their sizes", asy
   await row.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await row.click();
   const detail = page.getByRole("dialog");
-  await expect(detail.getByRole("radio", { name: "Family tray" })).toContainText("+120.00 EGP");
-  await detail.getByRole("radio", { name: "Family tray" }).click();
+  await expect(detail.getByRole("checkbox", { name: "Family tray" })).toContainText("+120.00 EGP");
+  await detail.getByRole("checkbox", { name: "Family tray" }).click();
   await expect(detail.getByText("340.00 EGP").first()).toBeVisible();
 });
 
@@ -358,7 +359,7 @@ test("a made-to-order page says so on the page, in the item, in the cart and at 
   await row.click();
   const detail = page.getByRole("dialog");
   await expect(detail.locator(".menu-detail-lead")).toHaveText("Made to order — allow 2 working days.");
-  await detail.getByRole("radio").first().click();
+  await detail.getByRole("checkbox").first().click();
   await detail.locator(".menu-detail-add").click();
   await expect(page.locator(".cart-badge")).toHaveText("1");
   await page.keyboard.press("Escape");
@@ -401,4 +402,52 @@ test("an everyday page carries no made-to-order notice", async ({ page }) => {
   await page.goto("/menu/cookies", { waitUntil: "load" });
   await ready(page);
   await expect(page.locator(".menu-lead")).toHaveCount(0);
+});
+
+test("admin price and availability edits reach an already open product dialog and cart", async ({ page }) => {
+  const admin = await request.newContext({ baseURL: ADMIN, extraHTTPHeaders: { "x-requested-with": "Holland", origin: ADMIN } });
+  const id = "live-audit-cookie-e2e";
+  await admin.post("/api/admin/session", { data: { key: ADMIN_KEY } });
+  try {
+    const created = await admin.post("/api/menu/admin/products", { data: { id, categoryId: "cookie-pans", name: "Live Audit Cookie", price: 100, available: true } });
+    expect(created.status()).toBe(201);
+    await page.goto("/menu/cookies");
+    await ready(page);
+    // Open through the row's own button, then keep the dialog open through edits.
+    await page.getByRole("button", { name: /Live Audit Cookie/ }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const discounted = await admin.patch("/api/menu/admin/products/" + id, { data: { discountEnabled: true, discountType: "percent", discountValue: 10 } });
+    expect(discounted.ok()).toBeTruthy();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(dialog.locator("del")).toContainText("100");
+    await expect(dialog).toContainText("90");
+    const soldOut = await admin.patch("/api/menu/admin/products/" + id, { data: { available: false } });
+    expect(soldOut.ok()).toBeTruthy();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(dialog.getByRole("button", { name: /sold out/i })).toBeDisabled();
+    await admin.patch("/api/menu/admin/products/" + id, { data: { available: true } });
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    const add = dialog.locator(".menu-detail-add");
+    await expect(add).toBeEnabled();
+    await add.click();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Open cart" }).click();
+    await expect(page.locator(".cart-line-total")).toHaveText("90.00 EGP");
+    await admin.patch("/api/menu/admin/products/" + id, { data: { discountValue: 20 } });
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(page.locator(".cart-line-total")).toHaveText("80.00 EGP");
+    await page.goto("/");
+    await ready(page);
+    const homeCard = page.getByRole("button", { name: /Live Audit Cookie.*see details/ });
+    await homeCard.click();
+    const homeDialog = page.getByRole("dialog");
+    await expect(homeDialog).toContainText("80");
+    await admin.patch("/api/menu/admin/products/" + id, { data: { discountValue: 30 } });
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(homeDialog).toContainText("70");
+  } finally {
+    await admin.delete("/api/menu/admin/products/" + id);
+    await admin.dispose();
+  }
 });

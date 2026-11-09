@@ -63,6 +63,8 @@ export interface MenuItem {
    */
   nameAr?: string;
   price: number;
+  regularPrice?: number;
+  discounted?: boolean;
   /** Printed packaging or size, where the sheet gives one. */
   note?: string;
   noteAr?: string;
@@ -460,7 +462,15 @@ const PRINTED_BY_ID: ReadonlyMap<string, MenuCategory> = new Map(
  */
 export function itemPriceFrom(item: MenuItem): number {
   const choices = item.choices ?? [];
-  if (!choices.length) return item.price;
+  if (!choices.length) {
+    if (item.bundle?.type !== "choice") return item.price;
+    return item.price + item.bundle.groups.reduce((total, group) => {
+      const extras = group.options.filter((option) => option.available !== false)
+        .map((option) => Math.max(0, option.surcharge)).sort((a, b) => a - b);
+      if (!extras.length) return total;
+      return total + (group.allowRepeats ? extras[0] * group.choose : extras.slice(0, group.choose).reduce((sum, extra) => sum + extra, 0));
+    }, 0);
+  }
   const least = choices.reduce(
     (low, choice) => Math.min(low, Math.max(0, choice.priceDelta ?? 0)),
     Infinity,
@@ -470,6 +480,12 @@ export function itemPriceFrom(item: MenuItem): number {
 
 /** Whether the options price this item differently, so its row reads "from …". */
 export function itemPriceVaries(item: MenuItem): boolean {
+  if (item.bundle?.type === "choice") {
+    return item.bundle.groups.some((group) => {
+      const extras = group.options.filter((option) => option.available !== false).map((option) => option.surcharge);
+      return new Set(extras).size > 1 && (group.allowRepeats || group.choose < extras.length);
+    });
+  }
   const extras = (item.choices ?? []).map((choice) => Math.max(0, choice.priceDelta ?? 0));
   return new Set(extras).size > 1;
 }

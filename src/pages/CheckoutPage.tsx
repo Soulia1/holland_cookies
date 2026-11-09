@@ -5,7 +5,7 @@ import {
 } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { lineKey } from "@/lib/cart-core";
-import { areaFee, choiceProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
+import { areaFee, choiceProblem, selectionProblem, deliveryFee, unitPrice } from "../../shared/productPricing.mjs";
 import { areasByCity } from "../../shared/deliveryAreas.mjs";
 import { localized, useLang } from "@/lib/i18n";
 import { Link } from "@/lib/router";
@@ -57,6 +57,7 @@ export default function CheckoutPage() {
   const [categoryPages, setCategoryPages] = useState<Map<string, string | undefined>>(new Map());
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [catalogueError, setCatalogueError] = useState(false);
 
   const [form, setForm] = useState({
     firstName: "", lastName: "", phone: "", email: "",
@@ -176,9 +177,14 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.menu(), api.settings()])
+    let version = 0;
+    const refresh = () => {
+      if (document.visibilityState === "hidden" || submittingRef.current) return;
+      const requestVersion = ++version;
+      Promise.all([api.menu(), api.settings()])
       .then(([menu, config]) => {
-        if (cancelled) return;
+        if (cancelled || requestVersion !== version) return;
+        setCatalogueError(false);
         const map = new Map<string, ApiProduct>();
         const pages = new Map<string, string | undefined>();
         for (const category of menu.categories) {
@@ -189,8 +195,18 @@ export default function CheckoutPage() {
         setCategoryPages(pages);
         setSettings(config.settings);
       })
-      .catch(() => { if (!cancelled) setLoadError(true); });
-    return () => { cancelled = true; };
+      .catch(() => { if (!cancelled && requestVersion === version) setCatalogueError(true); });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, []);
 
   /** How many working days each line needs, by the page its category is on. */
@@ -219,7 +235,7 @@ export default function CheckoutPage() {
         key: lineKey(item),
         name: product ? localized(lang, product.name, product.nameAr) : item.name,
         choiceLabel: option?.length ? option.map((entry) => localized(lang, entry.name, entry.nameAr)).join(", ") : item.choiceLabel,
-        note: product?.note ? localized(lang, product.note, product.noteAr) : item.note,
+        note: product ? (product.note ? localized(lang, product.note, product.noteAr) : undefined) : item.note,
         // The photo the menu shows: one uploaded in the dashboard, else the
         // bundled menu photo, else what the cart kept. Only the upload was read,
         // so every product still on its bundled photo showed a placeholder here.
@@ -229,7 +245,7 @@ export default function CheckoutPage() {
         lineTotal: unit * item.qty,
         // An option since removed, or options added since, leave a line the
         // kitchen can no longer take as it stands.
-        gone: !product || choiceProblem(product, item.choice) !== null,
+        gone: !product || choiceProblem(product, item.choice) !== null || selectionProblem(product, item.selections) !== null,
         soldOut: !!product && (!product.available || pickSoldOut),
       };
     });
@@ -268,12 +284,14 @@ export default function CheckoutPage() {
   // refused with "prices changed" on every retry.
   const genericError = useRef(t.ckGenericError);
   genericError.current = t.ckGenericError;
+  const appliedPromoCode = promo?.code;
   useEffect(() => {
-    if (!promo || promoSubtotal.current === null || promoSubtotal.current === totals.subtotal) return;
+    if (!appliedPromoCode) return;
     const token = ++promoCheck.current;
     const subtotal = totals.subtotal;
     promoSubtotal.current = subtotal;
-    api.validatePromo(promo.code, subtotal)
+    setPromoBusy(true);
+    api.validatePromo(appliedPromoCode, subtotal)
       .then((result) => {
         if (token === promoCheck.current) setPromo(result);
       })
@@ -282,8 +300,9 @@ export default function CheckoutPage() {
         setPromo(null);
         promoSubtotal.current = null;
         setPromoMsg({ text: error instanceof ApiError ? error.message : genericError.current, ok: false });
-      });
-  }, [promo, totals.subtotal]);
+      })
+      .finally(() => { if (token === promoCheck.current) setPromoBusy(false); });
+  }, [appliedPromoCode, totals.subtotal, catalogue]);
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -307,14 +326,17 @@ export default function CheckoutPage() {
     setPromoBusy(true);
     setPromoMsg(null);
     // A re-check of the previous code still in flight must not land on this one.
-    promoCheck.current += 1;
+    const token = ++promoCheck.current;
+    setPromo(null);
     try {
       const result = await api.validatePromo(code, totals.subtotal);
+      if (token !== promoCheck.current) return;
       promoSubtotal.current = totals.subtotal;
       setPromo(result);
       setPromoInput("");
       setPromoMsg({ text: t.ckPromoApplied(result.code), ok: true });
     } catch (error) {
+      if (token !== promoCheck.current) return;
       setPromo(null);
       promoSubtotal.current = null;
       setPromoMsg({
@@ -322,7 +344,7 @@ export default function CheckoutPage() {
         ok: false,
       });
     } finally {
-      setPromoBusy(false);
+      if (token === promoCheck.current) setPromoBusy(false);
     }
   }
 
@@ -335,7 +357,7 @@ export default function CheckoutPage() {
     // to somebody looking at a cart with things in it. `items.length` above does
     // not catch this: the cart is genuinely full, it is the *priced* cart that
     // is not ready.
-    if (!catalogue) return;
+    if (!catalogue || blocked.length || settings?.acceptingOrders === false || promoBusy) return;
     const payingOnline = payMethod === "online" && !!settings?.onlinePaymentEnabled;
     if (payingOnline && !form.email.trim()) {
       setFieldErrors({ email: t.ckPayOnlineEmail });
@@ -413,6 +435,12 @@ export default function CheckoutPage() {
             }
             setCatalogue(map);
           }).catch(() => {});
+        } else if (error.code === "INVALID_PROMO") {
+          promoCheck.current += 1;
+          setPromo(null);
+          setPromoBusy(false);
+          promoSubtotal.current = null;
+          setPromoMsg({ text: error.message, ok: false });
         } else if (error.code === "CLOSED") setFormError(t.ckClosed);
         else if (!error.fields) setFormError(error.message);
       } else {
@@ -514,7 +542,7 @@ export default function CheckoutPage() {
             <span className="ed-tag">{t.ckTitle}</span>
             <h1 className="ed-title">{t.ckYourDetails}</h1>
 
-            {loadError && <p className="ed-alert" role="alert">{t.ckGenericError}</p>}
+            {catalogueError && <p className="ed-alert" role="alert">{t.ckGenericError}</p>}
             {settings && !settings.acceptingOrders && (
               <p className="ed-alert" role="alert">{t.ckClosed}</p>
             )}
@@ -683,7 +711,7 @@ export default function CheckoutPage() {
                 {blocked.length > 0 && <p className="ed-alert" role="alert">{t.ckBlocked}</p>}
 
                 <button type="submit" className="ed-btn"
-                  disabled={submitting || !catalogue || !!blocked.length
+                  disabled={submitting || promoBusy || !catalogue || !!blocked.length
                     || settings?.acceptingOrders === false}>
                   {submitting ? t.ckPlacing : payingOnline ? t.ckPlaceOrderPay : t.ckPlaceOrder}
                 </button>
@@ -755,6 +783,16 @@ export default function CheckoutPage() {
                 </div>
                 {promoMsg && (
                   <p className={`ed-promo-msg ${promoMsg.ok ? "ok" : "bad"}`}>{promoMsg.text}</p>
+                )}
+
+                {promo && (
+                  <button type="button" className="ed-apply" onClick={() => {
+                    promoCheck.current += 1;
+                    setPromo(null);
+                    setPromoBusy(false);
+                    promoSubtotal.current = null;
+                    setPromoMsg(null);
+                  }}>{t.ckPromoRemove}</button>
                 )}
 
                 {/* The same named sentence the cart carries, kept in front of

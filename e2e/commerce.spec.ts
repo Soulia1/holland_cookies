@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, request, test, type Page } from "@playwright/test";
 
 /**
  * The order pipeline, end to end, through a real browser against the real
@@ -248,4 +248,24 @@ test.describe("in Arabic", () => {
     );
     expect(overflows, "the Arabic checkout scrolls horizontally").toBe(false);
   });
+});
+
+test("a dashboard promo edit updates an applied code without changing the basket", async ({ page }) => {
+  const admin = await request.newContext({ baseURL: "http://localhost:3100", extraHTTPHeaders: { "x-requested-with": "Holland", origin: "http://localhost:3100" } });
+  await admin.post("/api/admin/session", { data: { key: "e2e-admin-key-0123456789abcdefghijkl" } });
+  try {
+    expect((await admin.post("/api/admin/promos", { data: { code: "AUDIT20", type: "percent", value: 10, active: true } })).ok()).toBeTruthy();
+    await startCheckout(page);
+    await page.locator("#promo").fill("AUDIT20");
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("94.00 EGP");
+    expect((await admin.patch("/api/admin/promos/AUDIT20", { data: { value: 20 } })).ok()).toBeTruthy();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("88.00 EGP");
+    await page.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(page.locator(".ed-srow.total span:last-child")).toHaveText("100.00 EGP");
+  } finally {
+    await admin.delete("/api/admin/promos/AUDIT20");
+    await admin.dispose();
+  }
 });

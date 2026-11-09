@@ -159,3 +159,35 @@ describe("leadDaysForProduct", () => {
     expect(leadDaysForProduct(null, "p4")).toBe(0);
   });
 });
+
+describe("admin catalogue changes", () => {
+  it("moves a printed product without leaving a duplicate in its old category", () => {
+    const first = pans.items[0];
+    const catalogue = live([product(first.id, "seasonal")], [pans.id, "seasonal"]);
+    const shown = withLiveCatalogue(cookies, catalogue);
+    expect(shown.categories.map((category) => category.id)).toEqual(["seasonal"]);
+    expect(shown.categories.flatMap((category) => category.items).map((item) => item.id)).toEqual([first.id]);
+  });
+  it("respects API product order even for printed products", () => {
+    const [first, second] = pans.items;
+    const shown = withLiveCatalogue(cookies, live([product(second.id, pans.id), product(first.id, pans.id)], [pans.id]));
+    expect(shown.categories[0].items.map((item) => item.id)).toEqual([second.id, first.id]);
+  });
+  it("respects API category order instead of the printed order", () => {
+    const [first, second] = cookies.categories;
+    const shown = withLiveCatalogue(cookies, live([product(first.items[0].id, first.id), product(second.items[0].id, second.id)], [second.id, first.id]));
+    expect(shown.categories.map((category) => category.id)).toEqual([second.id, first.id]);
+  });
+  it("does not restore notes or Arabic names the admin cleared", () => {
+    const printed = cookies.categories.flatMap((category) => category.items).find((item) => item.note)!;
+    const category = cookies.categories.find((category) => category.items.includes(printed))!;
+    const shown = withLiveCatalogue(cookies, live([product(printed.id, category.id, { note: "", nameAr: "", noteAr: "" })], [category.id]));
+    expect(shown.categories[0].items[0]).toMatchObject({ note: undefined, nameAr: undefined, noteAr: undefined });
+  });
+  it("carries both sale and regular prices and restores the regular price after disabling a sale", () => {
+    const first = pans.items[0];
+    const show = (extra: Partial<ApiProduct>) => withLiveCatalogue(cookies, live([product(first.id, pans.id, extra)], [pans.id])).categories[0].items[0];
+    expect(show({ price: 90, regularPrice: 100, discounted: true })).toMatchObject({ price: 90, regularPrice: 100, discounted: true });
+    expect(show({ price: 100, regularPrice: 100, discounted: false })).toMatchObject({ price: 100, discounted: false });
+  });
+});

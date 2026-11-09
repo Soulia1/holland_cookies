@@ -179,3 +179,20 @@ describe("how many working days a page needs", () => {
     }
   });
 });
+
+describe("choice bundle menu prices", () => {
+  const item = { id: "box", name: "Box", price: 100, bundle: { type: "choice" as const, components: [], groups: [{ label: "Cookies", choose: 2, allowRepeats: false, options: [
+    { productId: "a", name: "A", surcharge: 10, available: true },
+    { productId: "b", name: "B", surcharge: 20, available: true },
+    { productId: "c", name: "C", surcharge: 0, available: false },
+  ] }] } };
+  it("includes mandatory surcharges and excludes sold-out choices", () => {
+    expect(itemPriceFrom(item)).toBe(130);
+    expect(itemPriceVaries(item)).toBe(false);
+  });
+  it("uses the cheapest repeatable option and indicates that picks can change the price", () => {
+    const repeatable = { ...item, bundle: { ...item.bundle, groups: [{ ...item.bundle.groups[0], allowRepeats: true }] } };
+    expect(itemPriceFrom(repeatable)).toBe(120);
+    expect(itemPriceVaries(repeatable)).toBe(true);
+  });
+});

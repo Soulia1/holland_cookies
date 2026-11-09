@@ -179,6 +179,9 @@ function RailCard({
         </div>
         <h3 className="rail-name">{name}</h3>
         <p className="rail-price">
+          {item.discounted && item.regularPrice != null && (
+            <del className="me-2 opacity-60">{t.price(itemPriceFrom({ ...item, price: item.regularPrice }))}</del>
+          )}
           {/* The cheapest way to buy it. A card quoting the bare price of an
               item whose every option costs extra advertises a price the shop
               will not take — see itemPriceFrom. */}
@@ -224,7 +227,12 @@ export default function MenuGrid() {
     const category = withLiveCatalogue(group, live.menu).categories.find((entry) => entry.id === RAIL_CATEGORY);
     return category ? { category, items: category.items.filter((item) => !item.soldOut) } : null;
   }, [live]);
-  const [active, setActive] = useState<MenuSelection | null>(null);
+  const [requestedSelection, setActive] = useState<MenuSelection | null>(null);
+  const active = useMemo<MenuSelection | null>(() => {
+    const category = rail?.category;
+    const item = category?.items.find((entry) => entry.id === requestedSelection?.item.id);
+    return item && category ? { item, category } : null;
+  }, [requestedSelection, rail]);
   const everOpened = useOnceOpened(active !== null);
   const [heading, headingAnim] = useReveal<HTMLDivElement>(0);
   const railRef = useRef<HTMLDivElement>(null);

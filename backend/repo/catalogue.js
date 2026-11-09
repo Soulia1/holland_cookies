@@ -89,7 +89,13 @@ function bundleView(product, names) {
  */
 export function sellable(product, names) {
   if (!product.available) return false;
-  if (!product.isBundle || product.bundleType === 'choice' || !(names instanceof Map)) return true;
+  if (!product.isBundle || !(names instanceof Map)) return true;
+  if (product.bundleType === 'choice') {
+    return (product.groups ?? []).every((group) => {
+      const available = (group.options ?? []).filter((option) => names.get(option.productId)?.available === true).length;
+      return group.allowRepeats ? available > 0 : available >= group.choose;
+    });
+  }
   return (product.components ?? []).every((component) => names.get(component.productId)?.available === true);
 }
 
